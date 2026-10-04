@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.models import Jurisdiction, Law, LawVersion, LegalNode, SourceSnapshot
+from app.models import HydrationJob, Jurisdiction, Law, LawVersion, LegalNode, SourceSnapshot
 
 
 def test_search_endpoint_handles_typo(db_session, add_law):
@@ -47,6 +47,30 @@ def test_sitemap_uses_configured_public_url(db_session, add_law, monkeypatch):
 
 def test_history_is_explicitly_not_requested_until_a_real_job_exists(db_session, add_law):
     db_session.add(add_law())
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/laws/13709-2018/history")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "not_requested"
+    assert payload["job"] is None
+
+
+def test_queued_text_hydration_does_not_claim_history_is_being_prepared(db_session, add_law):
+    db_session.add(add_law())
+    db_session.flush()
+    db_session.add(HydrationJob(
+        id="text-job", law_slug="13709-2018", job_type="hydrate", status="queued",
+        stage_name="queued", message="Aguardando texto", created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    ))
     db_session.commit()
 
     def override_session():

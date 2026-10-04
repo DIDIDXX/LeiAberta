@@ -212,12 +212,6 @@ def law_history(slug: str, session: Session = Depends(get_session)):
         HydrationJob.law_slug == slug, HydrationJob.job_type == "history",
         HydrationJob.status.in_(["queued", "running"]),
     ).order_by(HydrationJob.created_at.desc()).limit(1))
-    if active_job is None:
-        # Text ingestion can produce independently verified diff rows while the history page is open.
-        active_job = session.scalar(select(HydrationJob).where(
-            HydrationJob.law_slug == slug, HydrationJob.job_type == "hydrate",
-            HydrationJob.status.in_(["queued", "running"]),
-        ).order_by(HydrationJob.created_at.desc()).limit(1))
     coverage = dict(law.coverage or {})
     status = active_job.status if active_job else (coverage.get("history") or "not_requested")
     items = [{

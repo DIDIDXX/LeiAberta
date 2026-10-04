@@ -11,9 +11,11 @@ Leia:
 
 ## Código preparado nesta execução
 
-Base local: commit `b42466a` na branch `main`; as alterações desta execução ainda aguardam publicação. Incluem catálogo Senado para `LEI`, `LCP`, `EMC`, `MPV`, `DLG`, `RSF`; procura por número/ano e reedições MPV; captura Normas.leg.br; histórico com diferenças comprovadas; arquivo bruto antes de parsing; auditoria estrutural; worker para hidratar 100 textos por lote a cada cinco minutos; estatísticas de cobertura.
+Release principal: SHA `1cd6efd` em `main`, deploy web `a93562ef-8f8e-4eaa-ba7c-1976a8be6d2b` e worker `9cbd77e7-a25c-497f-8301-ad23dc86d49c`, ambos `SUCCESS`. O patch seguinte corrige a indicação de job histórico e usa duas capturas simultâneas por worker; valide e publique esse patch antes de encerrar.
 
-Evidência local: **42 testes unitários e 4 E2E passaram**. O catálogo real isolado enumerou **47.327 entradas** sem erros; uma segunda sincronização não duplicou identidades. A integração LGPD guardou **54 comparações de antes/depois** e preservou **98 relações sem texto histórico** como pendentes. A captura de `MPV 2.206-1/2001` estruturou 10 artigos e 35 nós. Transcrições do Normas.leg.br são classificadas pelo próprio portal como valor jurídico não oficial.
+O release inclui catálogo Senado para `LEI`, `LCP`, `EMC`, `MPV`, `DLG`, `RSF`; procura por número/ano e reedições MPV; captura Normas.leg.br; histórico com diferenças comprovadas; arquivo bruto antes de parsing; auditoria estrutural; backfill de 100 textos por lote a cada cinco minutos; estatísticas de cobertura.
+
+Validação: **44 testes unitários e 4 E2E passaram**. O catálogo real isolado enumerou **47.327 entradas** sem erros; a segunda sincronização não duplicou identidades. Em produção, `/api/stats` mostrou 47.330 normas, 47.316 do Senado, 135 textos obtidos e 5 indisponíveis no ponto consultado. O job real da LGPD concluiu: **146 referências, 54 comparações antes/depois e 98 relações pendentes**. A busca pública distingue `MPV 2.206/2001` e `MPV 2.206-1/2001`; a reedição estruturou 10 artigos. Transcrições do Normas.leg.br são classificadas pelo próprio portal como valor jurídico não oficial.
 
 ## Publicação
 

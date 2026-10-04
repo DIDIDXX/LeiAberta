@@ -267,7 +267,7 @@
       "ids_sha256": "a3bdde23e8d8662ca230110d403edac419bb3d95725e5341d69dcecea4812162",
       "caveat": "This enumerates only records returned by Senate tipo=LEI. It does not enumerate all federal normative types or local legislation."
     },
-    "local_validation": {"pytest": "23 passed", "playwright": "4 passed; final rerun includes new immutable representations", "alembic_sqlite": "upgrade head passed", "alembic_postgresql_18": "upgrade/downgrade through revision 0005 passed; legacy date archival restored on downgrade", "production_deploy": "merged to main; Railway web+worker SUCCESS; public smoke passed; history job returned 146 Senate relations with partial coverage"}
+    "local_validation": {"pytest": "44 passed", "playwright": "4 passed; history job, before/after diff, and on-demand text flows passed", "alembic_sqlite": "migrations 0001-0007 passed", "alembic_postgresql_18": "upgrade/downgrade through revision 0005 passed; legacy date archival restored on downgrade", "production_deploy": "release SHA 1cd6efd; Railway web+worker SUCCESS; public smoke passed; LGPD history job returned 146 Senate relations and 54 verified text comparisons, with 98 pending"}
   },
   "limitations": [
     "Probes pontuais não comprovam enumeração integral nem SLA.",
