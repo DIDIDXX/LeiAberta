@@ -3,11 +3,32 @@ import os
 from pathlib import Path
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration_job
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
+
+
+def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
+    """Process independent source jobs concurrently; ACK only after durable handling."""
+    futures = {}
+    for message_id, fields in messages:
+        job_id = fields.get("job_id")
+        if job_id:
+            futures[executor.submit(process_hydration_job, job_id)] = (message_id, job_id)
+        else:
+            redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
+    for future in as_completed(futures):
+        message_id, job_id = futures[future]
+        try:
+            future.result()
+        except Exception:
+            # Leave the message pending so XAUTOCLAIM can recover it after a worker crash.
+            logger.exception("worker_job_unhandled_error job=%s", job_id)
+            continue
+        redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
 
 
 def wait_for_database_schema(*, timeout: float = 300, interval: float = 3) -> None:
@@ -59,7 +80,10 @@ def run() -> None:
     except Exception as exc:
         if "BUSYGROUP" not in str(exc):
             raise
-    logger.info("worker_started queue=%s group=%s consumer=%s", QUEUE_NAME, QUEUE_GROUP, consumer)
+    concurrency = min(4, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "2"))))
+    logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
+                QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
+    executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
     refresh_check_seconds = max(300, int(os.getenv("CATALOG_REFRESH_CHECK_SECONDS", "3600")))
     next_refresh_check = time.monotonic() + refresh_check_seconds
     senado_batch_seconds = max(300, int(os.getenv("SENADO_TEXT_BATCH_SECONDS", "300")))
@@ -92,16 +116,13 @@ def run() -> None:
                 except Exception:
                     logger.exception("scheduled_source_refresh_failed")
             dispatch_outbox()
-            claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000, start_id="0-0", count=10)
+            claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
+                                       start_id="0-0", count=concurrency)
             messages = claimed[1] if claimed and len(claimed) > 1 else []
             if not messages:
-                batch = redis.xreadgroup(QUEUE_GROUP, consumer, {QUEUE_NAME: ">"}, count=10, block=5000)
+                batch = redis.xreadgroup(QUEUE_GROUP, consumer, {QUEUE_NAME: ">"}, count=concurrency, block=5000)
                 messages = batch[0][1] if batch else []
-            for message_id, fields in messages:
-                job_id = fields.get("job_id")
-                if job_id:
-                    process_hydration_job(job_id)
-                redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
+            process_queue_messages(redis, messages, executor)
         except Exception:
             logger.exception("worker_queue_error queue=%s", QUEUE_NAME)
             time.sleep(3)

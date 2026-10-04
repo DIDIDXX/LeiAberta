@@ -16,10 +16,26 @@ test("LGDP resolves to LGPD, shows article 7 and links the official source", asy
   await expect(page.getByRole("link", { name: /Fonte oficial/ })).toHaveAttribute("href", /planalto\.gov\.br/);
 });
 
-test("the history flow opens an official before-and-after diff", async ({ page }) => {
+test("the history flow opens an official before-and-after diff", async ({ page, request }) => {
   await page.goto("/lei/11340-2006/historico");
-  const prepare = page.getByRole("button", { name: "Buscar histórico oficial" });
+  const prepare = page.getByRole("button", { name: /Buscar histórico oficial|Tentar atualizar o histórico/ });
   if (await prepare.isVisible()) await prepare.click();
+
+  const queued = await request.post("/api/laws/11340-2006/history/prepare");
+  expect(queued.status()).toBe(202);
+  const historyJob = await queued.json();
+  await expect.poll(async () => {
+    const response = await request.get(`/api/jobs/${historyJob.id}`);
+    const job = await response.json();
+    return job.status;
+  }, { timeout: 60_000 }).toBe("succeeded");
+  await expect.poll(async () => {
+    const response = await request.get("/api/laws/11340-2006");
+    const detail = await response.json();
+    return Boolean(detail.version);
+  }, { timeout: 60_000 }).toBe(true);
+  await page.reload();
+
   const event = page.getByRole("link", { name: /Ver antes e depois/ }).first();
   await expect(event).toBeVisible({ timeout: 45_000 });
   await event.click();
