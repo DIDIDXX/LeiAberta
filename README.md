@@ -7,7 +7,7 @@ LeiAberta é um acervo público para pesquisar legislação brasileira, ler disp
 ## O que está no MVP
 
 - Busca em português com normalização de acentos e pontuação, siglas, números e anos, nomes populares e aproximação para erros comuns como `LGDP`.
-- Catálogo inicial de onze normas federais: Constituição Federal, CLT, Código Civil, Código Penal, Código Tributário Nacional, CDC, ECA, Marco Civil da Internet, LGPD, Lei Maria da Penha e Lei de Licitações.
+- Catálogo inicial de treze normas federais: Constituição Federal, CLT, Código Civil, Código Penal, Código Tributário Nacional, CDC, ECA, Marco Civil da Internet, LGPD, Lei Maria da Penha, Lei de Licitações, Lei de Improbidade Administrativa e Lei da Ficha Limpa.
 - Leitura por artigo e subdivisões, com IDs estáveis como `art:7.par:2.inciso:I`.
 - Preparação sob demanda com estado visível, worker Redis, snapshots oficiais, checksum SHA-256 e registro da versão consultada.
 - Histórico e comparação para alterações que têm uma referência verificável na fonte. A Lei Maria da Penha inclui um exemplo de dispositivo acrescentado pela Lei nº 14.550/2023, após conferir o texto no documento da norma modificadora e no texto consolidado.
@@ -84,7 +84,7 @@ Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguida
 
 ## Próximos passos
 
-1. Ingerir e versionar em lote as dez normas de destaque.
+1. Ingerir e versionar em lote as treze normas de destaque.
 2. Adaptar a busca nacional à Rede LexML e a catálogos oficiais da Câmara e do Senado.
 3. Criar adapters SAPL e expandir para assembleias e câmaras municipais.
 4. Relacionar alterações a proposições e tramitação com provenance oficial.
