@@ -11,6 +11,9 @@ from app.models import HydrationJob, JobOutbox, Law, LawVersion, LegalNode, Sour
 from app.sources.planalto import ParsedNode
 from app.sources.senado import SenateRelation
 from app.sources.normas import NormasHistorySnapshot, NormasTextChange
+from app.sources.history import OfficialRelation
+from app.sources.alesp import AlespHistorySnapshot
+from app.sources.sinj_df import SinjDFHistorySnapshot
 
 
 def test_reparse_creates_immutable_representation_and_keeps_old_nodes(db_session, add_law, monkeypatch):
@@ -157,3 +160,70 @@ def test_history_job_persists_official_before_after_and_marks_relation_compared(
     assert coverage["history_events_pending_text"] == 0
     assert coverage["history_comparison_count"] == 1
     assert db_session.get(HydrationJob, job.id).status == "succeeded"
+
+
+def _run_source_specific_history_job(db_session, add_law, monkeypatch, *, source_name, source_url,
+                                     snapshot, fetch_path, slug):
+    law = add_law(slug=slug, number="10.261", year=1968)
+    law.source_name = source_name
+    law.source_url = source_url
+    law.fetch_url = source_url
+    db_session.add(law)
+    job = HydrationJob(id=f"history-{slug}", law_slug=law.slug, job_type="history", status="queued",
+                       stage=0, stage_name="queued", message="Aguardando worker", attempts=0,
+                       error="", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    db_session.add(job)
+    db_session.add(JobOutbox(job_id=job.id))
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(fetch_path, lambda *_args, **_kwargs: snapshot)
+
+    assert jobs.process_hydration_job(job.id) is True
+    db_session.expire_all()
+    return db_session.get(Law, slug), db_session.query(jobs.HistoryEvent).filter_by(law_slug=slug).one()
+
+
+def test_alesp_history_job_persists_annotations_and_provenance(db_session, add_law, monkeypatch):
+    relation = OfficialRelation(
+        source_id="alesp:68804", device_ref="", relation="Alteração",
+        event_label="Lei nº 18.473, de 03/06/2026", event_url="https://www.al.sp.gov.br/norma/212702",
+        signed_at=date(2026, 6, 3), publication_date=None, evidence="Anotação oficial ALESP.",
+    )
+    snapshot = AlespHistorySnapshot(
+        body=b"{\"official\":true}", source_url="https://baleg-api-prd.al.sp.gov.br/normas/28593",
+        relations=[relation], provenance={"proposition": "PL 118/1968", "authors": [{"name": "Governador"}]},
+    )
+    law, event = _run_source_specific_history_job(
+        db_session, add_law, monkeypatch,
+        source_name="Assembleia Legislativa do Estado de São Paulo — ALESP",
+        source_url="https://www.al.sp.gov.br/norma/28593", snapshot=snapshot,
+        fetch_path="app.sources.alesp.fetch_alesp_history", slug="sp-history-test",
+    )
+    assert event.event_url == relation.event_url
+    assert event.source_id == "alesp:68804"
+    assert law.coverage["history_source"] == "alesp"
+    assert law.coverage["source_provenance"]["proposition"] == "PL 118/1968"
+
+
+def test_sinj_df_history_job_persists_official_incoming_relations(db_session, add_law, monkeypatch):
+    relation = OfficialRelation(
+        source_id="sinj:79c7c4d19f0b447fb50ffaf84c524cae", device_ref="", relation="Alterado",
+        event_label="Portaria 87 de 17/06/2015",
+        event_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_norma=bf2320463ed3455e8e31265f896be797",
+        signed_at=date(2015, 6, 17), publication_date=None, evidence="Relação oficial incidente sobre a norma.",
+    )
+    snapshot = SinjDFHistorySnapshot(
+        body=b"<html><script>var json_norma = {};</script></html>",
+        source_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=83583", relations=[relation],
+    )
+    law, event = _run_source_specific_history_job(
+        db_session, add_law, monkeypatch,
+        source_name="Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+        source_url=snapshot.source_url, snapshot=snapshot,
+        fetch_path="app.sources.sinj_df.fetch_sinj_df_history", slug="df-history-test",
+    )
+    assert event.event_url == relation.event_url
+    assert event.relation == "Alterado"
+    assert law.coverage["history_source"] == "sinj_df"
+    assert law.coverage["history_events_pending_text"] == 1

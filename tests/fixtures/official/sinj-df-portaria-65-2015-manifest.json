@@ -1,0 +1,20 @@
+{
+  "source": "Sistema Integrado de Normas Jurídicas do Distrito Federal (SINJ-DF)",
+  "retrieved_at_utc": "2026-10-04",
+  "urls": {
+    "detail": "https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=84209",
+    "text": "https://www.sinj.df.gov.br/sinj/Norma/79586/Portaria_65_07_05_2015.html"
+  },
+  "files": {
+    "sinj-df-detail-portaria-65-2015.html": {
+      "bytes": 72432,
+      "sha256": "9e4163b6cefd4a2c4cf3353530f5b7aa250d12c616328e2a5e60638af22f2205",
+      "content_type": "text/html"
+    },
+    "sinj-df-portaria-65-2015.html": {
+      "bytes": 21527,
+      "sha256": "92312516af0327c1c728e39f7b4395562ba0a0e8d68dc93732ef5bab72379f29",
+      "content_type": "text/html"
+    }
+  }
+}

@@ -110,6 +110,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
             "A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.",
             "O registro não contém uma URN federal de legislação reconhecida.",
             "Os metadados do Normas.leg.br não correspondem à URN solicitada.",
+            "O registro oficial não possui uma representação HTML de texto integral.",
         )
         no_prior_job = latest_hydration_id.is_(None)
         retry_after_repair = and_(
@@ -231,8 +232,7 @@ def _update_job(session, job: HydrationJob, *, status: str | None = None, stage:
 
 
 def _process_history_job(job_id: str) -> None:
-    from app.sources.senado import fetch_norm_xml, parse_relation_xml
-    from app.sources.normas import fetch_normas_history
+    from app.sources.normas import SourceDocumentUnavailable
 
     session = SessionLocal()
     try:
@@ -240,40 +240,69 @@ def _process_history_job(job_id: str) -> None:
         law = session.get(Law, job.law_slug) if job else None
         if not job or not law:
             raise ValueError("Job ou norma não encontrados.")
-        _update_job(session, job, stage=1, message="Consultando relações normativas do Senado")
-        body, list_url = fetch_norm_xml(law.law_type, law.number, law.year)
-        checksum = hashlib.sha256(body).hexdigest()
-        # Release any read transaction before the archive helper writes using
-        # its own session. This also keeps the local SQLite worker usable.
-        session.commit()
-        archive_source_document(law.slug, list_url, checksum, "application/xml; charset=utf-8",
-                               body, law.current_version_id)
-        relations = parse_relation_xml(body, expected_number=law.number)
         normas_history = None
         normas_changes = []
-        try:
-            normas_history = fetch_normas_history(
-                law.fetch_url, law.law_type, law.number, law.year, senate_detail_xml=body,
-            )
+        provider = ""
+        provenance = None
+        if law.source_name in {"Presidência da República — Planalto", "Senado Federal — Dados Abertos Legislativos"}:
+            from app.sources.senado import fetch_norm_xml, parse_relation_xml
+            from app.sources.normas import fetch_normas_history
+
+            _update_job(session, job, stage=1, message="Consultando histórico oficial do Senado")
+            body, list_url = fetch_norm_xml(law.law_type, law.number, law.year)
+            checksum = hashlib.sha256(body).hexdigest()
             session.commit()
-            archive_source_document(
-                law.slug, normas_history.source_url,
-                hashlib.sha256(normas_history.body).hexdigest(), "application/json; charset=utf-8",
-                normas_history.body, law.current_version_id,
-            )
-            normas_changes = normas_history.changes
-        except SourceDocumentUnavailable as exc:
-            logger.info("history_text_metadata_unavailable law_id=%s reason=%s", law.slug, str(exc)[:200])
+            archive_source_document(law.slug, list_url, checksum, "application/xml; charset=utf-8",
+                                   body, law.current_version_id)
+            relations = parse_relation_xml(body, expected_number=law.number)
+            provider = "senado"
+            try:
+                normas_history = fetch_normas_history(
+                    law.fetch_url, law.law_type, law.number, law.year, senate_detail_xml=body,
+                )
+                session.commit()
+                archive_source_document(
+                    law.slug, normas_history.source_url,
+                    hashlib.sha256(normas_history.body).hexdigest(), "application/json; charset=utf-8",
+                    normas_history.body, law.current_version_id,
+                )
+                normas_changes = normas_history.changes
+            except SourceDocumentUnavailable as exc:
+                logger.info("history_text_metadata_unavailable law_id=%s reason=%s", law.slug, str(exc)[:200])
+        elif law.source_name == "Assembleia Legislativa do Estado de São Paulo — ALESP":
+            from app.sources.alesp import fetch_alesp_history
+
+            _update_job(session, job, stage=1, message="Consultando anotações oficiais de alteração da ALESP")
+            snapshot = fetch_alesp_history(law.source_url, law.law_type, law.number, law.year)
+            session.commit()
+            archive_source_document(law.slug, snapshot.source_url, hashlib.sha256(snapshot.body).hexdigest(),
+                                   "application/json; charset=utf-8", snapshot.body, law.current_version_id)
+            relations = snapshot.relations
+            provenance = snapshot.provenance
+            provider = "alesp"
+        elif law.source_name == "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF":
+            from app.sources.sinj_df import fetch_sinj_df_history
+
+            _update_job(session, job, stage=1, message="Consultando relações oficiais do SINJ-DF")
+            snapshot = fetch_sinj_df_history(law.source_url, law.law_type, law.number, law.year)
+            session.commit()
+            archive_source_document(law.slug, snapshot.source_url, hashlib.sha256(snapshot.body).hexdigest(),
+                                   "text/html; charset=utf-8", snapshot.body, law.current_version_id)
+            relations = snapshot.relations
+            provider = "sinj_df"
+        else:
+            raise SourceDocumentUnavailable(f"A fonte {law.source_name} não oferece adapter de histórico.")
         current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
         _update_job(session, job, stage=2,
                     message=f"Conferindo {len(relations)} referências e {len(normas_changes)} versões de dispositivos")
         created = 0
         for relation in relations:
             event = HistoryEvent(
-                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"senado:{law.slug}:{relation.source_id}:{relation.device_ref}")),
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{provider}:{law.slug}:{relation.source_id}:{relation.device_ref}")),
                 law_slug=law.slug, source_id=relation.source_id, device_ref=relation.device_ref,
                 relation=relation.relation, event_label=relation.event_label,
-                event_url=f"https://legis.senado.leg.br/dadosabertos/legislacao/{relation.source_id}",
+                event_url=(getattr(relation, "event_url", "")
+                           or f"https://legis.senado.leg.br/dadosabertos/legislacao/{relation.source_id}"),
                 signed_at=relation.signed_at, publication_date=relation.publication_date,
                 evidence=relation.evidence, status="discovered",
             )
@@ -308,9 +337,10 @@ def _process_history_job(job_id: str) -> None:
                             status="compared",
                         ))
         coverage = dict(law.coverage or {})
-        # The Senate relations identify candidate events, but do not prove each historical text or legal-effective date.
+        # Official links identify candidate events; only Senate/Normas text pairs
+        # are compared here, and none proves every effective date.
         coverage["history"] = "partial"
-        coverage["history_source"] = "senado+normas" if normas_history else "senado"
+        coverage["history_source"] = "senado+normas" if normas_history else provider
         coverage["history_checked_at"] = datetime.now(timezone.utc).isoformat()
         coverage["history_relation_count"] = len(relations)
         session.flush()
@@ -328,20 +358,29 @@ def _process_history_job(job_id: str) -> None:
                 "legal_value": "UnofficialLegalValue",
                 "notice": "O portal classifica as transcrições como valor jurídico não oficial; datas de vigência ainda exigem confirmação.",
             }
-        else:
+        elif provider == "senado":
             coverage["history_text_source"] = {"status": "unavailable"}
+        else:
+            coverage["history_text_source"] = {"provider": provider, "status": "official_relations_only",
+                                                "text_comparison": "not_available_from_this_endpoint"}
+        if provenance:
+            coverage["source_provenance"] = provenance
         law.coverage = coverage
         job.status = "succeeded"
         job.stage = 5
         job.stage_name = "discovered"
-        job.message = (f"{len(relations)} referências oficiais e {linked_changes} comparações textuais verificadas; "
-                       f"{pending_text} referências continuam sem redação conferida")
+        if provider == "senado":
+            job.message = (f"{len(relations)} referências oficiais e {linked_changes} comparações textuais verificadas; "
+                           f"{pending_text} referências continuam sem redação conferida")
+        else:
+            job.message = (f"{len(relations)} referências oficiais registradas nesta fonte; "
+                           "ela não fornece redações anteriores suficientes para comparar cada alteração")
         job.error = ""
         job.lease_until = None
         job.updated_at = datetime.now(timezone.utc)
         session.commit()
-        logger.info("history_relations_discovered law_id=%s found=%s added=%s text_changes=%s pending=%s",
-                    law.slug, len(relations), created, linked_changes, pending_text)
+        logger.info("history_relations_discovered provider=%s law_id=%s found=%s added=%s text_changes=%s pending=%s",
+                    provider, law.slug, len(relations), created, linked_changes, pending_text)
     finally:
         session.close()
 
@@ -573,10 +612,23 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             document = fetch_senado_document(law.fetch_url, law.law_type, law.number, law.year)
             body, fetched_url = document.body, document.source_url
             source_metadata = document
+        elif law.source_name == "Assembleia Legislativa do Estado de São Paulo — ALESP":
+            from app.sources.alesp import fetch_alesp_document
+
+            document = fetch_alesp_document(law.source_url, law.law_type, law.number, law.year)
+            body, fetched_url = document.body, document.source_url
+            source_metadata = document
+        elif law.source_name == "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF":
+            from app.sources.sinj_df import fetch_sinj_df_document
+
+            document = fetch_sinj_df_document(law.source_url, law.law_type, law.number, law.year)
+            body, fetched_url = document.body, document.source_url
+            source_metadata = document
         else:
             from app.sources.normas import SourceDocumentUnavailable
             raise SourceDocumentUnavailable(f"Não existe adapter de texto integral para {law.source_name}.")
         checksum = hashlib.sha256(body).hexdigest()
+        parsing_body = getattr(source_metadata, "parsed_body", None) or body
         archive_source_document(law.slug, fetched_url, checksum, detect_raw_format(body), body,
                                law.current_version_id)
 
@@ -590,10 +642,10 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             nodes = list(session.scalars(select(LegalNode).where(LegalNode.version_id == version.id).order_by(LegalNode.order_index)))
         else:
             _update_job(session, job, stage=3, message="Estruturando artigos e dispositivos")
-            parsed = parse_legal_nodes(body)
+            parsed = parse_legal_nodes(parsing_body)
             unstructured_full_text = False
             if not parsed:
-                paragraphs = extract_paragraphs(body)
+                paragraphs = extract_paragraphs(parsing_body)
                 full_text = "\n".join(text.strip() for text, _raw in paragraphs if text.strip())
                 if not full_text:
                     raise SourceDocumentUnavailable("A fonte respondeu sem texto integral legível para materializar.")
@@ -611,8 +663,23 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                     "Texto compilado consultado no Planalto"
                     if source_metadata is None else
                     f"{source_metadata.version} — "
-                    + ("compilação atual da Câmara" if source_metadata.version == "Current" else "transcrição da publicação original")
-                    + (" (valor jurídico oficial)" if source_metadata.legal_value == "OfficialLegalValue" else " (valor jurídico não oficial)")
+                    + (
+                        "publicação original no DOU"
+                        if source_metadata.source_url.startswith("https://www.in.gov.br/web/dou/-/") else
+                        source_metadata.representation
+                        if (source_metadata.source_url.startswith("https://www.al.sp.gov.br/repositorio/legislacao/")
+                            or source_metadata.source_url.startswith("https://www.sinj.df.gov.br/sinj/Norma/")) else
+                        "compilação atual do Normas.leg.br"
+                        if source_metadata.version == "Current" else
+                        "transcrição da publicação original"
+                    )
+                    + (
+                        " (classificação jurídica não informada)"
+                        if source_metadata.legal_value not in {"OfficialLegalValue", "NonOfficialLegalValue"} else
+                        " (valor jurídico oficial)"
+                        if source_metadata.legal_value == "OfficialLegalValue" else
+                        " (valor jurídico não oficial)"
+                    )
                 ) + (" — estrutura não reconhecida" if unstructured_full_text else ""))[:160],
                 source_url=fetched_url,
                 checksum=checksum, parser_version=PARSER_VERSION, is_current=True,
@@ -643,7 +710,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         # Parsing succeeded, but no independent whole-document completeness audit exists yet.
         law.materialization_status = "partial"
         law.last_hydrated_at = datetime.now(timezone.utc)
-        document_audit = audit_archived_document(body, nodes)
+        document_audit = audit_archived_document(parsing_body, nodes)
         coverage = dict(law.coverage or {})
         coverage.update({
             "official_source": "available",

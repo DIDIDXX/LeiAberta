@@ -84,13 +84,34 @@ def run() -> None:
     logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
+    catalog_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="catalog-sync")
+    alesp_sync_future = None
+    sinj_sync_future = None
     refresh_check_seconds = max(300, int(os.getenv("CATALOG_REFRESH_CHECK_SECONDS", "3600")))
-    next_refresh_check = time.monotonic() + refresh_check_seconds
+    next_refresh_check = time.monotonic()
     senado_batch_seconds = max(300, int(os.getenv("SENADO_TEXT_BATCH_SECONDS", "300")))
     senado_batch_size = min(500, max(1, int(os.getenv("SENADO_TEXT_BATCH_SIZE", "100"))))
     next_senado_batch = time.monotonic()
     while True:
         try:
+            if alesp_sync_future is not None and alesp_sync_future.done():
+                try:
+                    result = alesp_sync_future.result()
+                    logger.info("alesp_catalog_sync_finished records=%s added=%s refreshed=%s skipped_fresh=%s",
+                                result.get("records", 0), result.get("added", 0),
+                                result.get("refreshed", 0), result.get("skipped_fresh", False))
+                except Exception:
+                    logger.exception("alesp_catalog_sync_failed")
+                alesp_sync_future = None
+            if sinj_sync_future is not None and sinj_sync_future.done():
+                try:
+                    result = sinj_sync_future.result()
+                    logger.info("sinj_df_catalog_sync_finished records=%s added=%s refreshed=%s skipped_fresh=%s",
+                                result.get("records", 0), result.get("added", 0),
+                                result.get("refreshed", 0), result.get("skipped_fresh", False))
+                except Exception:
+                    logger.exception("sinj_df_catalog_sync_failed")
+                sinj_sync_future = None
             if time.monotonic() >= next_senado_batch:
                 next_senado_batch = time.monotonic() + senado_batch_seconds
                 try:
@@ -105,16 +126,36 @@ def run() -> None:
             if time.monotonic() >= next_refresh_check:
                 next_refresh_check = time.monotonic() + refresh_check_seconds
                 try:
-                    from app.catalog_sync.ibge import sync_ibge_jurisdictions
                     from app.catalog_sync.senado import sync_senado_law_catalog
 
                     senado = sync_senado_law_catalog()
+                except Exception:
+                    logger.exception("senado_catalog_refresh_failed")
+                else:
+                    logger.info("senado_catalog_refresh_finished listed=%s skipped=%s errors=%s",
+                                senado["listed"], len(senado["skipped_fresh"]), len(senado["errors"]))
+                try:
+                    from app.catalog_sync.ibge import sync_ibge_jurisdictions
+
                     ibge = sync_ibge_jurisdictions()
-                    logger.info("scheduled_source_refresh senate_synced=%s senate_skipped=%s senate_errors=%s ibge=%s",
-                                senado["listed"], len(senado["skipped_fresh"]), len(senado["errors"]),
+                    logger.info("ibge_jurisdictions_refresh_finished result=%s",
                                 "skipped_fresh" if ibge.get("skipped_fresh") else ibge.get("localities", 0))
                 except Exception:
-                    logger.exception("scheduled_source_refresh_failed")
+                    logger.exception("ibge_jurisdictions_refresh_failed")
+                if alesp_sync_future is None:
+                    try:
+                        from app.catalog_sync.alesp import sync_alesp_catalog
+
+                        alesp_sync_future = catalog_executor.submit(sync_alesp_catalog)
+                    except Exception:
+                        logger.exception("alesp_catalog_refresh_start_failed")
+                if sinj_sync_future is None:
+                    try:
+                        from app.catalog_sync.sinj_df import sync_sinj_df_catalog
+
+                        sinj_sync_future = catalog_executor.submit(sync_sinj_df_catalog)
+                    except Exception:
+                        logger.exception("sinj_df_catalog_refresh_start_failed")
             dispatch_outbox()
             claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
                                        start_id="0-0", count=concurrency)

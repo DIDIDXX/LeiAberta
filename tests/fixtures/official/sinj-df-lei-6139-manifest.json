@@ -1,0 +1,20 @@
+{
+  "source": "Sistema Integrado de Normas Jurídicas do Distrito Federal (SINJ-DF)",
+  "retrieved_at_utc": "2026-10-04",
+  "urls": {
+    "detail": "https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=93048",
+    "text": "https://www.sinj.df.gov.br/sinj/Norma/4b03e650ad54469a8802d8dcf24ccd11/Lei_6139_03_05_2018.html"
+  },
+  "files": {
+    "sinj-df-detail-lei-6139.html": {
+      "bytes": 68604,
+      "sha256": "4abd2268149682175d74159bf6cbc927e4fc306c49e98ca880f4d8946d7ea668",
+      "content_type": "text/html"
+    },
+    "sinj-df-lei-6139.html": {
+      "bytes": 22666,
+      "sha256": "bb713c744aba46344c7f62f733741bad54875a29e79692b0ed0679ad3a496ff6",
+      "content_type": "text/html"
+    }
+  }
+}

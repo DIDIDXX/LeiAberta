@@ -1,0 +1,29 @@
+{
+  "source": "ALESP public legislation API record and linked original HTML",
+  "observed_on": "2026-10-04",
+  "law": {
+    "idNorma": "213020",
+    "type": "Decreto",
+    "number": "70.916",
+    "year": 2026
+  },
+  "urls": {
+    "metadata": "https://baleg-api-prd.al.sp.gov.br/normas/213020",
+    "text": "https://www.al.sp.gov.br/repositorio/legislacao/decreto/2026/decreto-70916-02.10.2026.html",
+    "human_record": "https://www.al.sp.gov.br/norma/213020"
+  },
+  "files": {
+    "alesp-norma-213020.json": {
+      "bytes": 1537,
+      "sha256": "9b24c89f99537c3761994eeb1d3263af52cb0cba2474853b34e3e6c2af2af44a"
+    },
+    "alesp-norma-213020.html": {
+      "bytes": 3928,
+      "sha256": "338768682b6cced96b0e01ebdc943b03d4e5e81a3dc6e551c3461366a2b98045"
+    }
+  },
+  "findings": [
+    "API detail identifies type, number/year, description, publication status, and original/current text URLs.",
+    "The official text URL returns HTML. The source metadata marks completeness as absent, so a non-article-structured body must be preserved as document text rather than certified as structured."
+  ]
+}

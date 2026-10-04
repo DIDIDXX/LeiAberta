@@ -1,6 +1,6 @@
 # Luna 6 — estado da execução
 
-O pedido é entregar o máximo do LeiAberta funcionando em produção: busca, leitura, histórico apoiado por fonte, catálogo amplo e backfill contínuo. A instrução mais recente pede execução completa e que só fiquem impossibilidades técnicas.
+O objetivo ativo é deixar busca, leitura e histórico funcionais, ampliar o corpus e publicar no Railway. Só limitações externas comprovadas ficam como bloqueios; adapters ainda não construídos continuam trabalho executável.
 
 Leia:
 
@@ -9,23 +9,28 @@ Leia:
 3. [Relatório atualizado por tarefa](reports/execution-status.md)
 4. [Pesquisa e limites de fontes](research/2026-10-04-source-findings.json)
 
-## Código preparado nesta execução
+## Código e validação desta revisão
 
-Release principal: SHA `1cd6efd` em `main`, deploy web `a93562ef-8f8e-4eaa-ba7c-1976a8be6d2b` e worker `9cbd77e7-a25c-497f-8301-ad23dc86d49c`, ambos `SUCCESS`. O patch seguinte corrige a indicação de job histórico e usa duas capturas simultâneas por worker; valide e publique esse patch antes de encerrar.
+Base do GitHub: `main` em `5c0a80454838772588b340b401372524f57e19ab`. A implementação local integra ALESP/SP (181.172 registros) e SINJ-DF (125.478), adapters de texto/histórico, PDF/DOCX/OCR, migration para identificadores longos e contadores de cobertura. Os números estaduais/distritais foram conferidos em bancos isolados e não devem ser descritos como produção antes do deploy.
 
-O release inclui catálogo Senado para `LEI`, `LCP`, `EMC`, `MPV`, `DLG`, `RSF`; procura por número/ano e reedições MPV; captura Normas.leg.br; histórico com diferenças comprovadas; arquivo bruto antes de parsing; auditoria estrutural; backfill de 100 textos por lote a cada cinco minutos; estatísticas de cobertura.
+Validação local após reconciliar o código com o `main`: **71 testes passaram**, **4 E2E passaram**, `compileall` e `git diff --check` passaram. Um PDF oficial SINJ de 214.701 bytes foi extraído para texto legível; páginas digitalizadas seguem o caminho Tesseract português no container Docker.
 
-Validação: **44 testes unitários e 4 E2E passaram**. O catálogo real isolado enumerou **47.327 entradas** sem erros; a segunda sincronização não duplicou identidades. Em produção, `/api/stats` mostrou 47.330 normas, 47.316 do Senado, 135 textos obtidos e 5 indisponíveis no ponto consultado. O job real da LGPD concluiu: **146 referências, 54 comparações antes/depois e 98 relações pendentes**. A busca pública distingue `MPV 2.206/2001` e `MPV 2.206-1/2001`; a reedição estruturou 10 artigos. Transcrições do Normas.leg.br são classificadas pelo próprio portal como valor jurídico não oficial.
+## Próxima ação imediata
 
-## Publicação
+Criar PR contra o SHA atual de `main`, mesclar após conferir arquivos/manifestos, aguardar os deploys web e worker do Railway, verificar migration e `/health`, `/api/stats`, busca SP/DF, hidratação PDF e histórico ALESP/SINJ. Registrar os IDs e contagens de produção em `reports/execution-status.md`.
 
-Depois de atualizar esta documentação e os manifests finais, publique no GitHub e espere os serviços web/worker do Railway em `SUCCESS`. O endereço conhecido é https://web-production-12e95.up.railway.app. Confirme `/health`, `/api/stats`, busca de uma lei, busca de uma MPV com sufixo, o estado de um texto em backfill e histórico da LGPD. Atualize `reports/execution-status.md` com SHA e deployment IDs reais. Não copie contagens locais como se fossem produção.
+## Estado de cobertura
 
-## Impedimentos comprovados
+O Senado enumerou 47.327 entradas em seis categorias; ALESP enumerou 181.172 registros e SINJ-DF 125.478. O portal SINJ variou metadados entre snapshots; no segundo, 5.184 registros não declaravam anexo textual. A sincronização de catálogos não pré-processa todo o conteúdo: captura de texto é sob demanda e o worker alimenta lotes federais com backpressure.
 
-- Railway Hobby tem `maxBackupsCount=0`, e as ferramentas conectadas não dão shell, CLI ou GraphQL para exportar/dumpar ou duplicar ambiente. Nenhum backup restaurável ou staging foi criado nesta execução.
-- A API do Senado entrega seis tipos catalogáveis, não todo o universo de leis brasileiras. Não existe endpoint nacional único para os acervos estaduais e municipais.
-- Normas.leg.br oferece conteúdo utilizável, mas o próprio portal marca essas transcrições/compilações como valor jurídico não oficial.
-- Relações históricas nem sempre possuem redação anterior/posterior e data de vigência; texto ausente permanece pendente, nunca inventado.
+Esses três acervos não correspondem a todas as leis do Brasil. Integração dos outros 25 estados, Câmara dos Deputados, municípios/SAPL e fontes oficiais alternativas continua aberta. Não classificar esse trabalho como impossibilidade técnica antes de verificar os portais de cada jurisdição.
 
-As tarefas de Câmara, assembleias, câmaras municipais, anexos/PDF, autoria, projetos e votos não estão implementadas neste lote. Consulte a matriz de execução para a fonte específica que precisa ser confirmada em cada família. Não afirme que essas tarefas estão concluídas ou que o Brasil inteiro foi sincronizado.
+## Limitações externas verificadas
+
+- Railway Hobby informa `maxBackupsCount=0`. O conjunto de conectores desta sessão não oferece shell, `pg_dump` ou duplicação/restauração de ambiente; backup restaurável/staging não foi demonstrado.
+- O probe da rota LexML SRU recebeu página de desafio anti-automação em vez de registros. Requer uma rota autorizada acessível ou mudança no acesso do portal.
+- Relações de alteração nem sempre incluem redações anteriores/atuais por dispositivo ou data de vigência. Essas entradas continuam relações pendentes, sem texto fabricado.
+- O SINJ-DF não anunciava anexo textual para 5.184 registros do snapshot observado; buscar diários/repositórios oficiais alternativos é trabalho pendente.
+- Normas.leg.br declara valor jurídico não oficial para muitas transcrições e compilações. O produto conserva o rótulo da fonte.
+
+Não declarar que “todas as leis” estão no catálogo enquanto as jurisdições e seus acervos não forem enumerados e reconciliados individualmente.

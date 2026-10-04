@@ -1,0 +1,14 @@
+{
+  "source": "API oficial ALESP",
+  "retrieved_at_utc": "2026-10-04",
+  "urls": {
+    "metadata": "https://baleg-api-prd.al.sp.gov.br/normas/28593"
+  },
+  "files": {
+    "alesp-norma-10261-1968.json": {
+      "bytes": 152534,
+      "sha256": "09dc71051f087e1995cd08802dedfb4618ff1b7b2543fdf03b43408c09fab4c1",
+      "content_type": "application/json;charset=UTF-8"
+    }
+  }
+}

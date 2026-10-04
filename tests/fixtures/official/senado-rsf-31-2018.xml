@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<DetalheDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/DetalheDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 19:01:40</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém detalhes de uma Norma Jurídica por meio do código informado no parâmetro.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="30727280"><identificacao><tipo>RSF</tipo><descricao>Resolução do Senado Federal</descricao><numero>31</numero><norma>RSF-31-2018-12-05</norma><normaNome>Resolução do Senado Federal nº 31 de 05/12/2018</normaNome><dataassinatura>05/12/2018</dataassinatura><apelido>RSF-31-2018-12-05</apelido><urlDocumento>https://normas.leg.br/?urn=urn:lex:br:senado.federal:resolucao:2018-12-05;31</urlDocumento></identificacao><publicacoes><publicacao><id>30727300</id><tipo>PUB</tipo><fonte>Diário Oficial da União  de 06/12/2018</fonte><siglaFonte>DOU-2018-12-06</siglaFonte><data>06/12/2018</data><pagina>1</pagina><coluna>2</coluna><dispositivo>Publicação Original   [Diário Oficial da União  de 06/12/2018] (p. 1, col. 2)</dispositivo><temTexto>S</temTexto></publicacao></publicacoes><vides></vides><edivs></edivs><disps></disps><ementa>Autoriza o Estado do Pará a contratar operação de crédito externo, com garantia da República Federativa do Brasil, com o Banco Interamericano de Desenvolvimento (BID), no valor de até US$ 35.100.000,00 (trinta e cinco milhões e cem mil dólares dos Estados Unidos da América).</ementa><catalogo><frase> EMPRESTIMO EXTERNO .</frase></catalogo><indexacao><frase> AUTORIZAÇÃO ,  ESTADO DO PARA (PA) ,  CONTRATAÇÃO ,  OPERAÇÃO FINANCEIRA ,  INSTITUIÇÃO FINANCEIRA ,  BANCO INTERAMERICANO DE DESENVOLVIMENTO (BID) ,  CREDITO EXTERNO ,  DESTINAÇÃO ,  MODERNIZAÇÃO ,  PROGRAMA ,  GESTÃO FISCAL .</frase></indexacao><classes></classes></documento></documentos>
+</DetalheDocumento>

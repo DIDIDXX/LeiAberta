@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html>
+<head><meta content="IE=Edge" http-equiv="X-UA-Compatible"/><meta content="pt-br" http-equiv="Content-Language"/><meta content="text/html; charset=UTF-8" http-equiv="Content-Type"/><meta content="O SINJ é uma ferramenta que possibilita a pesquisa de leis, portarias, decretos e outras normas jurídicas e atos do Executivo e Legislativo do DF." name="description"/><meta content="sinj, decreto, lei, resolução, portaria, distrito federal" name="keywords"/><meta content="index,follow" name="robots"/><meta content="index,follow" name="googlebot"/><meta content="width=device-width, initial-scale=1, user-scalable=no" name="viewport"/><link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Jquery-ui/jquery-ui.min.css />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/jquery.dataTables.min.css />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/dataTables.responsive.css />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/stacktable.css />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/table_jui.css />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/autocompletelight.css?4.4.00134 />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/jquery.modalLight.css?4.4.00134 />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/default.css?4.4.00134 />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Styles/sinj.css?4.4.00134 />
+    <link rel="stylesheet" type="text/css" href=http://www.sinj.df.gov.br/sinjpadrao/Themes/cinza/css/colors.css?4.4.00134 />
+
+    <script type="text/javascript" charset="utf-8">   var _urlApps = 'Criar_Chave_apps_No_Config';  var _urlPadrao = 'http://www.sinj.df.gov.br/sinjpadrao';  var _urlPadrao_imagens = 'http://www.sinj.df.gov.br/sinjpadrao/Imagens';  var _ambiente = 'PR';  var _aplicacao = 'PORTAL';  var _versao = '4.4.00134';  var _extensoes = ['html','pdf'];  var _ambitos = [{"id_ambito":1,"nm_ambito":"Distrito Federal","_metadata":{"id_doc":1,"dt_doc":"27/04/2015 13:39:06","dt_last_up":"28/04/2015 13:55:31","dt_del":null,"dt_idx":null}},{"id_ambito":2,"nm_ambito":"Federal","_metadata":{"id_doc":2,"dt_doc":"27/04/2015 13:39:15","dt_last_up":"28/04/2015 13:56:11","dt_del":null,"dt_idx":null}},{"id_ambito":3,"nm_ambito":"Estadual","_metadata":{"id_doc":3,"dt_doc":"27/04/2015 13:39:21","dt_last_up":"28/04/2015 13:56:50","dt_del":null,"dt_idx":null}},{"id_ambito":4,"nm_ambito":"Municipal","_metadata":{"id_doc":4,"dt_doc":"27/04/2015 13:39:28","dt_last_up":"28/04/2015 14:02:38","dt_del":null,"dt_idx":null}}];  var _orgaos_cadastradores = [{"id_ambito":1,"nm_ambito":"Distrito Federal","_metadata":{"id_doc":1,"dt_doc":"27/04/2015 13:39:06","dt_last_up":"28/04/2015 13:55:31","dt_del":null,"dt_idx":null}},{"id_ambito":2,"nm_ambito":"Federal","_metadata":{"id_doc":2,"dt_doc":"27/04/2015 13:39:15","dt_last_up":"28/04/2015 13:56:11","dt_del":null,"dt_idx":null}},{"id_ambito":3,"nm_ambito":"Estadual","_metadata":{"id_doc":3,"dt_doc":"27/04/2015 13:39:21","dt_last_up":"28/04/2015 13:56:50","dt_del":null,"dt_idx":null}},{"id_ambito":4,"nm_ambito":"Municipal","_metadata":{"id_doc":4,"dt_doc":"27/04/2015 13:39:28","dt_last_up":"28/04/2015 14:02:38","dt_del":null,"dt_idx":null}}];  var _notifiqueme = null;  var _nm_cookie_push = 'neoLightSinjPush';  try {      if (!(((typeof (JSON) !== 'undefined') && (typeof (JSON.stringify) === 'function') && (typeof (JSON.parse) === 'function'))) || (/MSIE [567]/.test(navigator.userAgent))) {        var s = document.createElement('script');        s.type = 'text/javascript';        s.async = true;        s.src = 'http://www.sinj.df.gov.br/sinjpadrao/Scripts/json3.min.js' ;        document.getElementsByTagName('head')[0].appendChild(s);     }   } catch (e) {      top.document.location.href = '/errorjson.html';  } </script>
+
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery-1.11.0.min.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.form.min.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.cookie.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/on_error.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Jquery-ui/jquery-ui.min.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/liblight.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/stacktrace.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.ajaxLight.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.autocompleteLight.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jMenu.jquery.min.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.modalLight.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/login_notifiqueme.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/funcoes_sinj.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.dataTables.min.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/dataTables.responsive.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/stacktable.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.dataTablesLight.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/columns_datatables_pesquisa.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/platform.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/tooltip.js"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/funcoes_fale_conosco.js?4.4.00134"></script>
+    <script type="text/javascript" src="http://www.sinj.df.gov.br/sinjpadrao/html2canvas-1.4.1/html2canvas.min.js"></script>
+
+    <script type="text/javascript" src='https://www.google.com/recaptcha/api.js?onload=onLoadCaptchaCallback' async defer></script>
+
+    <script type="text/javascript">
+        (function (c, l, a, r, i, t, y) {
+            c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments) };
+            t = l.createElement(r); t.async = 1; t.src = "https://www.clarity.ms/tag/" + i;
+            y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+        })(window, document, "clarity", "script", "hfuopqtz0f");
+    </script>
+
+	<link rel="shortcut icon" type="image/x-icon" href=http://www.sinj.df.gov.br/sinjpadrao/Imagens/favicon.png />
+
+    <title>
+	.:: SINJ-DF - Sistema Integrado de Normas Jurídicas do DF ::.
+</title><script type="text/javascript">
+
+        var onLoadCaptchaCallback = function () {
+            $('#div_captcha').remove();
+            $('#form_fale_conosco input[name=tpv]').val('g');
+        }
+
+        function fAdaptive() {
+            if ($('div.right-top').offset().left < $('div.logo').width()) {
+                $('div.right-top').addClass('mobile');
+            }
+            else {
+                $('div.right-top').removeClass('mobile');
+            }
+            if ($(document).scrollTop() > 72 && window.innerWidth >= 800) {
+                $('#div_top').addClass('fix');
+            }
+            else {
+                $('#div_top').removeClass('fix');
+            }
+        }
+
+        $(document).ready(function () {
+            if (history.length <= 0) {
+                $('#div_voltar').hide();
+            }
+            $('#span_versao').text(_versao);
+
+            var onShowTop = $('#slave').hasClass('on-show-top');
+            $('.ancora a').click(function () {
+                var alvo = $(this).attr('href').split('#').pop();
+                if (IsNotNullOrEmpty(alvo)) {
+                    $('html, body').animate({ scrollTop: ($('#' + alvo).offset().top - 113) }, 1000);
+                }
+                else {
+                    $('html, body').animate({ scrollTop: 0 }, 500);
+                }
+                return false;
+            });
+
+            $('#lbOK').click(function () {
+                if (Pesquisar('form_pesquisa_master')) {
+                    $("#form_pesquisa_master").submit();
+                }
+            });
+
+            var h_body = Math.max(document.body.scrollHeight, document.body.offsetHeight, document.documentElement.clientHeight, document.documentElement.scrollHeight, document.documentElement.offsetHeight);
+            var h_page = window.innerHeight;
+            var w_body = Math.max(document.body.scrollWidth, document.body.offsetWidth, document.documentElement.clientWidth, document.documentElement.scrollWidth, document.documentElement.offsetWidth);
+
+            $(document).scroll(function () {
+                if (h_body > h_page && onShowTop) {
+                    $('#show_top').show();
+                }
+                else {
+                    $('#show_top').hide();
+                }
+                fAdaptive();
+            });
+            fAdaptive();
+            $(window).resize(function () {
+                fAdaptive();
+            });
+
+            // Se o clique for na parte do conteúdo da página, o menu não deve estar aberto. (mobile)
+            $('div.content').click(function () {
+                $('#div_top .menu').removeClass('open');
+            });
+
+            $('[data-toggle="tooltip"]').tooltip({ container: "#div_tooltip", trigger: "hover" });
+
+            $('#nr_cpf_fale_conosco').attr('onKeypress', 'mascara(this,mcpf)');
+            $('#nr_telefone_fale_conosco').attr('onKeypress', 'mascara(this,mtel)');
+
+        });
+
+        function clickTopoFaleConosco(_ch) {
+
+            if ($('#div_fale_conosco').hasClass('closed')) {
+                if (!IsNotNullOrEmpty(_ch)) {
+                    html2canvas(document.body, {
+                        onrendered: function (canvas) {
+                            $('#form_fale_conosco input[name=print]').val(canvas.toDataURL('image/png'));
+                        }
+                    });
+                }
+                $('#div_fale_conosco').removeClass('closed');
+                $('#div_fale_conosco').addClass('opened');
+
+            }
+            else {
+                closeFaleConosco();
+            }
+        }
+
+        function closeFaleConosco() {
+            $('#div_fale_conosco').addClass('closed');
+            $('#div_fale_conosco').removeClass('opened');
+        }
+    </script>
+    
+    
+    
+    <script type="text/javascript" language="javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.highlight.js"></script>
+    <script type="text/javascript" language="javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/funcoes_norma.js?4.4.00134"></script>
+    <script type="text/javascript" language="javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.fileDownload.js"></script>
+    <script type="text/javascript" language="javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Scripts/jquery.printElement.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="http://www.sinj.df.gov.br/sinjpadrao/Captcha/css/epicaptcha.css?4.4.00134" />
+    <script type="text/javascript" language="javascript" src="http://www.sinj.df.gov.br/sinjpadrao/Captcha/js/epicaptcha.js?4.4.00134"></script>
+    <script src='https://www.google.com/recaptcha/api.js?onload=onLoadCaptchaDetalhesNormaCallback' async defer></script>
+    <meta charset="utf-8" />
+    
+    <script type="text/javascript" language="javascript">
+        var onLoadCaptchaDetalhesNormaCallback = function () {
+            $('#div_captcha_enviar_email').remove();
+            $('#form_enviar_email_norma input[name=tpv]').val('g');
+        }
+
+        
+        var json_norma = {"st_habilita_pesquisa":true,"st_habilita_email":true,"origensOv":[{"ch_orgao":"646","nm_orgao":"Câmara Legislativa do Distrito Federal","sg_orgao":"CLDF","sg_hierarquia":"CLDF","nm_hierarquia":"Câmara Legislativa do Distrito Federal","ch_hierarquia":"646","ch_cronologia":["646"],"ch_orgao_pai":null,"ch_orgao_anterior":[],"st_orgao":true,"st_autoridade":true,"ds_nota_de_escopo":"","ambito":{"id_ambito":1,"nm_ambito":"Distrito Federal"},"orgaos_cadastradores":[{"id_orgao_cadastrador":4,"nm_orgao_cadastrador":"CLDF"}],"dt_inicio_vigencia":"01/01/2000","dt_fim_vigencia":null,"nm_login_usuario_cadastro":"MigradorSINJ","dt_cadastro":"08/05/2015 15:19:56","alteracoes":[{"nm_login_usuario_alteracao":"MigradorSINJ","dt_alteracao":"08/05/2015 15:19:56"}],"ch_norma_inicio_vigencia":null,"ds_norma_inicio_vigencia":null,"ch_norma_fim_vigencia":null,"ds_norma_fim_vigencia":null,"_metadata":{"id_doc":580,"dt_doc":"08/05/2015 15:50:48","dt_last_up":"05/09/2024 20:07:30","dt_del":null,"dt_idx":null}}],"tipoDeNorma":{"get_orgaos_cadastradores":"PGDF, CLDF","get_grupos":"Grupo 1","EhLei":true,"EhDecreto":false,"EhResolucao":false,"EhPortaria":false,"ch_tipo_norma":"46000000","nm_tipo_norma":"Lei","sgs_tipo_norma":["LEI"],"ds_tipo_norma":"Lei","orgaos_cadastradores":[{"id_orgao_cadastrador":3,"nm_orgao_cadastrador":"PGDF"},{"id_orgao_cadastrador":4,"nm_orgao_cadastrador":"CLDF"}],"in_g1":true,"in_g2":false,"in_g3":false,"in_g4":false,"in_g5":false,"in_conjunta":false,"in_apelidavel":true,"in_questionavel":true,"in_numeracao_por_orgao":true,"nm_login_usuario_cadastro":"MigradorSINJ","dt_cadastro":"08/05/2015 15:19:49","alteracoes":[{"nm_login_usuario_alteracao":"usrseplag","dt_alteracao":"10/06/2015 15:36:25"},{"nm_login_usuario_alteracao":"usrseplag","dt_alteracao":"10/06/2015 15:36:42"},{"nm_login_usuario_alteracao":"usrseplag","dt_alteracao":"10/06/2015 15:36:49"},{"nm_login_usuario_alteracao":"rodrigo","dt_alteracao":"20/08/2015 14:26:15"},{"nm_login_usuario_alteracao":"usrseplag","dt_alteracao":"11/07/2017 15:59:12"},{"nm_login_usuario_alteracao":"marcos","dt_alteracao":"24/03/2023 15:28:36"}],"_metadata":{"id_doc":37,"dt_doc":"08/05/2015 15:49:59","dt_last_up":"24/03/2023 15:28:36","dt_del":null,"dt_idx":null}},"dt_controle_alteracao":null,"ch_norma":"4b03e650ad54469a8802d8dcf24ccd11","st_norma_em_atualizacao":false,"ds_comentario":null,"nr_norma":"6139","nr_sequencial":0,"dt_assinatura":"03/05/2018","st_vacatio_legis":false,"dt_inicio_vigencia":null,"ds_vacatio_legis":null,"cr_norma":"","id_ambito":1,"nm_ambito":"Distrito Federal","nm_apelido":"","dt_autuacao":null,"ds_procedencia":"","ds_parametro_constitucional":"","ds_acao":null,"ds_efeito_decisao":"","url_referencia":"","url_projeto_lei":null,"nr_projeto_lei":null,"id_orgao_cadastrador":4,"nm_orgao_cadastrador":"CLDF","ch_para_nao_duplicacao":["646|46000000#6139#2018##0#"],"st_pendencia":false,"ds_pendencia":null,"st_destaque":false,"ds_observacao":"Inclui anexos.","ds_preambulo":null,"ds_ementa":"Abre crédito adicional à Lei Orçamentária Anual do Distrito Federal no valor de R$ 23.302.321,00.","nm_pessoa_fisica_e_juridica":[],"ar_atualizado":{"id_file":null,"filename":null,"mimetype":null,"filesize":0,"uuid":null},"ar_acao":{"id_file":null,"filename":null,"mimetype":null,"filesize":0,"uuid":null},"st_atualizada":false,"st_atualizada_diaria":false,"st_nova":false,"st_nova_diaria":false,"rankeamentos":["Lei","6139","6.139","2018","03/05/2018","CLDF","Câmara Legislativa do Distrito Federal","LEI","LEI 6139","LEI 6139 03/05/2018","LEI 6139 2018","LEI 6139 18"],"st_acao":false,"ch_tipo_norma":"46000000","nm_tipo_norma":"Lei","st_situacao_forcada":false,"ch_situacao":"semrevogacaoexpressa","nm_situacao":"Sem Revogação Expressa","requerentes":[],"requeridos":[],"relatores":[],"procuradores_responsaveis":[],"interessados":[],"origens":[{"ch_orgao":"646","nm_orgao":"Câmara Legislativa do Distrito Federal","sg_orgao":"CLDF"}],"autorias":[{"ch_autoria":"428","nm_autoria":"Poder Executivo"}],"fontes":[{"ch_fonte":null,"ch_tipo_publicacao":"1","nm_tipo_publicacao":"Publicação","ch_tipo_fonte":"1","nm_tipo_fonte":"DODF","dt_publicacao":"03/05/2018","nr_pagina":"16","nr_coluna":"2","ds_observacao_fonte":"","ds_republicacao":"","ar_fonte":{"id_file":"8ad69888-567b-37dd-b71f-bd4b9ae8e43d","filename":"Lei_6139.html","mimetype":"text/html","filesize":3467,"uuid":"529999df-e83b-4ea7-b26d-b0f7f5575c91"},"ds_diario":"DODF nº 84, seção 1, 2 e 3 de 03/05/2018","ar_diario":{"id_file":"c03fe2e8-e4d1-3997-bfa7-d8ebe186986c","filename":"DODF 084 03-05-2018 SECAO1.pdf","mimetype":"application/pdf","filesize":8440280,"uuid":"869ac0f0-0eab-4c6c-ad97-b9940d914f49"},"st_ativolink":false}],"decisoes":[],"indexacoes":[{"vocabulario":[{"ch_termo":"472826648c3b48d1a67646f5d1608d37","nm_termo":"LEI ORÇAMENTÁRIA ANUAL (LOA)","ch_tipo_termo":"DE"},{"ch_termo":"6a2321acf2e14e05b89e78524592c69c","nm_termo":"(2018)","ch_tipo_termo":"LA"},{"ch_termo":"bf3901e28b1d49eaa8927041dcf4d5d0","nm_termo":"alteração","ch_tipo_termo":"ES"}]},{"vocabulario":[{"ch_termo":"e481d0970fa8499991c0a4ad583c6fc2","nm_termo":"ORÇAMENTO","ch_tipo_termo":"DE"}]},{"vocabulario":[{"ch_termo":"6f8e036146184e06a637dd65d0803ba4","nm_termo":"CRÉDITO ADICIONAL","ch_tipo_termo":"DE"}]},{"vocabulario":[{"ch_termo":"e752e485ac7f417ca318c5dc97ec4c59","nm_termo":"CRÉDITO SUPLEMENTAR","ch_tipo_termo":"DE"}]},{"vocabulario":[{"ch_termo":"c6eed4f236d94ca58a9a29d4086b4a00","nm_termo":"CRÉDITO ESPECIAL","ch_tipo_termo":"DE"}]},{"vocabulario":[{"ch_termo":"f9cfd34a22294006ae17e6592ed2777f","nm_termo":"DOTAÇÃO ORÇAMENTÁRIA","ch_tipo_termo":"DE"}]}],"in_vides":0,"vides":[],"nm_login_usuario_cadastro":"marcos","dt_cadastro":"03/05/2018 14:54:14","alteracoes":[],"ax_ajuste":"31052020.2","_metadata":{"id_doc":93048,"dt_doc":"03/05/2018 14:54:14","dt_last_up":"10/06/2022 20:49:56","dt_del":null,"dt_idx":"10/06/2022 20:49:05"}};
+
+        var highlight = "";
+        var success_message = "";
+        var date_now = '04/10/2026';
+
+        $(document).ready(function () {
+            cookies_aux = ['back_history_aux_datatable', 'back_history_aux_filtros', 'back_history_aux_tab'];
+            DetalhesNorma(json_norma, highlight);
+            if (IsNotNullOrEmpty(success_message)) {
+                $('#div_norma .notify').messagelight({
+                    sContent: success_message,
+                    sType: "success"
+                });
+            }
+
+        });
+
+        function Print() {
+            preencherImpressao();
+            $('#div_impressao').printElement({ pageTitle: $('#div_identificacao').text() + '.html' });
+            $('#div_impressao').html("");
+        }
+        
+    </script>
+
+    <script type="text/javascript" async> !function (d, s, id) { var js, fjs = d.getElementsByTagName(s)[0], p = /^http:/.test(d.location) ? 'http' : 'https'; if (!d.getElementById(id)) { js = d.createElement(s); js.id = id; js.src = p + '://platform.twitter.com/widgets.js'; fjs.parentNode.insertBefore(js, fjs); } }(document, 'script', 'twitter-wjs');</script>
+    <script type="text/javascript" async> (function (d, s, id) { var js, fjs = d.getElementsByTagName(s)[0]; if (d.getElementById(id)) return; js = d.createElement(s); js.id = id; js.src = "//connect.facebook.net/pt_BR/sdk.js#xfbml=1&version=v2.5"; fjs.parentNode.insertBefore(js, fjs); }(document, 'script', 'facebook-jssdk'));</script>
+    <script type="text/javascript" src="https://apis.google.com/js/platform.js" async defer>{ lang: 'pt-BR' }</script>
+    <script type="text/javascript" src="//platform.linkedin.com/in.js" async> lang: pt_BR</script>
+
+</head>
+<body class="master">
+	<!--[if lte IE 9]><script>alert('Esse site não é compatível com o seu navegador. <br/>Atualize seu navegador ou instale um mais moderno.');</script><![endif]--><div class="page">
+        <div id="div_top" class="top">
+            <div class="art-top">
+                <div class="right-top">
+                    <span id="span_versao"></span>
+                </div>
+                <div class="logo" style="display: inline-block;">
+                    <a href="./" title="Página Inicial"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/logo_sinj.png" alt="sinj" /></a>
+                </div>
+                <div class="orgao" style="display: inline-block; top:0px; right: 300px; position: absolute;">
+                    <span style="font-weight:bold; vertical-align:bottom;">Cooperação técnica:</span>
+                    <a href="https://www.cl.df.gov.br/" target="_blank" title="Câmara Legislativa do Distrito Federal"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/cldf.jpg" alt="sinj" height="65" width="auto" style="margin: 0 20px 0 20px"/></a>
+                    <a href="http://www.pg.df.gov.br/" target="_blank" title="Procuradoria-Geral do Distrito Federal"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/pgdf.jpg" alt="sinj" height="65" width="auto" style="margin: 0 20px 0 20px"/></a>
+                    <a href="https://www.economia.df.gov.br/" target="_blank" title="Secretaria de Planejamento, Orçamento e Administração"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/seec.png" alt="sinj" height="65" width="auto" style="margin: 0 20px 0 20px"/></a>
+                    <a href="https://www.tc.df.gov.br/" target="_blank" title="TCDF"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/Marca_TCDF_Vertical_Azul.png" alt="sinj" height="65" width="auto" style="margin: 0 20px 0 20px"/></a>
+                </div>
+                <div class="top-bottom">                    
+                    <div class="top-bottom-left">
+                        <div id="div_menu_lateral_mobile" >
+                            <a href="javascript:Nada();" onclick="javascript:ToggleMenu();" >
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="top-bottom-center">
+                        <div class="top-search">
+                            <div>
+                                <form id="form_pesquisa_master" name="formPesquisaMaster" action="./ResultadoDePesquisa" method="get">
+                                    <div>
+                                        <input name="tipo_pesquisa" type="hidden" value="geral" />
+                                        <input class="ui-corner-all"  type="text" id="txtBusca" name="all" />
+                                        <button type="submit" class="fl" title="Pesquisar" >
+                                            <img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico-lupa-p_green.png" alt="pesquisar" />
+                                        </button>
+                                        <a href="javascript:void(0);" data-toggle="tooltip" data-placement="bottom" title='Pesquisa rápida, mesma característica da Pesquisa Geral.' style="float:left; padding:4px 1px 4px 1px;"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_help.png" alt="info" width="12px" height="12px" /></a>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="top-bottom-right">
+                        <div id="menuUser" class="user">
+                            
+                        </div>
+                    </div>
+                    <form method="post" action="DetalhesDeNorma.aspx?id_doc=93048" id="form_menu">
+
+<div class="aspNetHidden">
+<input type="hidden" name="__VIEWSTATE" id="__VIEWSTATE" value="/wEMAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADACQ8vEheW0pQqqfNch9A5HN2kP5SDEEWX6U0eYbAtT" />
+</div>
+
+                        <div class="menu">
+                            <ul id="navPage" class="ul-menu">
+                                <li id="li_pesquisas"><a title="Pesquisas" class="lnkmenu" id="aPesquisas" href="./">Pesquisas  </a>          </li>
+                                
+                                <li id="li_historico">              <a title="Histórico de Pesquisas" class="lnkmenu" id="aHistorico" href="./HistoricoDePesquisa">Histórico</a></li>
+                                <li id="li_notifiqueme">            <a title="Receba e-mails sobre normas e diários oficiais" class="lnkmenu" id="aNotifiqueme" href="./Notifiqueme">Notifique-me</a></li>
+                                <li id="li_favoritos">              <a title="Meus Favoritos" class="lnkmenu" id="aFavoritos" href="./Favoritos">Meus Favoritos</a></li> <li id="li_fale_conosco">           <a title="Fale Conosco" class="lnkmenu" id="aFaleConosco" href="./FaleConosco">Fale Conosco</a></li>
+                                <li id="li_contato">                <a title="Contatos" class="lnkmenu" id="aContatos" href="./Contatos">Contatos</a></li>
+                                <li id="li_tutorial">               <a title="Tutorial" class="lnkmenu" id="aTutorial" href="./Tutorial">Tutorial</a></li>
+                                
+                                <li id="li_Sobre"><a title="Sobre"             class="lnkmenu" id="aSobre"       href="./SinjSobre.aspx">Sobre</a></li>
+                                
+                                <li id="li_origin"><a title="Histórico das Estruturas Administrativas" class="lnkmenu" id="aOrigin" href="./HistoricoDeOrigem">Histórico das Estruturas Administrativas</a></li>
+                            </ul>
+                            <div id="div_user_notifiqueme">
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <div id="div_body" class="body">
+            <div class="inner-body">
+                <div id="div_communication" st="0" title="manutencao1" style="display:none; font-size:14px; font-family: Trebuchet MS, Verdana, Arial; text-align: center; background-color: #EEE; width:650px; margin:auto;">
+                    <button class="clean" onclick="closeCommunication();" title="Fechar o comunicado" style="float:right; padding:0px; font-weight: bold; background: #DDD; width: 15px; height: 15px; border-radius:0px;">x</button>
+                    <h2 style="font-size: 18px; color:#DD0000;">COMUNICADO</h2>
+                    <span>No dia 16/04/2021, sexta-feira, às 20h, para a realização de manutenção, o SINJ ficará indisponível. Estaremos de volta em 48 horas. Por favor, aguarde!.</span>
+                </div>
+                <div id="div_voltar" class="w-100-pc text-right"><a href="javascript:void(0);" onclick="javascript:voltar()" title="Voltar" class="back"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_back.png" alt="&lt;" />&nbsp;Voltar</a></div>
+                <div class="content">
+                    
+    <div class="w-100-pc">
+        <div class="divIdentificadorDePagina fl">
+            <label>.: Detalhes de Norma</label>
+        </div>
+    </div>
+    <div id="div_controls" class="control cb">
+    </div>
+    
+    <div id="modal_enviar_email_normas" class="modal" style="display: none; overflow: hidden;">
+        <form id="form_enviar_email_norma" name="formEnviarEmailNorma" action="#" method="POST">
+        <input name="tpv" type="hidden" value="c" />
+            <div class="table">
+                <div id="notify_enviar_email" class="notify_enviar_email" style="display: none;"></div>
+                <input type="hidden" id="id_norma_email" name="id_norma_email" value="" />
+                <div class="line">
+                    <div class="column w-30-pc">
+                        <div class="cell fr">
+                            <label style="margin-right: 10px">E-Mail:</label>
+                        </div>
+                    </div>
+                    <div class="column w-70-pc">
+                        <div class="cell w-200-pc">
+                            <input label="E-Mail" type="text" obrigatorio="sim" id="email" name="email" class="w-200-pc" style="max-width: 100%;"></input>
+                        </div>
+                    </div>
+                </div>
+                <div class="line">
+                    <div class="column w-20-pc">
+                        <div class="cell" style="margin-left: 25px;">
+                            <div class="g-recaptcha" data-sitekey="6LfzvVwUAAAAAHh_0bcm-_RFp7Xmn0fsf2QKLhWX"></div>
+                        </div>
+                    </div>
+                    <div class="column w-80-pc">
+                        <div class="cell" style="margin-left: 25px;">
+                            <div id="captcha" class="mauto word-no-break text-center"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <div class="form">
+        <div id="div_norma" class="loaded">
+            <div id="div_notificacao_norma" class="notify w-90-pc mauto" style="display:none;"></div>
+            <div style="background-color: #F9F9F9; margin: auto" class="w-90-pc">
+                <div class="mauto" style="display: flex; flex-direction: column">
+                    <div class="w-90-pc mauto all-botoes-detalhe-norma" style="margin-top:10px;">
+                        <div id="div_redes_sociais" class="fl">
+                            <ul>
+                                <li>
+                                    <div id="fb-root"></div>
+                                    <div class="fb-share-button" data-href="" data-layout="button"></div>
+                                </li>
+                                <li>
+                                    <script type="IN/Share"></script>
+                                </li>
+                                <li>
+                                    <a href="https://twitter.com/share" class="twitter-share-button" data-lang="pt" data-text=""></a>
+                                </li>
+                                <li>
+                                    <div class="g-plus" data-action="share" data-annotation="none"></div>
+                                </li>
+                            </ul>
+                        </div>
+                        <div class="div-botoes-detalhe-norma">
+                            <div class="fr" style="margin-right:5px;margin-left:15px;">
+                                <a href="javascript:void(0);" onclick="javascript:Print();" class="fr" title="Imprimir"><img width="25" alt="print" src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_print_p.png"/></a>
+                            </div>
+                            <div class="fr" style="margin-right: 5px; margin-left: 15px;">
+                                <a href="javascript:void(0);" onclick="javascript:AbrirModalEnviarEmailNorm()" title="Enviar Norma" id="enviar_norma">
+                                    <img width="25" alt="xls" src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico-mail.png" />
+                                </a>
+                            </div>
+                            <div class="fr" style="margin-right:5px;margin-left:15px;">
+                                <a id="a_cesta" href="javascript:void(0);" class="fr" title=""></a>
+                            </div>
+                            <div id="button_favoritos" class="fr" style="margin-right:5px;margin-left:15px;">
+
+                            </div>
+                            <div id="button_notifiqueme" style="min-width: 105px" class="fr">
+
+                            </div>
+                        </div>
+                    </div>
+                    <div class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_identificacao" class="w-90-pc mauto word-no-break nr_norma nr_norma_text nm_tipo_norma dt_assinatura dt_assinatura_text value">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="div_url_acompanhamento" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <H4></H4>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="line_arquivo" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc mauto">
+                                <div class="w-90-pc mauto">
+                                    <label>Baixar Arquivo:</label>
+                                </div>
+                            </div>
+                        </div><br />
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_arquivo" class="w-90-pc mauto value">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc mauto">
+                                <div class="w-90-pc mauto">
+                                    <label>Ementa:</label>
+                                </div>
+                            </div>
+                        </div><br />
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_ds_ementa" class="w-90-pc mauto word-no-break ds_ementa value" style="text-align: justify; white-space: pre-wrap !important;" print="sim" print-type="linha" print-label="Ementa">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc mauto">
+                                <div class="w-90-pc mauto">
+                                    <label>Origem:</label>
+                                </div>
+                            </div>
+                        </div><br />
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_ds_origem" class="w-90-pc mauto word-no-break ds_orgao value" style="text-align:justify;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_fontes" class="line table">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Fontes:</label>
+                                </div>
+                                <table class="w-90-pc mauto word-no-break">
+                                    <thead>
+                                        <tr>
+                                            <th>Diário</th>
+                                            <th>Tipo de Publicação</th>
+                                            <th>Página</th>
+                                            <th>Coluna</th>
+                                            <th>Observação</th>
+                                            <th>Motivo De Republicação</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_fontes">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_vides_normas_que_afetam" class="line table">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Vides - Normas que afetam:</label>
+                                </div>
+                                <table class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>Relação</th>
+                                            <th>Dispositivo Afetado</th>
+                                            <th></th>
+                                            <th>Norma</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_vides_normas_que_afetam">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_vides_normas_afetadas" class="line table">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Vides - Normas afetadas:</label>
+                                </div>
+                                <table class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>Relação</th>
+                                            <th>Dispositivo Afetado</th>
+                                            <th></th>
+                                            <th>Norma</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_vides_normas_afetadas">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+
+                    <div class="line" id="line_link_lei">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Proposição de Origem:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_link_lei" class="w-90-pc mauto">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                     </div>
+
+                    <div id="line_observacao" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Observação:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_observacao" class="w-90-pc mauto word-no-break observacao value" style="text-align:justify; padding-bottom:10px;">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+
+                    <!--<!--<div id="line_preambulo" class="li
+                             <div class="column w-100
+                                  <div class="cell w-10
+                                       <div class="w-90-pc 
+                                           Preâmbulo:eâmbulo:
+                                      
+                                  
+                              
+                                    <div class="colum
+                                         <div class="ce
+                                              <div id="div_preambulo" class="w-90-pc mauto word-no-break observacao value" style="text-align:justify; padding-
+                                      
+                                  
+                              
+                                          <div class="l
+                          -->
+
+                   
+                    <div id="line_interessados" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Interessados:</label>
+                                </div>
+                                <table id="table_interessados" class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                Nome
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_interessados" class="nm_interessado">
+                                        <tr class="tr_vazia">
+                                            <td>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_nomes" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Nomes:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_nome" class="w-90-pc mauto nome value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_indexacoes" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Indexação:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">   
+                            <div class="cell w-100-pc">
+                                <div id="div_indexacao" class="w-90-pc mauto nm_termo value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_ambito" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Âmbito:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_nm_ambito" class="w-90-pc mauto nm_ambito value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_nm_apelido" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Apelido:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_nm_apelido" class="w-90-pc mauto nm_apelido value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="line_autorias" class="line">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Autoria:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_autorias" class="w-90-pc mauto nm_autoria value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_decisoes" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Decisões:</label>
+                                </div>
+                                <table id="table_decisoes" class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                Tipo
+                                            </th>
+                                            <th>
+                                                Complemento
+                                            </th>
+                                            <th>
+                                                Data de Publicação
+                                            </th>
+                                        </tr> 
+                                    </thead>
+                                    <tbody id="tbody_decisoes">
+                                        <tr class="tr_vazia">
+                                            <td colspan="3"></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>                     
+                    <div id="div_procedencia" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Procedência:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="ds_procedencia" class="w-90-pc mauto value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_parametro_constitucional" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Parâmetro Constitucional:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="ds_parametro_constitucional" class="w-90-pc mauto value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_requerentes" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Requerentes:</label>
+                                </div>
+                                <table id="table_requerentes" class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                Nome
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_requerentes" class="nm_requerente">
+                                        <tr class="tr_vazia">
+                                            <td>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_requeridos" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Requeridos:</label>
+                                </div>
+                                <table id="table_requeridos" class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                Nome
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_requeridos" class="nm_requerido">
+                                        <tr class="tr_vazia">
+                                            <td>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_relatores" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Relatores:</label>
+                                </div>
+                                <table id="table_relatores" class="w-90-pc mauto">
+                                    <thead>
+                                        <tr>
+                                            <th>
+                                                Nome
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tbody_relatores" class="nm_relator">
+                                        <tr class="tr_vazia">
+                                            <td>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_texto_da_acao" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Texto da Ação:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_ds_texto_da_acao" class="w-90-pc mauto value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div id="div_efeito_decisao" class="line dados-das-acoes">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Efeito da Decisão:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="ds_efeito_decisao" class="w-90-pc mauto value">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                    <div class="line" style="padding-top:10px;">
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div class="w-90-pc mauto">
+                                    <label>Links:</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <div class="cell w-100-pc">
+                                <div id="div_links" style="word-break: break-all;" class="w-90-pc mauto">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="line_bottom"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="div_loading_norma" class="loading" style="display:none;"></div>
+        <div style="display:none;">
+            <div id="div_impressao"></div> 
+        </div>
+    </div>
+
+                </div>
+                
+            </div>
+        </div>
+    </div>
+    <div id="show_top" class="ancora" >
+        <a href="#" title="topo"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/show_top.png" alt="topo" /></a>
+    </div>
+  
+    <span class="info">
+        <script type="text/javascript">document.write(version_browser())</script>
+        <br />
+        PR.4.4.00134.1:93
+    </span>
+	<div id="super_loading" style="display:none;"><div class="block"></div><div class="wait"><img alt="carregando..." src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/loading003300.gif"  width="50px" height="50px"/><br />Aguarde...</div></div>
+    <div id="div_tooltip"></div>
+    <div id="div_fale_conosco" class="fale_conosco closed">
+        <button type="button" class="clean topo" onclick="clickTopoFaleConosco()">Fale Conosco <img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_min.png" class="min"/><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_max.png" class="max"/></button>
+        <div class="corpo">
+            <form id="form_fale_conosco" name="form_fale_conosco" method="post" action="#" onsubmit="return enviarMsgFaleConosco('form_fale_conosco');" >
+				<input id="ch_chamado_fale_conosco" name="ch_chamado" type="hidden" value="" />
+				<input name="tpv" type="hidden" value="c" />
+                <input name="print" type="hidden" value="" />
+                <div class="table w-100-pc">
+                    <div class="head">
+                        <div>
+                            <h2>Como podemos te ajudar?</h2>                                            
+                        </div>
+                    </div>
+                    <div class="line resposta">
+                        <div class="column">
+                            <div class="cell fl">
+                                <p style="width: 95%; text-align: justify;">Este serviço <b>não</b> é destinado a fornecer assistência ou consultoria jurídicas (resolução de
+                                casos concretos). Tal serviço se destina ao registro de sugestões, críticas, solicitação de
+                                atualizações de atos e correções do conteúdo disponibilizado no Sistema. Nos pedidos pelo
+                                Fale Conosco, forneça o máximo de informações para que o resultado da pesquisa seja o
+                                mais preciso possível.</p>
+                                <br>
+                                <p>Preencha os campos para dirimir dúvidas, registrar elogios, críticas e sugestões.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="line resposta">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>*Nome:</label>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+							<input  label="Nome" obrigatorio="sim" id="nm_user_fale_conosco" name="nm_user" type="text" value="" class="w-60-pc" placeholder="Digite seu nome" />
+                        </div>
+                    </div>
+                    <div class="line resposta">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>*E-mail:</label>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+							<input label="E-mail" obrigatorio="sim" specials="email" id="ds_email_fale_conosco" name="ds_email" type="text" value="" class="w-60-pc" placeholder="Digite seu e-mail" />
+                        </div>
+                    </div>
+                    <div class="line resposta">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>Telefone:</label>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+							<input id="nr_telefone_fale_conosco" name="nr_telefone" type="text" value="" class="w-60-pc" placeholder="Digite seu telefone" />
+                        </div>
+                    </div>
+                    <div class="line resposta">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>*Assunto:</label>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <select id="ds_assunto_fale_conosco" name="ds_assunto" obrigatorio="sim" label="Assunto">
+                                <option value="">Escolha um assunto...</option>
+                                <option value="Dúvida">Dúvida</option>
+                                <option value="Sugestão">Sugestão</option>
+                                <option value="Crítica">Crítica</option>
+                                <option value="Elogio">Elogio</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="line">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>*Mensagem:</label>
+                            </div>
+                        </div>
+                        <div class="column w-100-pc">
+                            <textarea label="Mensagem" obrigatorio="sim" id="ds_msg_fale_conosco" name="ds_msg" class="w-80-pc" rows="5" placeholder="Escreva aqui a sua mensagem" ></textarea>
+                        </div>
+                    </div>
+                    <div id="div_captcha" class="line">
+                        <div class="column">
+                            <div class="cell fl">
+                                <label>*Digite os caracteres da imagem:</label>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="column w-100-pc">
+                                <div class="loading_capctha" style="display:none;"><img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/loading003300.gif" width="25" /></div>
+                                <div class="column captcha"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="line">
+                        <div class="column w-100-pc">
+                            <div class="captcha-fale-conosco g-recaptcha" data-sitekey="6LfzvVwUAAAAAHh_0bcm-_RFp7Xmn0fsf2QKLhWX"></div>
+                        </div>
+                    </div>
+
+                    <div class="line">
+                        <div class="column w-100-pc text-center">
+                            <button id="button_submit_form_fale_conosco">
+                                <img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_check.png" width="20px" height="20" /> Enviar
+                            </button>
+                            <button type="button" onclick="clickTopoFaleConosco()">
+                                <img src="http://www.sinj.df.gov.br/sinjpadrao/Imagens/ico_close.png" width="20px" height="20" /> Fechar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script type="text/javascript">
+        (function (i, s, o, g, r, a, m) {
+            i['GoogleAnalyticsObject'] = r; i[r] = i[r] || function () {
+                (i[r].q = i[r].q || []).push(arguments)
+            }, i[r].l = 1 * new Date(); a = s.createElement(o),
+             m = s.getElementsByTagName(o)[0]; a.async = 1; a.src = g; m.parentNode.insertBefore(a, m)
+        })(window, document, 'script', 'https://www.google-analytics.com/analytics.js', 'ga');
+        ga('create', 'UA-20776101-1', 'auto');
+        ga('create', 'UA-90051523-1', 'auto', 'brlightTracker');
+        ga('send', 'pageview');
+        ga('brlightTracker.send', 'pageview');
+    </script>
+     
+    <script type="text/javascript">
+        
+        jQuery(document).ready(adicionaEventoFiltroBuscaNorma);
+        
+        function adicionaEventoFiltroBuscaNorma() {
+            if ($('#datatable_normas_filter').find("input[type='search']").is(':visible')) {
+                var campoSearchFiltroNorma = $('#datatable_normas_filter').find("input[type='search']");
+                
+                campoSearchFiltroNorma.on('input', (function(){
+                    var normas = $('#datatable_normas_wrapper').find('tbody .table');
+
+                    for(var i = 0; i < normas.length; i++) {
+                        var norma = $(normas[i]).parent().parent();
+                        var textoNorma = norma.text().replace('Origem:', '').replace('Ementa:', '').replace(/Texto Integral:(.*)/, '').toLowerCase().replace(/[áàâã]/g,'a').replace(/[éèê]/g,'e').replace(/[óòôõ]/g,'o').replace(/[úùû]/g,'u').replace(/[ç]/g,'c').replace(/[íì]/g,'i');
+                        var textoDigitado = campoSearchFiltroNorma.val().toLowerCase().replace(/[áàâã]/g,'a').replace(/[éèê]/g,'e').replace(/[óòôõ]/g,'o').replace(/[úùû]/g,'u').replace(/[ç]/g,'c').replace(/[íì]/g,'i');
+                        
+                        if (textoNorma.includes(textoDigitado)) {
+                            norma.css('display', 'table-row');
+                        } else {
+                            norma.css('display', 'none');
+                        }
+                    }
+                }));
+            } else {
+               setTimeout(adicionaEventoFiltroBuscaNorma, 50);
+            }
+        };
+    </script>        
+        
+    <script type="text/javascript">
+            jQuery(document).ready(adicionaEventoFiltroBuscaDiario);
+            
+            function adicionaEventoFiltroBuscaDiario() {
+                if ($('#datatable_diarios_filter').find("input[type='search']").is(':visible')) {
+                    var campoSearchFiltroDiario = $('#datatable_diarios_filter').find("input[type='search']");
+                    
+                    campoSearchFiltroDiario.on('input', (function(){
+                        var diarios = $('#datatable_diarios_wrapper').find('tbody .table');
+
+                        for(var i = 0; i < diarios.length; i++) {
+                            var diario = $(diarios[i]).parent().parent();
+                            var textoDiario = diario.text().replace('Origem:', '').replace('Ementa:', '').replace(/Texto Integral:(.*)/, '').toLowerCase().replace(/[áàâã]/g,'a').replace(/[éèê]/g,'e').replace(/[óòôõ]/g,'o').replace(/[úùû]/g,'u').replace(/[ç]/g,'c').replace(/[íì]/g,'i');
+                            var textoDigitado = campoSearchFiltroDiario.val().toLowerCase().replace(/[áàâã]/g,'a').replace(/[éèê]/g,'e').replace(/[óòôõ]/g,'o').replace(/[úùû]/g,'u').replace(/[ç]/g,'c').replace(/[íì]/g,'i');
+                            if (textoDiario.includes(textoDigitado)) {
+                                diario.css('display', 'table-row');
+                            } else {
+                                diario.css('display', 'none');
+                            }
+                        }
+                    }));
+                } else {
+                   setTimeout(adicionaEventoFiltroBuscaDiario, 50);
+                }
+            };
+        </script>
+        
+ </body>
+</html>

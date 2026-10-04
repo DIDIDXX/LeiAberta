@@ -68,15 +68,19 @@ def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, mon
                   fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/12345",
                   hot=False, materialization_status="unavailable")
     retryable = Law(slug="senado-retry", title="Resolução antiga", source_name="Senado Federal — Dados Abertos Legislativos", **common)
-    permanent = Law(slug="senado-permanent", title="Sem texto", source_name="Senado Federal — Dados Abertos Legislativos", **common)
+    dou_retryable = Law(slug="senado-dou-retry", title="Sem representação Normas", source_name="Senado Federal — Dados Abertos Legislativos", **common)
+    permanent = Law(slug="senado-permanent", title="Sem fonte conferida", source_name="Senado Federal — Dados Abertos Legislativos", **common)
     active = Law(slug="senado-active", title="Em fila", source_name="Senado Federal — Dados Abertos Legislativos", **common)
-    db_session.add_all([retryable, permanent, active])
+    db_session.add_all([retryable, dou_retryable, permanent, active])
     now = datetime.now(timezone.utc)
     db_session.add_all([
         HydrationJob(id="old-parser-error", law_slug=retryable.slug, job_type="hydrate", status="failed",
                      attempts=5, error="A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.",
                      stage_name="failed", message="Falhou", created_at=now, updated_at=now),
         HydrationJob(id="permanent-source-error", law_slug=permanent.slug, job_type="hydrate", status="failed",
+                     attempts=1, error="O Normas.leg.br não tem texto e o leitor do DOU não forneceu correspondência exata: sem publicação.",
+                     stage_name="failed", message="Sem texto", created_at=now, updated_at=now),
+        HydrationJob(id="dou-fallback-error", law_slug=dou_retryable.slug, job_type="hydrate", status="failed",
                      attempts=1, error="O registro oficial não possui uma representação HTML de texto integral.",
                      stage_name="failed", message="Sem texto", created_at=now, updated_at=now),
         HydrationJob(id="already-active", law_slug=active.slug, job_type="hydrate", status="queued",
@@ -89,6 +93,6 @@ def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, mon
     first = jobs.queue_senado_text_batch(limit=10)
     second = jobs.queue_senado_text_batch(limit=10)
 
-    assert first["queued_count"] == 1
-    assert first["jobs"][0]["slug"] == retryable.slug
+    assert first["queued_count"] == 2
+    assert {item["slug"] for item in first["jobs"]} == {retryable.slug, dou_retryable.slug}
     assert second["queued_count"] == 0
