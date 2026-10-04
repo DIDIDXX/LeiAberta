@@ -76,6 +76,40 @@ def test_hydration_archives_official_bytes_before_a_parse_failure(db_session, ad
     assert db_session.get(HydrationJob, job.id).status == "queued"
 
 
+def test_hydration_keeps_full_text_when_no_legal_articles_are_recognized(db_session, add_law, monkeypatch):
+    law = add_law(slug="unstructured-source")
+    db_session.add(law)
+    job = HydrationJob(id=str(uuid.uuid4()), law_slug=law.slug, job_type="hydrate", status="queued",
+                       stage=0, stage_name="queued", message="Aguardando worker", attempts=0,
+                       error="", created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    db_session.add(job)
+    db_session.add(JobOutbox(job_id=job.id))
+    db_session.commit()
+
+    body = b"<html><body><p>Clausula primeira. A norma continua disponivel integralmente.</p>"
+    body += b"<p>Clausula segunda. Estrutura legal ainda nao reconhecida.</p></body></html>"
+    session_factory = sessionmaker(bind=db_session.get_bind(), expire_on_commit=False)
+    monkeypatch.setattr(jobs, "SessionLocal", session_factory)
+    monkeypatch.setattr(jobs, "fetch_official_html", lambda _url: (body, "https://official.example/law"))
+
+    assert jobs.process_hydration_job(job.id) is True
+    db_session.expire_all()
+
+    stored_law = db_session.get(Law, law.slug)
+    stored_job = db_session.get(HydrationJob, job.id)
+    version = db_session.query(LawVersion).filter_by(law_slug=law.slug).one()
+    node = db_session.query(LegalNode).filter_by(version_id=version.id).one()
+    archive = db_session.query(SourceSnapshot).filter_by(law_slug=law.slug).one()
+    assert stored_job.status == "succeeded"
+    assert stored_law.materialization_status == "partial"
+    assert stored_law.coverage["structured_text"] == "unstructured"
+    assert "estrutura não reconhecida" in version.version_name
+    assert node.node_type == "document"
+    assert "Clausula primeira" in node.text and "Clausula segunda" in node.text
+    assert archive.version_id == version.id
+    assert archive.raw_body == body
+
+
 def test_history_job_persists_official_before_after_and_marks_relation_compared(db_session, add_law, monkeypatch):
     law = add_law(slug="13709-2018")
     db_session.add(law)

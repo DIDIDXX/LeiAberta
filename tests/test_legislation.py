@@ -183,6 +183,80 @@ def test_senado_text_adapter_fetches_and_parses_official_normas_transcription(mo
     assert "urn:lex:br:federal:medida.provisoria:2001-09-06;2206-1" in urllib.parse.unquote(urls[1])
 
 
+def test_senado_text_adapter_prefers_original_over_later_erratum(monkeypatch):
+    import io
+    import json
+
+    from app.sources.normas import fetch_senado_document
+
+    detail = (Path(__file__).parent / "fixtures/official/senado-mpv-2206-1-2001.xml").read_bytes()
+    original_url = "https://normas.leg.br/api/binario/11111111-1111-1111-1111-111111111111/texto"
+    erratum_url = "https://normas.leg.br/api/binario/22222222-2222-2222-2222-222222222222/texto"
+    metadata = json.dumps({
+        "legislationIdentifier": "urn:lex:br:federal:medida.provisoria:2001-09-06;2206-1",
+        "encoding": [
+            {"contentUrl": erratum_url, "encodingFormat": "text/html", "version": "Intermediate",
+             "name": "Retificacao", "datePublished": "2017-05-25", "legislationLegalValue": "UnofficialLegalValue"},
+            {"contentUrl": original_url, "encodingFormat": "text/html", "version": "Original",
+             "name": "PublicacaoOriginal", "datePublished": "2017-05-22", "legislationLegalValue": "UnofficialLegalValue"},
+        ],
+    }).encode()
+    body_original = b"<html><body><p>Art. 1. Texto integral original.</p></body></html>"
+    body_erratum = b"<html><body><p>RETIFICACAO na pagina 4, onde se le: assinatura, leia-se: outra.</p></body></html>"
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+        headers = {"Content-Type": "application/xml"}
+
+        def geturl(self):
+            return calls[-1]
+
+    def fake_urlopen(request, timeout=25):
+        url = request.full_url
+        calls.append(url)
+        if "/dadosabertos/legislacao/559113" in url:
+            return Response(detail)
+        if "/api/public/normas?" in url:
+            return Response(metadata)
+        if "11111111-1111-1111-1111-111111111111" in url:
+            response = Response(body_original)
+            response.headers = {"Content-Type": "text/html; charset=utf-8"}
+            return response
+        if "22222222-2222-2222-2222-222222222222" in url:
+            response = Response(body_erratum)
+            response.headers = {"Content-Type": "text/html; charset=utf-8"}
+            return response
+        raise AssertionError(f"URL inesperada: {url}")
+
+    monkeypatch.setattr("app.sources.normas.urllib.request.urlopen", fake_urlopen)
+    document = fetch_senado_document(
+        "https://legis.senado.leg.br/dadosabertos/legislacao/559113",
+        "Medida Provisória", "2.206-1", 2001,
+    )
+
+    assert document.version == "Original"
+    assert document.representation == "PublicacaoOriginal"
+    assert b"Texto integral original" in document.body
+
+
+def test_senado_accepts_its_federal_urn_namespace():
+    from app.sources.normas import _expected_identity, _urn_from_senado_xml
+
+    body = b"""<DetalheDocumento><documentos><documento><identificacao>
+      <tipo>RSF</tipo><numero>8</numero><dataassinatura>31/05/2017</dataassinatura>
+      <urlDocumento>https://normas.leg.br/?urn=urn:lex:br:senado.federal:resolucao:2017-05-31;8</urlDocumento>
+    </identificacao></documento></documentos></DetalheDocumento>"""
+    assert _urn_from_senado_xml(body, _expected_identity("Resolução do Senado Federal", "8", 2017)) == (
+        "urn:lex:br:senado.federal:resolucao:2017-05-31;8"
+    )
+
+
+def test_parser_returns_no_false_articles_for_unrecognized_document_structure():
+    html = b"<html><body><p>Clausula primeira. Texto do ato sem artigo.</p></body></html>"
+    assert parse_legal_nodes(html) == []
+
+
 def test_normas_history_extracts_exact_device_text_and_source_event():
     from app.sources.normas import parse_normas_text_changes
 
