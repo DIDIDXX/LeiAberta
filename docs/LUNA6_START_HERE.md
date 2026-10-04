@@ -13,20 +13,19 @@
 
 O plano completo contém 28 tarefas T00–T27, dependências, modelo de dados, contratos de API, reconstrução histórica, ingestão nacional, testes, runbook Railway e seis portões de aceite. Os comandos novos descritos nele ainda precisam ser implementados.
 
-## Três fatos que devem orientar a execução
+## Estado após execução e deploy (04/10/2026)
 
-- O histórico atual é uma regra específica para três acréscimos da Lei Maria da Penha. Nas demais normas, “está sendo preparado” pode aparecer sem job de histórico.
-- O parser do Código Civil extraiu 1.007 artigos e concatenou 174.903 caracteres em `art:1`; a fonte contém o Art. 2.046. Corrigir milhares, IDs, componentes e completude antes de confiar em `ready`.
-- A API Senado entrega relações por dispositivo e publicações. A ficha Câmara confirma Lei14.550/2023 → PL1604/2022 e publicação20/04/2023, diferente da assinatura19/04 usada atualmente no campo de publicação.
+As primeiras entregas de execução já estão em `main` e em produção (PR #1, merge `197da4502a97786abca43d98f2f3f395c32ea648`). Web e worker Railway estão `SUCCESS`: https://web-production-12e95.up.railway.app. O catálogo sincronizou 16.883 leis federais do Senado; o diretório registrou 27 UFs e 5.571 localidades. O worker e a fila durável foram exercitados: preparar o histórico da LGPD em produção retornou 146 relações oficiais, com cobertura `partial`. Home, busca, detalhe, artigo, histórico e uso móvel passaram no smoke test.
 
-## Primeira sessão de execução
+“Todas as leis” continua incompleto. A lista do Senado ainda é somente `tipo=LEI`, e a maioria dos registros está no catálogo sem texto integral. Histórico textual genérico, Câmara, LexML, legislativos estaduais/municipais, anexos e auditoria integral continuam pendentes. Não foi possível demonstrar um backup restaurável ou ambiente staging nesta sessão. Consulte [`execution-status.md`](reports/execution-status.md) para números, IDs e evidências do deploy.
 
-1. Fazer T00: verificar SHA, ambiente, serviços, dados atuais e instruções.
-2. Fazer T01: backup e staging com restauração demonstrada.
-3. Fazer T02/T03: estados verdadeiros e jobs duráveis.
-4. Continuar T04–T08: arquivo oficial e texto integral corrigido/auditado das14 normas.
-5. Prosseguir catálogo nacional T09–T16 e histórico genérico T17–T22 conforme dependências.
-6. Concluir origem/votos, operação contínua e releases T23–T27.
+## Próximas tarefas de execução
+
+1. Resolver T01 com credencial/CLI ou ações via Dashboard Railway: backup lógico verificável, ambiente staging isolado e restore testado antes de novas migrations em produção.
+2. Continuar T04–T08: arquivar resposta de fonte antes do parse, baixar/analisar anexos e implementar auditoria documental por segmento para as leis prioritárias.
+3. Ampliar catálogo federal para outros tipos e fontes Câmara; implementar adaptações LexML, ALESP/SINJ e uma jurisdição municipal de piloto, preservando checkpoints e origem.
+4. Construir relações históricas e diffs textuais genéricos apenas com evidência de texto anterior/posterior e datas oficiais; medir a cobertura por jurisdição e tipo.
+5. Completar operação contínua, scheduler, autoria/processos/votos e os portões restantes descritos no plano integral.
 
 Não terminar depois dos pilotos. LMP/LGPD e fontes estaduais/municipais piloto validam algoritmos; o catálogo e os backfills precisam prosseguir para todas as normas descobertas. Não declarar cobertura nacional completa sem inventário e reconciliação por jurisdição.
 
@@ -57,4 +56,4 @@ Não usar dados fictícios para preencher esse registro. Fontes inacessíveis vi
 - Railway: web, worker, Postgres e Redis já provisionados; IDs no plano completo.
 - Web atende `$PORT`; domínio atual aponta para8080.
 
-Esta entrega contém planejamento e pesquisa. Ela não implantou as correções propostas. O seu trabalho é executar, validar e colocar os resultados em produção, documentando precisamente o que já funciona e o que ainda falta.
+Esta entrega já inclui implementação, merge, deploy e smoke público das entregas parciais listadas acima. O trabalho é retomar pelas tarefas restantes, ampliar as fontes sem mascarar lacunas e documentar precisamente o que funciona.
