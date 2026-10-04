@@ -169,23 +169,50 @@
       "name": "ALESP",
       "url": "https://www.al.sp.gov.br/norma/",
       "observed_on": "2026-10-04",
-      "status": "confirmed_http_200_html",
+      "status": "full_catalog_validated_181172",
       "findings": [
-        "Portal oficial de legislação estadual.",
-        "Contrato de enumeração/detalhes ainda não implementado nem integralmente validado."
+        "API oficial https://baleg-api-prd.al.sp.gov.br/normas; paginação page/size validada em 37 páginas de 5.000 registros.",
+        "181.172 registros enumerados; total da API conferido, identificadores únicos e sync repetida sem duplicatas.",
+        "Ficha individual identifica texto integral no repositório oficial; adapter rejeita divergência de tipo, número, ano ou domínio.",
+        "Anotações oficiais de alteração/revogação e dados de proposição/autoria ligados ao job de histórico; sem diff textual quando não há ambas as redações."
       ],
-      "decoded_response_sha256": "bd1519b17997b029bcbec1557570d6af4c4acb9e61aca0bab5481f20c945a2c9"
+      "decoded_response_sha256": "bd1519b17997b029bcbec1557570d6af4c4acb9e61aca0bab5481f20c945a2c9",
+      "catalog_verification": {
+        "records": 181172,
+        "pages": 37,
+        "page_size": 5000,
+        "catalog_ids_sha256": "06002b97a80ffcc82e91e2d033e35a690419c85a1f1c36bf97723c284f097035",
+        "database": "isolated SQLite; production pending release deployment"
+      }
     },
     {
       "name": "SINJ DF",
       "url": "https://www.sinj.df.gov.br/sinj/",
       "observed_on": "2026-10-04",
-      "status": "confirmed_http_200_html",
+      "status": "full_catalog_validated_125478",
       "findings": [
-        "Portal oficial de pesquisa de normas/diários e histórico.",
-        "Contrato de enumeração/detalhes ainda não implementado nem integralmente validado."
+        "Endpoint oficial DataTables POST de ResultadoDePesquisaNormaDatatable.ashx validado em 26 páginas de 5.000 registros.",
+        "125.478 registros enumerados; total final conferido, IDs oficiais únicos e segunda sync idempotente.",
+        "Ficha individual resolve link oficial HTML, PDF ou DOCX e identidade é validada antes da captura.",
+        "Snapshot completo de 04/10/2026 23:16 UTC: 120.294 registros anunciavam anexo; 1.242 incluíam PDF, três DOCX e 5.184 não anunciavam arquivo textual.",
+        "Texto PDF extraído com PyMuPDF; página digitalizada é submetida a OCR por Tesseract por+eng; byte original é arquivado antes da leitura.",
+        "Relações oficiais vides registradas no histórico sem atribuir diff nem vigência que o portal não prova."
       ],
-      "decoded_response_sha256": "dea75dcb88d6c19f8567133c9c1c8a18ca8703bb4f4a54c420ce5487817f94e5"
+      "decoded_response_sha256": "dea75dcb88d6c19f8567133c9c1c8a18ca8703bb4f4a54c420ce5487817f94e5",
+      "catalog_verification": {
+        "records": 125478,
+        "pages": 26,
+        "page_size": 5000,
+        "catalog_ids_sha256": "c1d7ad6d4a1ed0b3c05ef0a0a1d5b2a2ea96559988c15271b2ac994610293af0",
+        "snapshot_at": "2026-10-04T23:16:07.958608+00:00",
+        "attachments": {
+          "any": 120294,
+          "pdf_including_html_alternatives": 1242,
+          "docx": 3,
+          "without_declared_text_attachment": 5184
+        },
+        "database": "isolated SQLite; production pending release deployment"
+      }
     },
     {
       "name": "SAPL upstream",
@@ -196,7 +223,8 @@
         "Commit ecfd65a8b353be5368bce5ff624d19f4b95d3491.",
         "sapl/api/urls.py: /api/schema/, swagger-ui, redoc e router dinâmico.",
         "sapl/norma/models.py: texto_integral, materia, data_vigencia, texto_articulado/anexos.",
-        "Instalações variam: validar schema e paginação no host oficial."
+        "Instalações variam: validar schema e paginação no host oficial.",
+        "Adapter municipal ainda não está implementado; nenhum host local deve ser considerado integrado até comprovar o link oficial e validar o schema."
       ]
     },
     {
@@ -250,13 +278,38 @@
       "result": "Synced against the official endpoints into an isolated SQLite database; not production."
     },
     "parser_retest": [
-      {"law": "Código Civil", "article_nodes": 2081, "art_1_characters": 57, "art_2046_present": true, "variants": 0},
-      {"law": "Constituição", "article_nodes": 419, "adct_article_ids": 147, "component_namespaces_separated": true, "duplicate_variants": 27},
-      {"law": "CLT", "article_nodes": 962, "variants": 26},
-      {"law": "Código Penal", "article_nodes": 413, "variants": 30}
+      {
+        "law": "Código Civil",
+        "article_nodes": 2081,
+        "art_1_characters": 57,
+        "art_2046_present": true,
+        "variants": 0
+      },
+      {
+        "law": "Constituição",
+        "article_nodes": 419,
+        "adct_article_ids": 147,
+        "component_namespaces_separated": true,
+        "duplicate_variants": 27
+      },
+      {
+        "law": "CLT",
+        "article_nodes": 962,
+        "variants": 26
+      },
+      {
+        "law": "Código Penal",
+        "article_nodes": 413,
+        "variants": 30
+      }
     ],
     "caution": "These parser counts are not completeness certificates. Current materialization remains partial until independent document and attachment reconciliation exists.",
-    "history_probe": {"law": "LMP", "senate_relations_found": 62, "status": "partial", "before_after_text_reconstructed": false},
+    "history_probe": {
+      "law": "LMP",
+      "senate_relations_found": 62,
+      "status": "partial",
+      "before_after_text_reconstructed": false
+    },
     "senado_law_catalog": {
       "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI",
       "status": "confirmed_http_200_xml",
@@ -267,12 +320,50 @@
       "ids_sha256": "a3bdde23e8d8662ca230110d403edac419bb3d95725e5341d69dcecea4812162",
       "caveat": "This enumerates only records returned by Senate tipo=LEI. It does not enumerate all federal normative types or local legislation."
     },
-    "local_validation": {"pytest": "44 passed", "playwright": "4 passed; history job, before/after diff, and on-demand text flows passed", "alembic_sqlite": "migrations 0001-0007 passed", "alembic_postgresql_18": "upgrade/downgrade through revision 0005 passed; legacy date archival restored on downgrade", "production_deploy": "release SHA 1cd6efd; Railway web+worker SUCCESS; public smoke passed; LGPD history job returned 146 Senate relations and 54 verified text comparisons, with 98 pending"}
+    "local_validation": {
+      "pytest": "71 passed; 3 deprecation/configuration warnings",
+      "playwright": "4 passed; search, on-demand full-text, history, diff and ambiguous article flows",
+      "compileall": "passed for app, migrations, tests and scripts",
+      "git_diff_check": "passed",
+      "sinj_pdf_live_probe": "official 214701-byte PDF fetched and extracted to 33031 bytes of readable HTML; OCR path covered with unit test"
+    },
+    "subnational_catalogs": {
+      "observed_on": "2026-10-04",
+      "database": "isolated SQLite, full enumerations; not Railway production",
+      "alesp": {
+        "records": 181172,
+        "pages": 37,
+        "ids_sha256": "06002b97a80ffcc82e91e2d033e35a690419c85a1f1c36bf97723c284f097035"
+      },
+      "sinj_df": {
+        "records": 125478,
+        "pages": 26,
+        "ids_sha256": "c1d7ad6d4a1ed0b3c05ef0a0a1d5b2a2ea96559988c15271b2ac994610293af0",
+        "attachments_snapshot": {
+          "any": 120294,
+          "pdf": 1242,
+          "docx": 3,
+          "without_declared_text_attachment": 5184
+        }
+      },
+      "implementation": [
+        "retomable full catalog sync",
+        "exact identity checked text adapters",
+        "ALESP annotation history",
+        "SINJ-DF official relations",
+        "PDF extraction and Portuguese OCR",
+        "DOCX extraction"
+      ],
+      "production_state": "release merge, Railway deploy and production database count verification pending"
+    }
   },
   "limitations": [
-    "Probes pontuais não comprovam enumeração integral nem SLA.",
-    "Hashes referem-se a respostas decodificadas UTF8 arquivadas temporariamente durante pesquisa; fixtures de implementação precisam bytes brutos e manifestos completos.",
-    "Votações nominais específicas não foram validadas nesta pesquisa.",
-    "Contratos de integração ALESP/SINJ/hosts municipais ainda precisam validação."
+    "Local source totals are isolated-database validations; production counts must be obtained after deploy.",
+    "The Brazilian national set has no demonstrated single official endpoint enumerating all federal, state, DF and municipal laws.",
+    "The LexML SRU route probed returned anti-automation challenge HTML; direct ALESP and SINJ adapters do not depend on it.",
+    "SINJ-DF records without a declared text attachment require investigation in official gazettes or other official repositories.",
+    "Source relations do not guarantee prior/current full wording or legal-effective date for each provision.",
+    "The Normas.leg.br classification remains non-official where the provider says so; parser success is not a legal completeness certificate.",
+    "SAPL municipal integration and the remaining 25 state assembly catalogs are unimplemented work, not proven technical impossibilities."
   ]
 }

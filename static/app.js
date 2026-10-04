@@ -279,7 +279,7 @@ async function renderHistory(slug) {
       not_requested: "O histórico ainda não foi reconstruído. Solicite a busca de relações oficiais para esta norma.",
       queued: "O job está persistido e aguarda o worker.",
       running: history.job?.message || "O worker está consultando as fontes oficiais.",
-      partial: history.events_pending_text ? `${history.events_pending_text} referência(s) oficial(is) precisam de conferência de redação e vigência antes de comparação histórica.` : "Há registros oficiais confirmados, mas a cobertura completa do intervalo ainda não foi demonstrada.",
+      partial: items.length ? `${history.events_pending_text || 0} referência(s) oficial(is) foram localizadas. As redações anteriores e as datas de vigência precisam de conferência antes de uma comparação completa.` : "A fonte oficial foi consultada e não listou relações para esta norma. Isso não comprova que nunca houve alteração.",
       unavailable: history.error || "A fonte oficial não disponibilizou relações para esta norma.",
       failed: history.error || "O último processamento falhou. Você pode tentar novamente."
     }[status] || "O intervalo comprovado ainda não contém eventos de alteração. Consulte a cobertura antes de concluir que não houve alterações.";

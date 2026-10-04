@@ -87,6 +87,10 @@ def _expected_identity(law_type: str, number: str, year: int) -> tuple[str, str,
 
 
 def _document_urn(source_url: str, expected: tuple[str, str, int], *, timeout: int) -> str:
+    return _urn_from_senado_xml(_fetch_senado_detail(source_url, expected, timeout=timeout), expected)
+
+
+def _fetch_senado_detail(source_url: str, expected: tuple[str, str, int], *, timeout: int) -> bytes:
     parsed = urllib.parse.urlparse(source_url)
     if parsed.scheme != "https" or parsed.hostname != SENATE_DATA_HOST or not re.fullmatch(
         r"/dadosabertos/legislacao/\d+", parsed.path
@@ -95,7 +99,7 @@ def _document_urn(source_url: str, expected: tuple[str, str, int], *, timeout: i
     body, final_url, _content_type = _fetch(source_url, accept="application/xml", timeout=timeout)
     if urllib.parse.urlparse(final_url).hostname != SENATE_DATA_HOST:
         raise SourceDocumentUnavailable("O Senado redirecionou para um domínio não reconhecido.")
-    return _urn_from_senado_xml(body, expected)
+    return body
 
 
 def _urn_from_senado_xml(body: bytes, expected: tuple[str, str, int]) -> str:
@@ -197,7 +201,8 @@ def fetch_senado_document(
     result honestly.
     """
     expected = _expected_identity(law_type, number, year)
-    urn = _document_urn(source_url, expected, timeout=timeout)
+    senate_detail = _fetch_senado_detail(source_url, expected, timeout=timeout)
+    urn = _urn_from_senado_xml(senate_detail, expected)
     metadata, _metadata_body, _metadata_url = _fetch_normas_metadata(urn, timeout=timeout)
 
     representations = [
@@ -221,6 +226,16 @@ def fetch_senado_document(
         value.get("legislationLegalValue") == "OfficialLegalValue",
     ), reverse=True)
     if not representations:
+        if expected[0] == "RSF":
+            from app.sources.dou import fetch_senado_dou_document
+
+            try:
+                return fetch_senado_dou_document(senate_detail, number=number, year=year, timeout=timeout)
+            except SourceDocumentUnavailable as exc:
+                raise SourceDocumentUnavailable(
+                    "O Normas.leg.br não tem texto e o leitor do DOU não forneceu correspondência exata: "
+                    + str(exc)
+                ) from exc
         raise SourceDocumentUnavailable("O registro oficial não possui uma representação HTML de texto integral.")
     chosen = representations[0]
 

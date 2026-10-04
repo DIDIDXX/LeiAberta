@@ -1,0 +1,39 @@
+{
+  "source": "Official DOU daily reader and article, plus Senate open-data record",
+  "observed_on": "2026-10-04",
+  "law": {
+    "type": "RSF",
+    "number": "31",
+    "year": 2018
+  },
+  "publication": {
+    "date": "06/12/2018",
+    "section": "DO1",
+    "page": "1",
+    "column": "2"
+  },
+  "urls": {
+    "dou_reader": "https://www.in.gov.br/leiturajornal?data=06-12-2018&secao=DO1",
+    "dou_article": "https://www.in.gov.br/web/dou/-/r-e-s-o-l-u-c-a-o-53756188",
+    "senado_detail": "https://legis.senado.leg.br/dadosabertos/legislacao/30727280"
+  },
+  "files": {
+    "dou-reader-2018-12-06-do1.html": {
+      "bytes": 420609,
+      "sha256": "129c851a720c261f503932c5974123b3da881e328d16ce505446344b85ef716d"
+    },
+    "dou-rsf-31-2018.html": {
+      "bytes": 89185,
+      "sha256": "0d55b416a655307f4505363e2ebb5e6550d6e5b6744982bdf513e0c6e82190bd"
+    },
+    "senado-rsf-31-2018.xml": {
+      "bytes": 2073,
+      "sha256": "79dda6a8029c6abe57c56a6e94ca3c93c8ed7bca9f582b5c1ab8640b6de435b3"
+    }
+  },
+  "verification": [
+    "Senado identity is RSF 31/2018 and names DOU 06/12/2018 page 1 column 2 as original publication.",
+    "DOU daily reader entry is typed Resolução do Senado Federal, page 1, and includes the same number/year and full ementa.",
+    "Article page contains div.texto-dou and the same identity and ementa."
+  ]
+}

@@ -270,6 +270,124 @@ def test_normas_accepts_urn_only_response_as_confirmed_missing_text(monkeypatch)
     assert metadata == {"urn": urn}
 
 
+def test_senado_text_adapter_falls_back_to_exact_official_dou_publication(monkeypatch):
+    import io
+    import json
+
+    from app.sources.normas import fetch_senado_document
+
+    fixture_dir = Path(__file__).parent / "fixtures/official"
+    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text())
+    detail = (fixture_dir / "senado-rsf-31-2018.xml").read_bytes()
+    reader = (fixture_dir / "dou-reader-2018-12-06-do1.html").read_bytes()
+    article = (fixture_dir / "dou-rsf-31-2018.html").read_bytes()
+    for name, spec in manifest["files"].items():
+        body = (fixture_dir / name).read_bytes()
+        assert len(body) == spec["bytes"]
+        assert hashlib.sha256(body).hexdigest() == spec["sha256"]
+
+    urn = "urn:lex:br:senado.federal:resolucao:2018-12-05;31"
+    metadata = json.dumps({"urn": urn}).encode()
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def __init__(self, body, url, content_type="text/html; charset=utf-8"):
+            super().__init__(body)
+            self.url = url
+            self.headers = {"Content-Type": content_type}
+
+        def geturl(self):
+            return self.url
+
+    def fake_urlopen(request, timeout=25):
+        url = request.full_url
+        calls.append(url)
+        if url == manifest["urls"]["senado_detail"]:
+            return Response(detail, url, "application/xml")
+        if "/api/public/normas?" in url:
+            return Response(metadata, url, "application/json")
+        if url == manifest["urls"]["dou_reader"]:
+            return Response(reader, url)
+        if url == manifest["urls"]["dou_article"]:
+            return Response(article, url)
+        raise AssertionError(f"URL inesperada: {url}")
+
+    monkeypatch.setattr("app.sources.normas.urllib.request.urlopen", fake_urlopen)
+    document = fetch_senado_document(
+        manifest["urls"]["senado_detail"], "Resolução do Senado Federal", "31", 2018,
+    )
+    nodes = parse_legal_nodes(document.body)
+
+    assert document.version == "Original"
+    assert document.legal_value == "OfficialLegalValue"
+    assert document.representation == "Publicação original no Diário Oficial da União"
+    assert document.source_url == manifest["urls"]["dou_article"]
+    assert "página 1" in document.notice
+    assert any(node.node_id == "art:1" for node in nodes)
+    assert len(calls) == 4
+
+
+def test_dou_fallback_fails_closed_when_exact_resolution_is_absent(monkeypatch):
+    import io
+    import json
+    import re
+
+    from app.sources.normas import SourceDocumentUnavailable, fetch_senado_document
+
+    fixture_dir = Path(__file__).parent / "fixtures/official"
+    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text())
+    detail = (fixture_dir / "senado-rsf-31-2018.xml").read_bytes()
+    reader = (fixture_dir / "dou-reader-2018-12-06-do1.html").read_bytes().decode()
+    script = re.search(r'(<script[^>]+id="params"[^>]*>)(.*?)(</script>)', reader, re.S)
+    assert script
+    edition = json.loads(script.group(2))
+    edition["jsonArray"] = [
+        item for item in edition["jsonArray"]
+        if not (item.get("artType") == "Resolução do Senado Federal" and item.get("numberPage") == "1"
+                and "Nº 31, DE 2018" in item.get("content", ""))
+    ]
+    reader_without_match = (reader[:script.start(2)] + json.dumps(edition, ensure_ascii=False)
+                            + reader[script.end(2):]).encode()
+    urn = "urn:lex:br:senado.federal:resolucao:2018-12-05;31"
+    metadata = json.dumps({"urn": urn}).encode()
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+
+        def __init__(self, body, url):
+            super().__init__(body)
+            self.url = url
+
+        def geturl(self):
+            return self.url
+
+    def fake_urlopen(request, timeout=25):
+        url = request.full_url
+        calls.append(url)
+        if url == manifest["urls"]["senado_detail"]:
+            return Response(detail, url)
+        if "/api/public/normas?" in url:
+            return Response(metadata, url)
+        if url == manifest["urls"]["dou_reader"]:
+            return Response(reader_without_match, url)
+        raise AssertionError(f"A ausência exata não deve baixar um artigo: {url}")
+
+    monkeypatch.setattr("app.sources.normas.urllib.request.urlopen", fake_urlopen)
+    try:
+        fetch_senado_document(
+            manifest["urls"]["senado_detail"], "Resolução do Senado Federal", "31", 2018,
+        )
+    except SourceDocumentUnavailable as exc:
+        assert "não contém uma correspondência única" in str(exc)
+    else:
+        raise AssertionError("O fallback aceitou uma edição sem a RSF exata.")
+    assert len(calls) == 3
+
+
 def test_parser_returns_no_false_articles_for_unrecognized_document_structure():
     html = b"<html><body><p>Clausula primeira. Texto do ato sem artigo.</p></body></html>"
     assert parse_legal_nodes(html) == []

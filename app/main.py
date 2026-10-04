@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TEXT_SOURCE_NAMES = {
     "Presidência da República — Planalto",
     "Senado Federal — Dados Abertos Legislativos",
+    "Assembleia Legislativa do Estado de São Paulo — ALESP",
+    "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
 }
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
@@ -100,6 +102,22 @@ def stats(session: Session = Depends(get_session)):
         Law.source_name == "Senado Federal — Dados Abertos Legislativos",
         HydrationJob.job_type == "hydrate", HydrationJob.status.in_(["queued", "running"]),
     )) or 0
+    subnational_catalogs = {}
+    for source_id, source_name in (
+        ("state:SP:alesp", "Assembleia Legislativa do Estado de São Paulo — ALESP"),
+        ("state:DF:sinj", "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF"),
+    ):
+        total = session.scalar(select(func.count()).select_from(Law).where(Law.source_name == source_name)) or 0
+        with_text = session.scalar(select(func.count()).select_from(Law).where(
+            Law.source_name == source_name, Law.current_version_id.is_not(None),
+        )) or 0
+        unavailable = session.scalar(select(func.count()).select_from(Law).where(
+            Law.source_name == source_name, Law.materialization_status == "unavailable",
+        )) or 0
+        subnational_catalogs[source_id] = {
+            "source_name": source_name, "catalog_laws": total, "with_text": with_text,
+            "unavailable": unavailable, "pending": max(0, total - with_text - unavailable),
+        }
     return {
         "indexed_laws": indexed,
         "materialized_laws": materialized,
@@ -112,6 +130,7 @@ def stats(session: Session = Depends(get_session)):
             "pending": max(0, senate_total - senate_with_text - senate_unavailable),
             "active_jobs": senate_active,
         },
+        "subnational_catalogs": subnational_catalogs,
     }
 
 
@@ -246,6 +265,14 @@ def prepare_history(slug: str, session: Session = Depends(get_session)):
     law = session.get(Law, slug)
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    supported_sources = {
+        "Presidência da República — Planalto",
+        "Senado Federal — Dados Abertos Legislativos",
+        "Assembleia Legislativa do Estado de São Paulo — ALESP",
+        "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+    }
+    if law.source_name not in supported_sources:
+        raise HTTPException(status_code=409, detail="Esta fonte ainda não fornece relações oficiais para reconstruir o histórico.")
     try:
         job = queue_history(law)
     except Exception as exc:
@@ -296,6 +323,8 @@ def hydrate_law(slug: str, session: Session = Depends(get_session)):
     if law.source_name not in {
         "Presidência da República — Planalto",
         "Senado Federal — Dados Abertos Legislativos",
+        "Assembleia Legislativa do Estado de São Paulo — ALESP",
+        "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
     }:
         raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; esta fonte ainda não fornece texto integral pelo LeiAberta.")
     refresh = False

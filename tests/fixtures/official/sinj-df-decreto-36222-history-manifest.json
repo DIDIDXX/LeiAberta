@@ -1,0 +1,14 @@
+{
+  "source": "Sistema Integrado de Normas Jurídicas do Distrito Federal (SINJ-DF)",
+  "retrieved_at_utc": "2026-10-04",
+  "urls": {
+    "detail": "https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=83583"
+  },
+  "files": {
+    "sinj-df-detail-decreto-36222-2014.html": {
+      "bytes": 230071,
+      "sha256": "3bc129bc53ba6d3304d547c5ca0ca9f58f90502131e927ecae0541fbf68f32ac",
+      "content_type": "text/html"
+    }
+  }
+}

@@ -78,18 +78,19 @@ def _seed_sources(session, observed_at: datetime) -> int:
     ]
     for rid, jid, name, adapter, url, scope in seeds:
         row = session.get(SourceRegistry, rid)
+        is_discovery_seed = row is None or row.status == "discovered"
         if row is None:
             row = SourceRegistry(id=rid, name=name, adapter=adapter, base_url=url,
                                  evidence_url=url, scope=scope, status="discovered")
             session.add(row)
         row.jurisdiction_id = jid
-        row.name = name
-        row.adapter = adapter
-        row.base_url = url
-        row.evidence_url = url
-        row.scope = scope
+        if is_discovery_seed:
+            row.name = name
+            row.adapter = adapter
+            row.base_url = url
+            row.evidence_url = url
+            row.scope = scope
         # Do not promote a discovered source to operational based on a registry seed.
-        row.last_checked_at = observed_at
     return len(seeds)
 
 
