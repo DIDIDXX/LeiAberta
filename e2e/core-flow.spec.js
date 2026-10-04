@@ -27,3 +27,11 @@ test("the history flow opens an official before-and-after diff", async ({ page }
   await expect(page.getByText("Depois", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: /Lei nº 14\.550\/2023/ })).toHaveAttribute("href", /L14550\.htm/);
 });
+
+test("a cold law shows preparation progress and becomes readable on demand", async ({ page }) => {
+  await page.goto("/lei/12527-2011");
+  await expect(page.getByRole("heading", { name: "Lei de Acesso à Informação" })).toBeVisible();
+  await expect(page.getByText("Estamos preparando esta norma")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Art. 1º" })).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByRole("link", { name: /Fonte oficial/ })).toHaveAttribute("href", /l12527\.htm/);
+});
