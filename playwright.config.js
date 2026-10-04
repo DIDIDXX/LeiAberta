@@ -14,7 +14,7 @@ module.exports = defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `rm -f .e2e.db && DATABASE_URL=${dbUrl} .venv/bin/alembic upgrade head && DATABASE_URL=${dbUrl} .venv/bin/python -m app.seed && DATABASE_URL=${dbUrl} .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8012`,
+    command: `rm -f .e2e.db && APP_ENV=test LOCAL_INLINE_JOBS=1 DATABASE_URL=${dbUrl} .venv/bin/alembic upgrade head && APP_ENV=test LOCAL_INLINE_JOBS=1 DATABASE_URL=${dbUrl} .venv/bin/python -m app.seed && APP_ENV=test LOCAL_INLINE_JOBS=1 DATABASE_URL=${dbUrl} .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8012`,
     url: "http://127.0.0.1:8012/health",
     reuseExistingServer: false,
     timeout: 60_000,

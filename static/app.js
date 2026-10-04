@@ -108,7 +108,7 @@ function bindSearch(scope = document) {
 }
 
 function catalogRow(law) {
-  const material = law.materialization_status === "ready" ? "Texto estruturado" : "Fonte oficial";
+  const material = law.materialization_status === "ready" ? "Texto estruturado" : law.materialization_status === "partial" ? "Texto parcial · auditoria pendente" : "Fonte oficial";
   return `<a class="catalog-row" href="${lawPath(law)}">
     <span class="catalog-id">${esc(law.law_type)} ${law.law_type === "Constituição" ? "" : `nº ${esc(law.number)}/${esc(law.year)}`}</span>
     <span class="catalog-title">${esc(law.title)}</span>
@@ -165,7 +165,7 @@ function lawHeader(law, activeTab, crumbsList) {
   return `${crumbs(crumbsList)}<header class="law-header">
     <div class="law-eyebrow"><span class="eyebrow-line"></span>${esc(law.jurisdiction === "federal" ? "Legislação federal" : law.jurisdiction)} · ${esc(law.law_type)}</div>
     <h1>${esc(law.title)}</h1><div class="law-number">${esc(lawLabel(law))}</div>
-    <div class="law-meta"><span class="law-status">${esc(law.status.toUpperCase())}</span><span>Publicada em <b>${datePt(law.published_at)}</b></span><span>${law.article_count || 0} artigos estruturados</span></div>
+    <div class="law-meta"><span class="law-status">${esc(law.status.toUpperCase())}</span><span>Publicada em <b>${datePt(law.published_at)}</b></span>${law.signed_at ? `<span>Assinada em <b>${datePt(law.signed_at)}</b></span>` : ""}<span>${law.article_count || 0} artigos estruturados</span></div>
   </header><div class="law-toolbar"><nav class="law-tabs" aria-label="Seções da norma">
     <a class="law-tab ${activeTab === "text" ? "active" : ""}" href="${lawPath(law)}">Texto</a>
     <a class="law-tab ${activeTab === "history" ? "active" : ""}" href="${lawPath(law)}/historico">Histórico</a>
@@ -174,7 +174,7 @@ function lawHeader(law, activeTab, crumbsList) {
 
 function coverageCard(law, recentChange) {
   const c = law.coverage || {};
-  const val = status => ({ available: "Disponível", partial: "Parcial", not_materialized: "A preparar", not_identified: "Não identificado", not_available: "Indisponível" }[status] || "A preparar");
+  const val = status => ({ available: "Disponível", complete: "Completo no intervalo verificado", partial: "Parcial", queued: "Na fila", running: "Em andamento", unavailable: "Fonte indisponível", failed: "Falhou", not_requested: "Ainda não reconstruído", not_materialized: "Ainda não reconstruído", not_identified: "Não identificado", not_available: "Indisponível" }[status] || "Não verificado");
   return `<aside class="law-aside"><div class="aside-block"><div class="aside-heading">Cobertura desta norma</div>
     <div class="aside-row"><span>Fonte oficial</span><strong>${esc(val(c.official_source))}</strong></div>
     <div class="aside-row"><span>Texto estruturado</span><strong>${esc(val(c.structured_text))}</strong></div>
@@ -184,7 +184,7 @@ function coverageCard(law, recentChange) {
   </div><div class="aside-block"><div class="aside-heading">Última alteração vinculada</div>
     ${recentChange ? `<a class="aside-update" href="/diff/${encodeURIComponent(recentChange.id)}">${esc(recentChange.source_law_label)}<span class="aside-update-meta">${datePt(recentChange.changed_at)} · ${esc(recentChange.summary)}</span></a>` : `<p class="aside-empty">${c.history === "partial" ? "Há vínculos documentados no histórico." : "Informação ainda não identificada em fonte oficial."}</p>`}
   </div><div class="aside-block"><div class="aside-heading">Documento consultado</div>
-    <div class="aside-row"><span>Origem</span><strong>Planalto</strong></div>
+    <div class="aside-row"><span>Origem</span><strong>${esc(law.source_name || "Fonte oficial")}</strong></div>
     <div class="aside-row"><span>Checksum</span><strong>${law.coverage?.snapshot_checksum ? `<code>${esc(law.coverage.snapshot_checksum.slice(0, 12))}…</code>` : "Aguardando"}</strong></div>
   </div></aside>`;
 }
@@ -228,7 +228,11 @@ async function renderLaw(slug, targetArticle = "") {
   const law = initial.law;
   setMeta(`${lawLabel(law)} — ${law.title} | LeiAberta`, `${law.title}: texto atual, histórico documentado e fonte oficial no LeiAberta.`);
   const trail = [{ label: "Início", href: "/" }, { label: "Acervo", href: "/#acervo" }, { label: law.title }];
-  if (law.materialization_status !== "ready") {
+  if (!initial.version) {
+    if (!initial.materializable) {
+      main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Metadados registrados no acervo oficial do Senado.")}</p><div class="history-callout">Encontramos a norma no catálogo oficial, mas ainda não há adapter para baixar e estruturar seu texto integral. A data abaixo é a de assinatura; a data de publicação não foi identificada na listagem consultada.</div><p><a class="section-action" href="${esc(law.source_url)}" target="_blank" rel="noopener">Consultar registro oficial no Senado ${externalIcon}</a></p></div>${coverageCard(law, null)}</div></div>`;
+      return;
+    }
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Texto e metadados da norma federal.")}</p>${initial.job?.status === "failed" ? `<div class="error-banner" role="alert">${esc(initial.job.message)} <button class="text-button" data-retry="${esc(slug)}">Tentar novamente</button></div>` : progressPanel(initial.job)}<p class="aside-empty">Enquanto preparamos o texto, você pode consultar o documento integral na fonte oficial.</p></div>${coverageCard(law, null)}</div></div>`;
     const retry = main.querySelector("[data-retry]");
     retry?.addEventListener("click", async () => { await getJSON(`${API}/laws/${encodeURIComponent(slug)}/hydrate`, { method: "POST" }); renderLaw(slug, targetArticle); });
@@ -238,8 +242,9 @@ async function renderLaw(slug, targetArticle = "") {
   try {
     const [nodeData, history] = await Promise.all([getJSON(`${API}/laws/${encodeURIComponent(slug)}/nodes`), getJSON(`${API}/laws/${encodeURIComponent(slug)}/history`)]);
     const recent = history.items?.[0];
+    const auditNotice = law.materialization_status === "partial" ? `<div class="history-callout">Texto estruturado em conferência. Consulte o documento oficial enquanto verificamos anexos, segmentos e completude.</div>` : "";
     const article = targetArticle ? `<div class="law-intro">Abrindo o Art. ${esc(targetArticle)} · <a class="section-action" href="#article-${encodeURIComponent(targetArticle)}">Ir ao dispositivo ↓</a></div>` : `<p class="law-intro">${esc(law.description || "Texto consultado na fonte oficial.")} Esta versão foi estruturada a partir do documento público indicado abaixo.</p>`;
-    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content">${article}${articleHtml(nodeData.items || [])}</div>${coverageCard(law, recent)}</div></div>`;
+    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content">${auditNotice}${article}${articleHtml(nodeData.items || [])}</div>${coverageCard(law, recent)}</div></div>`;
     if (targetArticle) setTimeout(() => document.getElementById(`article-${CSS.escape(targetArticle)}`)?.scrollIntoView({ block: "start" }), 50);
   } catch (error) {
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="error-banner">${esc(error.message)}</div></div>`;
@@ -251,7 +256,7 @@ async function pollLaw(slug, article) {
     await new Promise(resolve => setTimeout(resolve, 1600));
     try {
       const data = await getJSON(`${API}/laws/${encodeURIComponent(slug)}`);
-      if (data.law.materialization_status === "ready" || data.job?.status === "failed") {
+      if (data.version || data.job?.status === "failed") {
         renderLaw(slug, article);
         return;
       }
@@ -268,25 +273,48 @@ async function renderHistory(slug) {
   const trail = [{ label: "Início", href: "/" }, { label: law.title, href: lawPath(law) }, { label: "Histórico" }];
   try {
     const history = await getJSON(`${API}/laws/${encodeURIComponent(slug)}/history`);
-    const partial = history.coverage === "partial";
+    const status = history.status || history.coverage || "not_requested";
     const items = history.items || [];
+    const statusCopy = {
+      not_requested: "O histórico ainda não foi reconstruído. Solicite a busca de relações oficiais para esta norma.",
+      queued: "O job está persistido e aguarda o worker.",
+      running: history.job?.message || "O worker está consultando as fontes oficiais.",
+      partial: history.events_pending_text ? `${history.events_pending_text} referência(s) oficial(is) precisam de conferência de redação e vigência antes de comparação histórica.` : "Há registros oficiais confirmados, mas a cobertura completa do intervalo ainda não foi demonstrada.",
+      unavailable: history.error || "A fonte oficial não disponibilizou relações para esta norma.",
+      failed: history.error || "O último processamento falhou. Você pode tentar novamente."
+    }[status] || "O intervalo comprovado ainda não contém eventos de alteração. Consulte a cobertura antes de concluir que não houve alterações.";
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "history", trail)}<section class="history-layout">
       <p class="history-intro">Alterações ligadas a esta norma por referências identificadas em documentos oficiais. Cada registro abre o dispositivo e a fonte que sustenta o vínculo.</p>
-      ${partial ? `<div class="history-callout">Histórico parcial. A linha do tempo mostra apenas alterações cuja origem foi confirmada; outros vínculos ainda não foram identificados.</div>` : ""}
-      ${items.length ? `<div class="timeline">${items.map(item => `<div class="timeline-item"><div class="timeline-date">${datePt(item.changed_at)}</div><a class="timeline-card" href="/diff/${encodeURIComponent(item.id)}"><span class="timeline-source">${esc(item.source_law_label)}</span><h3>${esc(item.summary)}</h3><p>Dispositivo ${esc(item.node_id.replaceAll(":", " · "))}</p><span class="timeline-view">Ver antes e depois ${externalIcon}</span></a></div>`).join("")}</div>` : `<div class="empty-state"><h2>O histórico está sendo preparado</h2><p>Quando uma alteração puder ser vinculada a uma fonte oficial, ela aparecerá aqui.</p><a class="section-action" href="${esc(law.source_url)}" target="_blank" rel="noopener">Consultar o texto oficial ${externalIcon}</a></div>`}
+      <div class="history-callout" role="status">${esc(statusCopy)}${history.checked_at ? `<br/>Fontes conferidas em ${datePt(history.checked_at)}.` : ""}</div>
+      ${status === "running" || status === "queued" ? `<div class="law-progress"><span class="spinner" aria-hidden="true"></span><div><p class="progress-title">${status === "queued" ? "Histórico na fila" : "Buscando relações oficiais"}</p><p class="progress-copy">${esc(history.job?.message || statusCopy)}</p></div></div>` : ""}
+      ${items.length ? `<div class="timeline">${items.map(item => `<div class="timeline-item"><div class="timeline-date">${datePt(item.changed_at)}</div><article class="timeline-card"><span class="timeline-source">${esc(item.source_law_label)}</span><h3>${esc(item.summary)}</h3><p>Dispositivo ${esc((item.node_id || "Norma relacionada").replaceAll(":", " · "))}${item.kind === "relation" ? " · redação anterior ainda não conferida" : ""}</p><a class="timeline-view" href="${item.comparison_available ? `/diff/${encodeURIComponent(item.id)}` : esc(item.source_url)}" ${item.comparison_available ? "" : 'target="_blank" rel="noopener"'}>${item.comparison_available ? `Ver antes e depois ${externalIcon}` : `Abrir referência oficial ${externalIcon}`}</a></article></div>`).join("")}</div>` : `<div class="empty-state"><h2>${status === "complete" ? "Nenhuma alteração no intervalo verificado" : status === "running" || status === "queued" ? "Nenhuma referência encontrada ainda" : "Histórico sem redações reconstruídas"}</h2><p>${status === "complete" ? "A fonte foi verificada no intervalo indicado." : "As referências encontradas e as pendências de texto aparecem nesta página. Sem reconstrução completa, ausência de resultado não significa ausência de alteração."}</p><a class="section-action" href="${esc(law.source_url)}" target="_blank" rel="noopener">Consultar a fonte oficial ${externalIcon}</a></div>`}
+      ${status !== "running" && status !== "queued" ? `<button class="text-button" data-prepare-history="${esc(slug)}">${status === "not_requested" ? "Buscar histórico oficial" : "Tentar atualizar o histórico"}</button>` : ""}
     </section></div>`;
-    if (!items.length && law.materialization_status !== "ready") pollHistory(slug);
+    const prepare = main.querySelector("[data-prepare-history]");
+    prepare?.addEventListener("click", async () => {
+      prepare.disabled = true;
+      try {
+        await getJSON(`${API}/laws/${encodeURIComponent(slug)}/history/prepare`, { method: "POST" });
+        await renderHistory(slug);
+        pollHistory(slug);
+      } catch (error) {
+        const banner = document.createElement("div"); banner.className = "error-banner"; banner.textContent = error.message;
+        main.querySelector(".history-layout")?.prepend(banner); prepare.disabled = false;
+      }
+    });
+    if (history.job && ["queued", "running"].includes(history.job.status)) pollHistory(slug, history.job.id);
   } catch (error) {
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "history", trail)}<div class="error-banner">${esc(error.message)}</div></div>`;
   }
 }
 
-async function pollHistory(slug) {
-  for (let i = 0; i < 30; i++) {
-    await new Promise(resolve => setTimeout(resolve, 1800));
-    const data = await getJSON(`${API}/laws/${encodeURIComponent(slug)}/history`).catch(() => null);
-    if (data?.items?.length) { renderHistory(slug); return; }
+async function pollHistory(slug, jobId) {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    const job = await getJSON(`${API}/jobs/${encodeURIComponent(jobId)}`).catch(() => null);
+    if (job && !["queued", "running"].includes(job.status)) { renderHistory(slug); return; }
   }
+  if (location.pathname.endsWith("/historico")) renderHistory(slug);
 }
 
 async function renderDiff(changeId) {

@@ -1,0 +1,9 @@
+{
+  "source": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI&numero=13709&ano=2018",
+  "source_name": "Senado Federal — Dados Abertos Legislativos",
+  "retrieved_at": "2026-10-04",
+  "content_type": "application/xml",
+  "sha256": "2958cf99b30ee23dbf376c1aec43fb4d68300791c1516188555187c88c4180ac",
+  "norm": "Lei 13.709/2018",
+  "purpose": "Fixture de registro oficial para testar a sincronização do catálogo."
+}

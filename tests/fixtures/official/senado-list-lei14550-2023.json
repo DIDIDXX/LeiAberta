@@ -1,0 +1,9 @@
+{
+  "source": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI&numero=14550&ano=2023",
+  "source_name": "Senado Federal — Dados Abertos Legislativos",
+  "retrieved_at": "2026-10-04",
+  "content_type": "application/xml",
+  "sha256": "c3f4d7733907f6f251739a033fb480edaf51515f9f4210c48d8541dd9760ecf9",
+  "norm": "Lei 14.550/2023",
+  "purpose": "Fixture oficial de listagem para identidade remota, ementa e data de assinatura; não contém texto integral."
+}

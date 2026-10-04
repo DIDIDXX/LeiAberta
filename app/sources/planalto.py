@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
-PARSER_VERSION = "1.1"
-ARTICLE_RE = re.compile(r"^Art\.\s*(\d+[A-Za-z]?(?:-[A-Za-z])?)\s*(?:º|°|o)?\s*[.\-–—]?\s*(.*)$", re.I)
+PARSER_VERSION = "2.0"
+ARTICLE_RE = re.compile(r"^Art\.\s*((?:\d{1,3}(?:\.\d{3})+|\d+)[A-Za-z]?(?:-[A-Za-z])?)\s*(?:º|°|o)?\s*[.\-–—]?\s*(.*)$", re.I)
 PARAGRAPH_RE = re.compile(r"^(§\s*(\d+)\s*(?:º|°|o)?|Parágrafo único)\s*[.\-–—]?\s*(.*)$", re.I)
 INCISO_RE = re.compile(r"^([IVXLCDM]{1,8})\s*[-–—]\s*(.+)$", re.I)
 ALINEA_RE = re.compile(r"^([a-z])\)\s*(.+)$", re.I)
@@ -88,10 +88,16 @@ def decode_html(body: bytes) -> str:
 
 def extract_paragraphs(html: bytes) -> list[tuple[str, str]]:
     soup = BeautifulSoup(decode_html(html), "html.parser")
-    for tag in soup(["script", "style", "noscript", "s", "strike", "del"]):
+    for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
+    for tag in soup.find_all(["s", "strike", "del"]):
+        tag.insert_before(" ⟦REDAÇÃO MARCADA COMO REVOGADA NA FONTE: ")
+        tag.insert_after("⟧ ")
+        tag.unwrap()
     for tag in soup.find_all(style=re.compile(r"line-through", re.I)):
-        tag.decompose()
+        tag.insert_before(" ⟦REDAÇÃO MARCADA COMO REVOGADA NA FONTE: ")
+        tag.insert_after("⟧ ")
+        tag.attrs.pop("style", None)
 
     paragraphs: list[tuple[str, str]] = []
     for element in soup.find_all(["p", "li"]):
@@ -127,32 +133,44 @@ def parse_legal_nodes(html: bytes) -> list[ParsedNode]:
     current_article: str | None = None
     current_parent: str | None = None
     current_item: str | None = None
+    component = "body"
     order = 0
 
     def add(node_id: str, parent: str | None, kind: str, label: str, text: str, note: str = "") -> None:
         nonlocal order
-        clean = re.sub(r"\s+", " ", text).strip(" \t-–—.;")
+        clean = re.sub(r"\s+", " ", text).strip()
         if not clean and kind != "article":
             return
         if node_id in nodes_by_id:
             existing = nodes_by_id[node_id]
-            if clean and clean not in existing.text:
-                existing.text = (existing.text + " " + clean).strip()
-            if note:
-                existing.source_note = (existing.source_note + " " + note).strip()
-            return
-        if nodes and nodes[-1].node_id == node_id:
-            if clean and clean not in nodes[-1].text:
-                nodes[-1].text = (nodes[-1].text + " " + clean).strip()
-            if note:
-                nodes[-1].source_note = (nodes[-1].source_note + " " + note).strip()
+            if clean == existing.text:
+                existing.source_note = " ".join(part for part in (existing.source_note, note) if part)
+                return
+            # Preserve duplicate source passages as separately reviewable variants instead of
+            # silently concatenating them into an unrelated article.
+            variant_id = f"{node_id}.source-variant:{order + 1}"
+            parent_id = node_id if kind == "article" else parent
+            order += 1
+            nodes.append(ParsedNode(variant_id, parent_id, "variant", f"{label} — redação alternativa na fonte",
+                                    clean, "Passagem repetida no mesmo documento oficial; escopo precisa de revisão. " + note, order))
             return
         order += 1
         node = ParsedNode(node_id, parent, kind, label, clean, note, order)
         nodes.append(node)
         nodes_by_id[node_id] = node
 
-    for paragraph, _raw in extract_paragraphs(html):
+    paragraphs = extract_paragraphs(html)
+    normalized = [re.sub(r"\s+", " ", paragraph).strip(" .:").casefold() for paragraph, _raw in paragraphs]
+    adct_headings = [i for i, value in enumerate(normalized)
+                     if value in {"ato das disposições constitucionais transitórias", "disposições constitucionais transitórias"}]
+    adct_start = max(adct_headings, default=-1)
+    for paragraph_index, (paragraph, _raw) in enumerate(paragraphs):
+        if paragraph_index == adct_start:
+            component = "adct"
+            current_article = None
+            current_parent = None
+            current_item = None
+            continue
         for candidate in _split_candidates(paragraph):
             candidate, note = _strip_source_note(candidate)
             if not candidate:
@@ -161,11 +179,13 @@ def parse_legal_nodes(html: bytes) -> list[ParsedNode]:
                 continue
             article = ARTICLE_RE.match(candidate)
             if article:
-                number, body = article.groups()
-                current_article = f"art:{number.lower()}"
+                printed_number, body = article.groups()
+                number = printed_number.replace(".", "")
+                prefix = "adct:art" if component == "adct" else "art"
+                current_article = f"{prefix}:{number.lower()}"
                 current_parent = current_article
                 current_item = None
-                add(current_article, None, "article", f"Art. {number}º", body, note)
+                add(current_article, None, "article", f"Art. {printed_number}º", body, note)
                 continue
             if current_article is None:
                 continue

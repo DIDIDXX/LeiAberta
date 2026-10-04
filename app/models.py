@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -21,9 +21,11 @@ class Law(Base):
     law_type: Mapped[str] = mapped_column(String(48))
     number: Mapped[str] = mapped_column(String(24))
     year: Mapped[int] = mapped_column(Integer, index=True)
+    external_source_id: Mapped[str | None] = mapped_column(String(96), unique=True, nullable=True)
+    signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     title: Mapped[str] = mapped_column(String(300), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(48), default="Em vigor")
+    status: Mapped[str] = mapped_column(String(48), default="Não verificado")
     published_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     aliases: Mapped[list] = mapped_column(JSON, default=list)
     source_name: Mapped[str] = mapped_column(String(120), default="Presidência da República — Planalto")
@@ -38,9 +40,40 @@ class Law(Base):
     versions: Mapped[list["LawVersion"]] = relationship(back_populates="law", cascade="all, delete-orphan", foreign_keys="LawVersion.law_slug")
 
 
+class Jurisdiction(Base):
+    __tablename__ = "jurisdictions"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24), index=True)
+    name: Mapped[str] = mapped_column(String(180), index=True)
+    ibge_code: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True)
+    uf: Mapped[str | None] = mapped_column(String(2), index=True, nullable=True)
+    parent_id: Mapped[str | None] = mapped_column(ForeignKey("jurisdictions.id"), nullable=True, index=True)
+    legislature_eligible: Mapped[bool] = mapped_column(Boolean, default=True)
+    territorial_status: Mapped[str] = mapped_column(String(32), default="active")
+    metadata_json: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+    source_url: Mapped[str] = mapped_column(Text)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class SourceRegistry(Base):
+    __tablename__ = "source_registry"
+
+    id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    jurisdiction_id: Mapped[str | None] = mapped_column(ForeignKey("jurisdictions.id"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(180))
+    adapter: Mapped[str] = mapped_column(String(48))
+    base_url: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), default="discovered", index=True)
+    scope: Mapped[dict] = mapped_column(JSON, default=dict)
+    evidence_url: Mapped[str] = mapped_column(Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+
+
 class LawVersion(Base):
     __tablename__ = "law_versions"
-    __table_args__ = (UniqueConstraint("law_slug", "checksum", name="uq_law_version_checksum"),)
+    __table_args__ = (UniqueConstraint("law_slug", "checksum", "parser_version", name="uq_law_version_checksum_parser"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), index=True)
@@ -109,15 +142,62 @@ class LawChange(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class HistoryEvent(Base):
+    """An official relation discovered for a norm; not necessarily a validated text diff."""
+    __tablename__ = "history_events"
+    __table_args__ = (UniqueConstraint("law_slug", "source_id", "device_ref", name="uq_history_event_source_device"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), index=True)
+    source_id: Mapped[str] = mapped_column(String(96))
+    device_ref: Mapped[str] = mapped_column(String(240), default="")
+    relation: Mapped[str] = mapped_column(String(120))
+    event_label: Mapped[str] = mapped_column(String(240))
+    event_url: Mapped[str] = mapped_column(Text)
+    signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    publication_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    evidence: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(24), default="discovered")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    law: Mapped[Law] = relationship()
+
+
 class HydrationJob(Base):
     __tablename__ = "hydration_jobs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), index=True)
+    job_type: Mapped[str] = mapped_column(String(24), default="hydrate", index=True)
     status: Mapped[str] = mapped_column(String(20), default="queued", index=True)
     stage: Mapped[int] = mapped_column(Integer, default=0)
+    stage_name: Mapped[str] = mapped_column(String(40), default="queued")
     message: Mapped[str] = mapped_column(String(240), default="Aguardando preparação")
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class JobOutbox(Base):
+    __tablename__ = "job_outbox"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("hydration_jobs.id", ondelete="CASCADE"), unique=True, index=True)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)
+    dispatched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+Index(
+    "uq_active_job_per_law_type",
+    HydrationJob.law_slug,
+    HydrationJob.job_type,
+    unique=True,
+    postgresql_where=HydrationJob.status.in_(["queued", "running"]),
+    sqlite_where=HydrationJob.status.in_(["queued", "running"]),
+)

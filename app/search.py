@@ -4,8 +4,8 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import String, cast, or_, select
+from sqlalchemy.orm import Session, load_only
 
 from app.models import Law, LegalNode
 
@@ -66,10 +66,63 @@ def _similarity(query: str, candidate: str) -> float:
     return ratio
 
 
+def _display_number(digits: str) -> str:
+    if len(digits) <= 3:
+        return digits
+    groups = []
+    while digits:
+        groups.append(digits[-3:])
+        digits = digits[:-3]
+    return ".".join(reversed(groups))
+
+
 def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     parsed = parse_query(query)
     normalized_query = normalize_query(query)
-    laws = list(session.scalars(select(Law)))
+    candidate_query = select(Law)
+    description_loaded = False
+    if parsed["number"]:
+        number_forms = {parsed["number"], _display_number(parsed["number"])}
+        exact = candidate_query.where(Law.number.in_(number_forms))
+        if parsed["year"]:
+            exact = exact.where(Law.year == parsed["year"])
+        laws = list(session.scalars(exact.limit(500)))
+        description_loaded = bool(laws)
+    else:
+        laws = []
+    terms = parsed["terms"]
+    if not laws and terms:
+        needle = f"%{terms}%"
+        token_conditions = []
+        for token in terms.split():
+            if len(token) >= 4:
+                token_needle = f"%{token}%"
+                token_conditions.extend((Law.title.ilike(token_needle), Law.description.ilike(token_needle),
+                                         cast(Law.aliases, String).ilike(token_needle)))
+        candidates = candidate_query.where(or_(
+            Law.title.ilike(needle), Law.description.ilike(needle),
+            cast(Law.aliases, String).ilike(needle),
+            *token_conditions,
+        )).limit(1000)
+        laws = list(session.scalars(candidates))
+        description_loaded = bool(laws)
+    if not laws and terms.split():
+        first_token = terms.split()[0]
+        prefix = first_token[:2] if len(first_token) <= 4 else first_token[:3]
+        prefix_needle = f"%{prefix}%"
+        laws = list(session.scalars(candidate_query.where(or_(
+            Law.title.ilike(prefix_needle), cast(Law.aliases, String).ilike(prefix_needle),
+        )).limit(1000)))
+        description_loaded = bool(laws)
+    if parsed["number"] and not laws and not terms:
+        return {"query": query, "parsed": parsed, "results": [], "suggestion": False}
+    # If no exact SQL match exists, scan names only for typo suggestions such as LGDP.
+    if not laws:
+        laws = list(session.scalars(candidate_query.options(load_only(
+            Law.slug, Law.jurisdiction, Law.state_code, Law.municipality, Law.law_type, Law.number,
+            Law.year, Law.title, Law.status, Law.aliases, Law.source_url, Law.materialization_status,
+            Law.hot,
+        ))))
     scored: list[tuple[int, float, Law, bool]] = []
 
     for law in laws:
@@ -90,8 +143,15 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             if terms in normalized_aliases:
                 score = max(score, 900)
                 exact = True
+            elif terms in normalize_query(law.description or "" if description_loaded else ""):
+                score = max(score, 780)
             else:
                 best = max((_similarity(terms, alias) for alias in aliases), default=0.0)
+                query_tokens = terms.split()
+                description_tokens = normalize_query(law.description or "" if description_loaded else "").split()
+                if query_tokens and all(any(_similarity(token, word) >= 0.72 for word in description_tokens)
+                                        for token in query_tokens):
+                    best = max(best, 0.72)
                 if terms in normalize_query(law.title):
                     score = max(score, 820)
                 elif any(terms in normalize_query(alias) for alias in law.aliases):
@@ -119,6 +179,10 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             scored.append((score, _similarity(terms or query, law.title), law, exact))
 
     scored.sort(key=lambda entry: (entry[0], entry[1], entry[2].hot), reverse=True)
+    descriptions = {}
+    if not description_loaded and scored:
+        top_slugs = [entry[2].slug for entry in scored[:limit]]
+        descriptions = dict(session.execute(select(Law.slug, Law.description).where(Law.slug.in_(top_slugs))).all())
     results = []
     for score, similarity, law, exact in scored[:limit]:
         results.append({
@@ -129,7 +193,7 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             "year": law.year,
             "jurisdiction": law.jurisdiction,
             "status": law.status,
-            "description": law.description,
+            "description": law.description if description_loaded else descriptions.get(law.slug, ""),
             "source_url": law.source_url,
             "materialization_status": law.materialization_status,
             "article": parsed["article"] if parsed["article"] else None,

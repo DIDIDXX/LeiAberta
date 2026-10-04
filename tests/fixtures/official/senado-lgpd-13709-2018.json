@@ -1,0 +1,9 @@
+{
+  "source": "https://legis.senado.leg.br/dadosabertos/legislacao/LEI/13709/2018",
+  "source_name": "Senado Federal — Dados Abertos Legislativos",
+  "retrieved_at": "2026-10-04",
+  "content_type": "application/xml",
+  "sha256": "e3a786b571909aaee77a4f6771726648ac0b8bc036ee131738a70a0c94be0f1a",
+  "norm": "Lei 13.709/2018",
+  "purpose": "Fixture real para verificar identificação normativa e referências históricas declaradas pelo Senado; essas referências não equivalem a versões históricas completas."
+}
