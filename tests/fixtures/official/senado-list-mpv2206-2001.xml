@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListaDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/ListaDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 16:55:56</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém a lista de Legislação Federal com base nos parâmetros informados.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="559113"><tipo>MPV-cs</tipo><descricao>Medida Provisória com Sequencial</descricao><numero>2206</numero><reedicao>1</reedicao><norma>MPV-2206-1-2001-09-06</norma><normaNome>Medida Provisória nº 2.206-1 de 06/09/2001</normaNome><ementa>Cria o Programa Nacional de Renda Mínima vinculado à saúde: &quot;Bolsa-Alimentação&quot; e dá outras providências.</ementa><dataassinatura>06/09/2001</dataassinatura><anoassinatura>2001</anoassinatura><apelido>MPV-2206-1-2001-09-06</apelido></documento><documento id="559112"><tipo>MPV-ss</tipo><descricao>Medida Provisória sem Sequencial</descricao><numero>2206</numero><norma>MPV-2206-2001-08-10</norma><normaNome>Medida Provisória nº 2.206 de 10/08/2001</normaNome><ementa>Cria o Programa Nacional de Renda Mínima vinculado à saúde: &quot;Bolsa-Alimentação&quot; e dá outras providências.</ementa><dataassinatura>10/08/2001</dataassinatura><anoassinatura>2001</anoassinatura><apelido>MPV-2206-2001-08-10</apelido></documento></documentos>
+</ListaDocumento>

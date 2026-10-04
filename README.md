@@ -7,13 +7,14 @@ LeiAberta é um acervo público para pesquisar legislação brasileira, ler disp
 ## O que está no MVP
 
 - Busca em português com normalização de acentos e pontuação, siglas, números e anos, nomes populares e aproximação para erros comuns como `LGDP`.
-- Catálogo-semente de quatorze normas federais. Ainda não é um inventário integral de normas brasileiras.
+- Catálogo federal com as seis categorias atualmente enumeradas pelo Senado: leis, leis complementares, emendas constitucionais, medidas provisórias, decretos legislativos e resoluções do Senado. A enumeração não cobre todos os atos federais nem as leis estaduais e municipais.
 - Leitura por artigo e subdivisões, com IDs estáveis como `art:7.par:2.inciso:I`.
 - Preparação sob demanda com job persistido, fila Redis Streams com confirmação/retomada, snapshots oficiais, checksum SHA-256 e registro da versão consultada. Para desenvolvimento local, execução inline exige `LOCAL_INLINE_JOBS=1`.
-- Histórico com relações descobertas na API oficial do Senado e diferenças textuais apenas quando antes/depois foram verificados. Relações oficiais ainda sem redação histórica ficam marcadas como pendentes, não como comparação.
+- Histórico com relações descobertas na API do Senado e diferenças textuais apenas quando antes/depois foram verificados. Relações ainda sem redação histórica ficam marcadas como pendentes, não como comparação.
+- Captura sob demanda de textos federais do Planalto e de documentos ligados pelo Senado ao portal Normas.leg.br. O portal identifica muitas transcrições e compilações como “valor jurídico não oficial”; essa classificação acompanha o texto e a cobertura nunca é certificada só porque o parser terminou.
 - Indicadores de cobertura que distinguem texto encontrado, histórico parcial e informações ainda não identificadas.
 
-O catálogo não representa cobertura nacional completa. O diretório territorial sincroniza as 27 UFs e localidades do IBGE, mas o cadastro territorial não significa que suas leis já foram descobertas. As fontes de texto integradas nesta etapa são Planalto e metadados relacionais do Senado. Adapters estaduais/municipais, enumeração nacional e tramitação ainda estão pendentes.
+O catálogo não representa cobertura nacional completa. O diretório territorial sincroniza as 27 UFs e localidades do IBGE, mas o cadastro territorial não significa que suas leis já foram descobertas. Ainda não há enumeração nacional por Assembleia Legislativa e Câmara Municipal. Tramitação, autores e votos seguem como conjuntos de dados separados.
 
 ## Arquitetura
 
@@ -48,9 +49,9 @@ python scripts/sync_jurisdictions.py
 python scripts/sync_senado_catalog.py
 ```
 
-No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza o catálogo-semente, o diretório territorial IBGE e as leis enumeradas pelo Senado. Falha temporária dos dois últimos provedores fica no log e mantém os dados anteriores. Quando Redis está configurado, os destaques entram na fila de hidratação. A pessoa também pode abrir qualquer norma Planalto fria para prepará-la sob demanda. O processo pode ser repetido sem duplicar identidades ou versões com o mesmo checksum. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
+No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza o diretório IBGE e os seis catálogos federais do Senado. O worker prepara textos frios sob demanda e enfileira até 100 normas do Senado a cada cinco minutos, com fila persistente e deduplicação. A origem seleciona a publicação original ou uma compilação atual disponível e preserva o rótulo de valor jurídico do Normas.leg.br. O progresso aparece em `/api/stats` no objeto `senado_text`. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
 
-Após `alembic upgrade head`, atualize o inventário territorial com `python scripts/sync_jurisdictions.py` e o catálogo federal leve de leis com `python scripts/sync_senado_catalog.py`. O primeiro lê os endpoints oficiais do IBGE; o segundo enumera os registros de `tipo=LEI` publicados pela API do Senado e faz upsert por identidade externa. Esse universo é o catálogo de leis enumeradas pelo Senado, não todos os atos normativos federais nem a legislação estadual/municipal. As entradas Senate-only mostram metadados e link oficial até existir adapter para buscar seu texto integral.
+Após `alembic upgrade head`, atualize o inventário territorial com `python scripts/sync_jurisdictions.py` e os seis tipos do Senado com `python scripts/sync_senado_catalog.py`. Use `--type MPV --type LCP` para selecionar categorias ou `--force` para ignorar a janela de frescor de 24 horas. O sincronizador faz upsert por identidade oficial, preservando reedições como `2.206-1`. Para adiantar a fila de texto, execute `python scripts/queue_senado_text_batch.py --limit 500`; o worker continua o lote em segundo plano.
 
 O adapter `app/sources/planalto.py` baixa HTML oficial, preserva redações marcadas como revogadas, separa namespaces da Constituição/ADCT e guarda variantes de artigos repetidos. Até existir auditoria independente de completude documental, o resultado é publicado como parcial. Falhas não apagam snapshots já armazenados.
 
@@ -83,8 +84,8 @@ Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguida
 
 ## Fontes e limitações
 
-- Texto consolidado integrado: Presidência da República — Planalto, HTML de normas federais.
-- Relações normativas: API oficial do Senado. Uma relação não demonstra, por si só, o conteúdo integral anterior/posterior nem a data de eficácia.
+- Texto integrado: Presidência da República — Planalto e representações HTML ligadas pelo catálogo do Senado ao Normas.leg.br. Cobertura documental permanece parcial até revisão dos segmentos, anexos e classificação jurídica.
+- Relações normativas: API do Senado. Uma relação não demonstra, por si só, o conteúdo integral anterior/posterior nem a data de eficácia.
 - A linha do tempo distingue diferença textual validada de referência oficial que ainda não tem comparação.
 - O vínculo entre lei e projeto legislativo, a autoria de dispositivos, relatorias, emendas e votos individuais ainda não está implementado.
 - A expansão estadual e municipal requer adapters por família de fonte (por exemplo, SAPL e portais legislativos), além de metadados oficiais para o catálogo.

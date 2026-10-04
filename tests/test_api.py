@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.models import Jurisdiction, Law
+from app.models import Jurisdiction, Law, LawVersion, LegalNode, SourceSnapshot
 
 
 def test_search_endpoint_handles_typo(db_session, add_law):
@@ -104,7 +104,9 @@ def test_jurisdictions_endpoint_filters_and_paginates(db_session):
     assert payload["has_more"] is False
 
 
-def test_senado_catalog_only_norma_does_not_claim_or_queue_text(db_session):
+def test_senado_catalog_entry_can_queue_text_without_claiming_it_is_ready(db_session, monkeypatch):
+    from types import SimpleNamespace
+
     row = Law(
         slug="senado-36981001", jurisdiction="federal", law_type="Lei", number="14.550", year=2023,
         external_source_id="36981001", title="Lei nº 14.550 de 19/04/2023",
@@ -121,6 +123,9 @@ def test_senado_catalog_only_norma_does_not_claim_or_queue_text(db_session):
         yield db_session
 
     app.dependency_overrides[get_session] = override_session
+    monkeypatch.setattr("app.main.queue_hydration", lambda law, refresh=False: SimpleNamespace(
+        id="senado-hydration-job", status="queued", stage=0, message="Aguardando worker",
+    ))
     try:
         client = TestClient(app)
         detail = client.get("/api/laws/senado-36981001")
@@ -129,8 +134,44 @@ def test_senado_catalog_only_norma_does_not_claim_or_queue_text(db_session):
     finally:
         app.dependency_overrides.clear()
     assert detail.status_code == 200
-    assert detail.json()["materializable"] is False
-    assert detail.json()["job"] is None
+    assert detail.json()["materializable"] is True
+    assert detail.json()["job"]["id"] == "senado-hydration-job"
     assert nodes.json()["status"] == "catalog"
     assert nodes.json()["items"] == []
-    assert hydrate.status_code == 409
+    assert hydrate.status_code == 202
+
+
+def test_document_audit_uses_archived_source_and_never_certifies_completeness(db_session, add_law):
+    import hashlib
+
+    law = add_law()
+    body = "<html><head><meta charset='utf-8'></head><body><p>Art. 1º Texto oficial.</p><a href='/anexo.pdf'>Anexo</a></body></html>".encode()
+    checksum = hashlib.sha256(body).hexdigest()
+    db_session.add(law)
+    version = LawVersion(law_slug=law.slug, version_name="Consolidado", source_url=law.source_url,
+                         retrieved_at=datetime.now(timezone.utc), checksum=checksum,
+                         parser_version="2.0", is_current=True, article_count=1)
+    db_session.add(version)
+    db_session.flush()
+    law.current_version_id = version.id
+    db_session.add(LegalNode(law_slug=law.slug, version_id=version.id, node_id="art:1", parent_node_id=None,
+                             node_type="article", label="Art. 1º", text="Texto oficial.", source_note="", order_index=1))
+    db_session.add(SourceSnapshot(law_slug=law.slug, version_id=None, source_url=law.source_url,
+                                  checksum=checksum, raw_format="text/html; charset=utf-8", raw_body=body,
+                                  retrieved_at=datetime.now(timezone.utc)))
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/laws/13709-2018/audit")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"]["checksum"] == checksum
+    assert payload["audit"]["source_unique_article_count"] == 1
+    assert payload["audit"]["detected_pdf_attachments"]
+    assert payload["audit"]["completeness_certified"] is False

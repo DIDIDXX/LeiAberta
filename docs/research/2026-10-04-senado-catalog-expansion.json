@@ -1,0 +1,103 @@
+{
+  "observed_at": "2026-10-04T20:04:19.874651+00:00",
+  "source_api": "https://legis.senado.leg.br/dadosabertos/v3/api-docs",
+  "sync_command": "python scripts/sync_senado_catalog.py --force",
+  "database": "isolated SQLite database with migrations 0001-0006 and the 14 seed laws",
+  "types": [
+    {
+      "code": "LEI",
+      "label": "Lei",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI",
+      "listed": 16883,
+      "added": 16873,
+      "attached_to_seed": 10,
+      "source_response_sha256": "c0e750340d642a2b0d91a7f8cdbefc6ceb972684adc661348030d766f6ad34ee",
+      "catalog_ids_sha256": "a90b440313bd6a901b6dfe5b060da6cc1d76b873421ea6f7319ca893bad24a39"
+    },
+    {
+      "code": "LCP",
+      "label": "Lei Complementar",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LCP",
+      "listed": 239,
+      "added": 238,
+      "attached_to_seed": 1,
+      "source_response_sha256": "9cd9ffbb4049d49e144df000843ef241313fef2e14b09603c591aa53627de14b",
+      "catalog_ids_sha256": "639b162002d6bf01e5f19816d1860c704ba6a6bf11b8aab7f1dccaa2c2fcb43d"
+    },
+    {
+      "code": "EMC",
+      "label": "Emenda Constitucional",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=EMC",
+      "listed": 188,
+      "added": 188,
+      "attached_to_seed": 0,
+      "source_response_sha256": "e3d891755611275b9b7afbfd5a53404d63ac76d3a9a27f5769e30efc26c35902",
+      "catalog_ids_sha256": "5266c7b53806815d54b3eb5871130d3d514eabd45b3ff8aba2bff5640b44306d"
+    },
+    {
+      "code": "MPV",
+      "label": "Medida Provisória",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=MPV",
+      "listed": 7495,
+      "added": 7495,
+      "attached_to_seed": 0,
+      "source_response_sha256": "9f4af08e7d94dafb94e4efbf8650a68b0ff0f43bbc6ec2db17db7025d0929846",
+      "catalog_ids_sha256": "9deba94e59a525a88e1cae48fd6bc62971145ce20d3081f2b8381a7f4e86fbab"
+    },
+    {
+      "code": "DLG",
+      "label": "Decreto Legislativo",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=DLG",
+      "listed": 15944,
+      "added": 15944,
+      "attached_to_seed": 0,
+      "source_response_sha256": "f360751253922e588ec88abbc3a211fbe7e9fe7c940745658b4cc614691cb3c9",
+      "catalog_ids_sha256": "31e8823a1e49b85f24cdd918a786eaa0d9b0ccf710562b2da12a936ab2d62e3b"
+    },
+    {
+      "code": "RSF",
+      "label": "Resolução do Senado Federal",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=RSF",
+      "listed": 6578,
+      "added": 6578,
+      "attached_to_seed": 0,
+      "source_response_sha256": "4c03b86484689788fbc8ce64508afa2e9b2172df9e3caecea0a918a18569dd34",
+      "catalog_ids_sha256": "b92caba9803357bd0cec35250dc1827bf17ba96852cd84ba4504649f22729343"
+    }
+  ],
+  "totals": {
+    "records_returned_across_validated_types": 47327,
+    "new_law_rows": 47316,
+    "seed_identities_attached": 11,
+    "errors": 0,
+    "database_law_count_after_sync": 47330
+  },
+  "single_record_fixtures": [
+    {
+      "file": "tests/fixtures/official/senado-list-lcp237-2026.xml",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LCP&numero=237&ano=2026",
+      "records": 1,
+      "response_bytes": 1794,
+      "sha256": "b670fac7223a05daa68964c6db97432666ed33834d05129da04ab7f73566faad"
+    },
+    {
+      "file": "tests/fixtures/official/senado-list-emc138-2025.xml",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=EMC&numero=138&ano=2025",
+      "records": 1,
+      "response_bytes": 1044,
+      "sha256": "8f967d458e436294ec51217d8758e47a883e0efc886c194e0b2c27aaa4674fd2"
+    },
+    {
+      "file": "tests/fixtures/official/senado-list-mpv2206-2001.xml",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=MPV&numero=2206&ano=2001",
+      "records": 2,
+      "response_bytes": 1544,
+      "sha256": "83032f8e045b12785ecf83120fd88009fefc0f22a78ed94e5f98bb0cd0b1b4b4"
+    }
+  ],
+  "limitations": [
+    "The six validated Senado types are not a proven enumeration of every federal normative category.",
+    "Senado metadata records do not imply that full source text or annexes were available or parsed.",
+    "This does not include executive decrees, Câmara-only records, state/municipal collections, or reconstructed historical text."
+  ]
+}

@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
 
-PARSER_VERSION = "2.0"
-ARTICLE_RE = re.compile(r"^Art\.\s*((?:\d{1,3}(?:\.\d{3})+|\d+)[A-Za-z]?(?:-[A-Za-z])?)\s*(?:º|°|o)?\s*[.\-–—]?\s*(.*)$", re.I)
+PARSER_VERSION = "2.1"
+ARTICLE_RE = re.compile(r"^Art\.\s*((?:\d{1,3}(?:\.\d{3})+|\d+)(?:[A-NP-Za-np-z]|-(?:\d+|[A-Za-z]))?(?:\s*(?:º|°|o))?(?:-[A-Za-z0-9]+)?)\s*[.\-–—]?\s*(.*)$", re.I)
 PARAGRAPH_RE = re.compile(r"^(§\s*(\d+)\s*(?:º|°|o)?|Parágrafo único)\s*[.\-–—]?\s*(.*)$", re.I)
 INCISO_RE = re.compile(r"^([IVXLCDM]{1,8})\s*[-–—]\s*(.+)$", re.I)
 ALINEA_RE = re.compile(r"^([a-z])\)\s*(.+)$", re.I)
@@ -126,6 +126,20 @@ def _split_candidates(value: str) -> list[str]:
     return [value] if value else []
 
 
+def canonical_article_number(value: str) -> str:
+    """Normalize the article marker while preserving legal suffixes such as 1-A."""
+    without_ordinal = re.sub(r"(?<=\d)\s*(?:º|°|o)(?=\s*(?:-|$))", "", value, flags=re.I)
+    return re.sub(r"[.\s]", "", without_ordinal).casefold()
+
+
+def article_label(value: str) -> str:
+    number = canonical_article_number(value)
+    if "-" in number:
+        base, suffix = number.split("-", 1)
+        return f"Art. {base}º-{suffix.upper()}"
+    return f"Art. {number}º"
+
+
 def parse_legal_nodes(html: bytes) -> list[ParsedNode]:
     """Extract stable article, paragraph, item and subitem identifiers from a Planalto HTML text."""
     nodes: list[ParsedNode] = []
@@ -180,12 +194,12 @@ def parse_legal_nodes(html: bytes) -> list[ParsedNode]:
             article = ARTICLE_RE.match(candidate)
             if article:
                 printed_number, body = article.groups()
-                number = printed_number.replace(".", "")
+                number = canonical_article_number(printed_number)
                 prefix = "adct:art" if component == "adct" else "art"
                 current_article = f"{prefix}:{number.lower()}"
                 current_parent = current_article
                 current_item = None
-                add(current_article, None, "article", f"Art. {printed_number}º", body, note)
+                add(current_article, None, "article", article_label(printed_number), body, note)
                 continue
             if current_article is None:
                 continue
