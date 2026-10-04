@@ -1,7 +1,7 @@
 {
   "research_date": "2026-10-04",
   "base_commit": "16c78fe888b3507409dbfda0dc951f06d28e0d50",
-  "method": "Leitura do código atual, requisições HTTP oficiais, especificação OpenAPI Senado e código upstream SAPL. Nenhuma correção implantada nesta etapa.",
+  "method": "Leitura do código, requisições HTTP oficiais, especificação OpenAPI Senado, código upstream SAPL, implementação e testes locais. Nenhuma alteração de produção foi implantada.",
   "sources": [
     {
       "name": "Senado OpenAPI",
@@ -223,6 +223,28 @@
       "finding": "IDs art:n sem componente permitem colisões entre corpo principal e ADCT."
     }
   ],
+  "execution_update": {
+    "date": "2026-10-04",
+    "ibge_sync": {
+      "states": 27,
+      "localities": 5571,
+      "eligible_municipal_legislatures": 5569,
+      "special_localities": {
+        "5300108": "Brasília: região administrativa do DF, sem legislatura municipal independente.",
+        "2605459": "Fernando de Noronha: distrito estadual de PE, sem legislatura municipal independente."
+      },
+      "result": "Synced against the official endpoints into an isolated SQLite database; not production."
+    },
+    "parser_retest": [
+      {"law": "Código Civil", "article_nodes": 2081, "art_1_characters": 57, "art_2046_present": true, "variants": 0},
+      {"law": "Constituição", "article_nodes": 419, "adct_article_ids": 147, "component_namespaces_separated": true, "duplicate_variants": 27},
+      {"law": "CLT", "article_nodes": 962, "variants": 26},
+      {"law": "Código Penal", "article_nodes": 413, "variants": 30}
+    ],
+    "caution": "These parser counts are not completeness certificates. Current materialization remains partial until independent document and attachment reconciliation exists.",
+    "history_probe": {"law": "LMP", "senate_relations_found": 62, "status": "partial", "before_after_text_reconstructed": false},
+    "local_validation": {"pytest": "19 passed", "playwright": "4 passed", "alembic_fresh_sqlite": "upgrade head passed", "production_deploy": "not performed"}
+  },
   "limitations": [
     "Probes pontuais não comprovam enumeração integral nem SLA.",
     "Hashes referem-se a respostas decodificadas UTF8 arquivadas temporariamente durante pesquisa; fixtures de implementação precisam bytes brutos e manifestos completos.",

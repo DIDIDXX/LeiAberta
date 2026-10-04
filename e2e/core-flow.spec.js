@@ -18,6 +18,8 @@ test("LGDP resolves to LGPD, shows article 7 and links the official source", asy
 
 test("the history flow opens an official before-and-after diff", async ({ page }) => {
   await page.goto("/lei/11340-2006/historico");
+  const prepare = page.getByRole("button", { name: "Buscar histórico oficial" });
+  if (await prepare.isVisible()) await prepare.click();
   const event = page.getByRole("link", { name: /Ver antes e depois/ }).first();
   await expect(event).toBeVisible({ timeout: 45_000 });
   await event.click();
@@ -42,8 +44,9 @@ test("article-only search labels its multiple exact matches as ambiguity", async
     expect(queued.status()).toBe(202);
     await expect.poll(async () => {
       const response = await request.get(`/api/laws/${slug}`);
-      return (await response.json()).law.materialization_status;
-    }, { timeout: 60_000 }).toBe("ready");
+      const body = await response.json();
+      return { status: body.law.materialization_status, hasVersion: Boolean(body.version) };
+    }, { timeout: 60_000 }).toEqual({ status: "partial", hasVersion: true });
   }
 
   await page.goto("/buscar?q=art%20121");
