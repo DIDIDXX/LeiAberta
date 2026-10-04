@@ -37,6 +37,8 @@ def _law_summary(law: Law, article_count: int | None = None) -> dict:
         "status": law.status,
         "description": law.description,
         "published_at": law.published_at.isoformat() if law.published_at else None,
+        "signed_at": law.signed_at.isoformat() if law.signed_at else None,
+        "external_source_id": law.external_source_id,
         "source_name": law.source_name,
         "source_url": law.source_url,
         "aliases": law.aliases,
@@ -132,7 +134,8 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
         LegalNode.version_id == law.current_version_id,
     )) if law.current_version_id else 0
     job = None
-    if not law.current_version_id:
+    materializable = law.source_name == "Presidência da República — Planalto"
+    if not law.current_version_id and materializable:
         job = queue_hydration(law)
     version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
     return {
@@ -142,6 +145,7 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
             "retrieved_at": version.retrieved_at.isoformat(), "checksum": version.checksum,
         } if version else None,
         "job": {"id": job.id, "status": job.status, "stage": job.stage, "message": job.message} if job else None,
+        "materializable": materializable,
     }
 
 
@@ -151,6 +155,8 @@ def law_nodes(slug: str, article: str | None = None, session: Session = Depends(
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
     if not law.current_version_id:
+        if law.source_name != "Presidência da República — Planalto":
+            return {"status": "catalog", "source_url": law.source_url, "items": []}
         job = queue_hydration(law)
         return {"status": law.materialization_status, "job_id": job.id, "items": []}
     statement = select(LegalNode).where(LegalNode.version_id == law.current_version_id)
@@ -233,6 +239,8 @@ def hydrate_law(slug: str, session: Session = Depends(get_session)):
     law = session.get(Law, slug)
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    if law.source_name != "Presidência da República — Planalto":
+        raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; o adapter para obter o texto integral desta fonte ainda não está disponível.")
     refresh = False
     job = queue_hydration(law, refresh=refresh)
     return {"job_id": job.id, "status": job.status, "stage": job.stage, "message": job.message}

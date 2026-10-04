@@ -44,11 +44,13 @@ Abra `http://localhost:8000`. Para rodar jobs inline durante o desenvolvimento, 
 ```bash
 alembic upgrade head
 python -m app.seed
+python scripts/sync_jurisdictions.py
+python scripts/sync_senado_catalog.py
 ```
 
-No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza os metadados do catálogo. Quando Redis está configurado, os destaques do catálogo entram na fila de hidratação. A pessoa também pode abrir qualquer norma fria para prepará-la sob demanda. O processo pode ser repetido sem duplicar versões com o mesmo checksum. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
+No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza o catálogo-semente, o diretório territorial IBGE e as leis enumeradas pelo Senado. Falha temporária dos dois últimos provedores fica no log e mantém os dados anteriores. Quando Redis está configurado, os destaques entram na fila de hidratação. A pessoa também pode abrir qualquer norma Planalto fria para prepará-la sob demanda. O processo pode ser repetido sem duplicar identidades ou versões com o mesmo checksum. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
 
-Após `alembic upgrade head`, atualize o inventário de jurisdições com `python scripts/sync_jurisdictions.py`. O comando lê os endpoints oficiais do IBGE e faz upsert de União, estados, localidades e fontes-semente; não cataloga leis municipais.
+Após `alembic upgrade head`, atualize o inventário territorial com `python scripts/sync_jurisdictions.py` e o catálogo federal leve de leis com `python scripts/sync_senado_catalog.py`. O primeiro lê os endpoints oficiais do IBGE; o segundo enumera os registros de `tipo=LEI` publicados pela API do Senado e faz upsert por identidade externa. Esse universo é o catálogo de leis enumeradas pelo Senado, não todos os atos normativos federais nem a legislação estadual/municipal. As entradas Senate-only mostram metadados e link oficial até existir adapter para buscar seu texto integral.
 
 O adapter `app/sources/planalto.py` baixa HTML oficial, preserva redações marcadas como revogadas, separa namespaces da Constituição/ADCT e guarda variantes de artigos repetidos. Até existir auditoria independente de completude documental, o resultado é publicado como parcial. Falhas não apagam snapshots já armazenados.
 

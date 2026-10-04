@@ -38,6 +38,20 @@
       "decoded_response_sha256": "c6c23715452296d64b64992b7ab2bd7de33afbf7d6655354b932c9eeaa1ac704"
     },
     {
+      "name": "Senado catálogo integral tipo=LEI",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_xml",
+      "findings": [
+        "Retornou 16.883 registros sem paginação aparente, de 1821 a 2026.",
+        "Importação local vinculou 10 identidades a sementes, inseriu 16.873 leis e repetiu sem duplicatas.",
+        "O endpoint cobre seus próprios registros tipo=LEI; não prova universo de todos os tipos normativos federais nem legislação subnacional."
+      ],
+      "response_bytes": 8563787,
+      "response_sha256": "a4bcd56d42789cd41bca622f19df3f42e34c302a08cc4242f3408a8ff1c7550f",
+      "catalog_ids_sha256": "a3bdde23e8d8662ca230110d403edac419bb3d95725e5341d69dcecea4812162"
+    },
+    {
       "name": "Senado processo PL1604",
       "url": "https://legis.senado.leg.br/dadosabertos/processo?tipo=PL&numero=1604&ano=2022",
       "observed_on": "2026-10-04",
@@ -243,7 +257,17 @@
     ],
     "caution": "These parser counts are not completeness certificates. Current materialization remains partial until independent document and attachment reconciliation exists.",
     "history_probe": {"law": "LMP", "senate_relations_found": 62, "status": "partial", "before_after_text_reconstructed": false},
-    "local_validation": {"pytest": "19 passed", "playwright": "4 passed", "alembic_fresh_sqlite": "upgrade head passed", "production_deploy": "not performed"}
+    "senado_law_catalog": {
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI",
+      "status": "confirmed_http_200_xml",
+      "response_bytes": 8563787,
+      "records": 16883,
+      "date_range_observed": "1821-2026",
+      "response_sha256": "a4bcd56d42789cd41bca622f19df3f42e34c302a08cc4242f3408a8ff1c7550f",
+      "ids_sha256": "a3bdde23e8d8662ca230110d403edac419bb3d95725e5341d69dcecea4812162",
+      "caveat": "This enumerates only records returned by Senate tipo=LEI. It does not enumerate all federal normative types or local legislation."
+    },
+    "local_validation": {"pytest": "23 passed", "playwright": "4 passed; final rerun includes new immutable representations", "alembic_sqlite": "upgrade head passed", "alembic_postgresql_18": "upgrade/downgrade through revision 0005 passed; legacy date archival restored on downgrade", "production_deploy": "not performed"}
   },
   "limitations": [
     "Probes pontuais não comprovam enumeração integral nem SLA.",

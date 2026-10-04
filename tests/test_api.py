@@ -102,3 +102,35 @@ def test_jurisdictions_endpoint_filters_and_paginates(db_session):
     assert payload["count"] == 1
     assert payload["items"][0]["id"] == "municipality:3509502"
     assert payload["has_more"] is False
+
+
+def test_senado_catalog_only_norma_does_not_claim_or_queue_text(db_session):
+    row = Law(
+        slug="senado-36981001", jurisdiction="federal", law_type="Lei", number="14.550", year=2023,
+        external_source_id="36981001", title="Lei nº 14.550 de 19/04/2023",
+        description="Altera a Lei Maria da Penha.", status="Não verificado", aliases=["LEI-14550-2023-04-19"],
+        source_name="Senado Federal — Dados Abertos Legislativos",
+        source_url="https://legis.senado.leg.br/dadosabertos/legislacao/36981001",
+        fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/36981001",
+        materialization_status="catalog", coverage={"official_source": "senado_metadata"},
+    )
+    db_session.add(row)
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        client = TestClient(app)
+        detail = client.get("/api/laws/senado-36981001")
+        nodes = client.get("/api/laws/senado-36981001/nodes")
+        hydrate = client.post("/api/laws/senado-36981001/hydrate")
+    finally:
+        app.dependency_overrides.clear()
+    assert detail.status_code == 200
+    assert detail.json()["materializable"] is False
+    assert detail.json()["job"] is None
+    assert nodes.json()["status"] == "catalog"
+    assert nodes.json()["items"] == []
+    assert hydrate.status_code == 409

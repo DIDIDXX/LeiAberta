@@ -47,7 +47,7 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False) -> Hydrati
                            stage_name="queued", message="Aguardando worker")
         session.add(job)
         session.add(JobOutbox(job_id=job.id))
-        if job_type == "hydrate" and stored_law.materialization_status != "ready":
+        if job_type == "hydrate" and not stored_law.current_version_id:
             stored_law.materialization_status = "preparing"
         if job_type == "history":
             coverage = dict(stored_law.coverage or {})
@@ -306,7 +306,8 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             return
 
         _update_job(session, job, status="running", stage=1, message="Fonte oficial localizada", error="")
-        law.materialization_status = "preparing"
+        if not law.current_version_id:
+            law.materialization_status = "preparing"
         session.commit()
         logger.info("hydration_started source=%s job=%s jurisdiction=%s law_id=%s", law.source_name, job.id, law.jurisdiction, law.slug)
 
@@ -314,9 +315,13 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         body, _fetched_url = fetch_official_html(law.fetch_url)
         checksum = hashlib.sha256(body).hexdigest()
 
-        existing = session.scalar(select(LawVersion).where(LawVersion.law_slug == law.slug, LawVersion.checksum == checksum).limit(1))
-        if existing and existing.parser_version == PARSER_VERSION:
-            version = existing
+        version = session.scalar(select(LawVersion).where(
+            LawVersion.law_slug == law.slug, LawVersion.checksum == checksum,
+            LawVersion.parser_version == PARSER_VERSION,
+        ).limit(1))
+        if version:
+            session.query(LawVersion).filter(LawVersion.law_slug == law.slug, LawVersion.id != version.id).update({"is_current": False})
+            version.is_current = True
             nodes = list(session.scalars(select(LegalNode).where(LegalNode.version_id == version.id).order_by(LegalNode.order_index)))
         else:
             _update_job(session, job, stage=3, message="Estruturando artigos e dispositivos")
@@ -324,21 +329,13 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             if not parsed:
                 raise ValueError("A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.")
             session.query(LawVersion).filter(LawVersion.law_slug == law.slug).update({"is_current": False})
-            if existing:
-                version = existing
-                session.query(LegalNode).filter(LegalNode.version_id == version.id).delete(synchronize_session=False)
-                version.parser_version = PARSER_VERSION
-                version.source_url = law.source_url
-                version.is_current = True
-                version.article_count = sum(1 for node in parsed if node.node_type == "article")
-            else:
-                version = LawVersion(
-                    law_slug=law.slug, version_name="Texto consolidado consultado", source_url=law.source_url,
-                    checksum=checksum, parser_version=PARSER_VERSION, is_current=True,
-                    article_count=sum(1 for node in parsed if node.node_type == "article"),
-                )
-                session.add(version)
-                session.flush()
+            version = LawVersion(
+                law_slug=law.slug, version_name="Texto consolidado consultado", source_url=law.source_url,
+                checksum=checksum, parser_version=PARSER_VERSION, is_current=True,
+                article_count=sum(1 for node in parsed if node.node_type == "article"),
+            )
+            session.add(version)
+            session.flush()
             nodes = [LegalNode(
                 law_slug=law.slug, version_id=version.id, node_id=node.node_id, parent_node_id=node.parent_node_id,
                 node_type=node.node_type, label=node.label, text=node.text, source_note=node.source_note,
@@ -355,7 +352,10 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                 ))
             session.flush()
 
-        _update_job(session, job, stage=4, message="Conferindo referências de alteração")
+        job.stage = 4
+        job.stage_name = "validate"
+        job.message = "Conferindo referências de alteração"
+        job.updated_at = datetime.now(timezone.utc)
         linked_changes = _verified_lmp_changes(session, law, version, nodes) if law.slug == "11340-2006" else 0
         law.current_version_id = version.id
         # Parsing succeeded, but no independent whole-document completeness audit exists yet.

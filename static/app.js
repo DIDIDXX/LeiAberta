@@ -165,7 +165,7 @@ function lawHeader(law, activeTab, crumbsList) {
   return `${crumbs(crumbsList)}<header class="law-header">
     <div class="law-eyebrow"><span class="eyebrow-line"></span>${esc(law.jurisdiction === "federal" ? "Legislação federal" : law.jurisdiction)} · ${esc(law.law_type)}</div>
     <h1>${esc(law.title)}</h1><div class="law-number">${esc(lawLabel(law))}</div>
-    <div class="law-meta"><span class="law-status">${esc(law.status.toUpperCase())}</span><span>Publicada em <b>${datePt(law.published_at)}</b></span><span>${law.article_count || 0} artigos estruturados</span></div>
+    <div class="law-meta"><span class="law-status">${esc(law.status.toUpperCase())}</span><span>Publicada em <b>${datePt(law.published_at)}</b></span>${law.signed_at ? `<span>Assinada em <b>${datePt(law.signed_at)}</b></span>` : ""}<span>${law.article_count || 0} artigos estruturados</span></div>
   </header><div class="law-toolbar"><nav class="law-tabs" aria-label="Seções da norma">
     <a class="law-tab ${activeTab === "text" ? "active" : ""}" href="${lawPath(law)}">Texto</a>
     <a class="law-tab ${activeTab === "history" ? "active" : ""}" href="${lawPath(law)}/historico">Histórico</a>
@@ -184,7 +184,7 @@ function coverageCard(law, recentChange) {
   </div><div class="aside-block"><div class="aside-heading">Última alteração vinculada</div>
     ${recentChange ? `<a class="aside-update" href="/diff/${encodeURIComponent(recentChange.id)}">${esc(recentChange.source_law_label)}<span class="aside-update-meta">${datePt(recentChange.changed_at)} · ${esc(recentChange.summary)}</span></a>` : `<p class="aside-empty">${c.history === "partial" ? "Há vínculos documentados no histórico." : "Informação ainda não identificada em fonte oficial."}</p>`}
   </div><div class="aside-block"><div class="aside-heading">Documento consultado</div>
-    <div class="aside-row"><span>Origem</span><strong>Planalto</strong></div>
+    <div class="aside-row"><span>Origem</span><strong>${esc(law.source_name || "Fonte oficial")}</strong></div>
     <div class="aside-row"><span>Checksum</span><strong>${law.coverage?.snapshot_checksum ? `<code>${esc(law.coverage.snapshot_checksum.slice(0, 12))}…</code>` : "Aguardando"}</strong></div>
   </div></aside>`;
 }
@@ -229,6 +229,10 @@ async function renderLaw(slug, targetArticle = "") {
   setMeta(`${lawLabel(law)} — ${law.title} | LeiAberta`, `${law.title}: texto atual, histórico documentado e fonte oficial no LeiAberta.`);
   const trail = [{ label: "Início", href: "/" }, { label: "Acervo", href: "/#acervo" }, { label: law.title }];
   if (!initial.version) {
+    if (!initial.materializable) {
+      main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Metadados registrados no acervo oficial do Senado.")}</p><div class="history-callout">Encontramos a norma no catálogo oficial, mas ainda não há adapter para baixar e estruturar seu texto integral. A data abaixo é a de assinatura; a data de publicação não foi identificada na listagem consultada.</div><p><a class="section-action" href="${esc(law.source_url)}" target="_blank" rel="noopener">Consultar registro oficial no Senado ${externalIcon}</a></p></div>${coverageCard(law, null)}</div></div>`;
+      return;
+    }
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Texto e metadados da norma federal.")}</p>${initial.job?.status === "failed" ? `<div class="error-banner" role="alert">${esc(initial.job.message)} <button class="text-button" data-retry="${esc(slug)}">Tentar novamente</button></div>` : progressPanel(initial.job)}<p class="aside-empty">Enquanto preparamos o texto, você pode consultar o documento integral na fonte oficial.</p></div>${coverageCard(law, null)}</div></div>`;
     const retry = main.querySelector("[data-retry]");
     retry?.addEventListener("click", async () => { await getJSON(`${API}/laws/${encodeURIComponent(slug)}/hydrate`, { method: "POST" }); renderLaw(slug, targetArticle); });

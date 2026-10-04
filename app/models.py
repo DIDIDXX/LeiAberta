@@ -21,6 +21,8 @@ class Law(Base):
     law_type: Mapped[str] = mapped_column(String(48))
     number: Mapped[str] = mapped_column(String(24))
     year: Mapped[int] = mapped_column(Integer, index=True)
+    external_source_id: Mapped[str | None] = mapped_column(String(96), unique=True, nullable=True)
+    signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
     title: Mapped[str] = mapped_column(String(300), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(48), default="Não verificado")
@@ -71,7 +73,7 @@ class SourceRegistry(Base):
 
 class LawVersion(Base):
     __tablename__ = "law_versions"
-    __table_args__ = (UniqueConstraint("law_slug", "checksum", name="uq_law_version_checksum"),)
+    __table_args__ = (UniqueConstraint("law_slug", "checksum", "parser_version", name="uq_law_version_checksum_parser"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), index=True)

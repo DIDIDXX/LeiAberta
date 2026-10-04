@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListaDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/ListaDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 11:35:41</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém a lista de Legislação Federal com base nos parâmetros informados.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="27457334"><tipo>LEI-n</tipo><descricao>Lei Numerada</descricao><numero>13709</numero><norma>LEI-13709-2018-08-14</norma><normaNome>Lei nº 13.709 de 14/08/2018</normaNome><ementa>Lei Geral de Proteção de Dados Pessoais (LGPD).</ementa><dataassinatura>14/08/2018</dataassinatura><anoassinatura>2018</anoassinatura><apelido>LEI-13709-2018-08-14 , Lei Geral de Proteção de Dados (2018) (LGPD) , Lei Geral de Proteção de Dados Pessoais (2018) (LGPDP)</apelido></documento></documentos>
+</ListaDocumento>

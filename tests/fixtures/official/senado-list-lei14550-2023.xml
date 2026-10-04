@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListaDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/ListaDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 11:41:50</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém a lista de Legislação Federal com base nos parâmetros informados.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="36981001"><tipo>LEI-n</tipo><descricao>Lei Numerada</descricao><numero>14550</numero><norma>LEI-14550-2023-04-19</norma><normaNome>Lei nº 14.550 de 19/04/2023</normaNome><ementa>Altera a Lei nº 11.340, de 7 de agosto de 2006 (Lei Maria da Penha), para dispor sobre as medidas protetivas de urgência e estabelecer que a causa ou a motivação dos atos de violência e a condição do ofensor ou da ofendida não excluem a aplicação da Lei.</ementa><dataassinatura>19/04/2023</dataassinatura><anoassinatura>2023</anoassinatura><apelido>LEI-14550-2023-04-19</apelido></documento></documentos>
+</ListaDocumento>
