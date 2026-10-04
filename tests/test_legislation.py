@@ -252,6 +252,24 @@ def test_senado_accepts_its_federal_urn_namespace():
     )
 
 
+def test_normas_accepts_urn_only_response_as_confirmed_missing_text(monkeypatch):
+    import json
+
+    from app.sources.normas import _fetch_normas_metadata
+
+    urn = "urn:lex:br:senado.federal:resolucao:2017-05-31;8"
+    payload = json.dumps({"urn": urn}).encode()
+    metadata_url = "https://normas.leg.br/api/public/normas?urn=test"
+    monkeypatch.setattr(
+        "app.sources.normas._fetch",
+        lambda *_args, **_kwargs: (payload, metadata_url, "application/json"),
+    )
+
+    metadata, _body, _url = _fetch_normas_metadata(urn, timeout=1)
+
+    assert metadata == {"urn": urn}
+
+
 def test_parser_returns_no_false_articles_for_unrecognized_document_structure():
     html = b"<html><body><p>Clausula primeira. Texto do ato sem artigo.</p></body></html>"
     assert parse_legal_nodes(html) == []

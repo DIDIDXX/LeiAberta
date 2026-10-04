@@ -109,6 +109,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
         repaired_errors = (
             "A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.",
             "O registro não contém uma URN federal de legislação reconhecida.",
+            "Os metadados do Normas.leg.br não correspondem à URN solicitada.",
         )
         no_prior_job = latest_hydration_id.is_(None)
         retry_after_repair = and_(
@@ -242,6 +243,9 @@ def _process_history_job(job_id: str) -> None:
         _update_job(session, job, stage=1, message="Consultando relações normativas do Senado")
         body, list_url = fetch_norm_xml(law.law_type, law.number, law.year)
         checksum = hashlib.sha256(body).hexdigest()
+        # Release any read transaction before the archive helper writes using
+        # its own session. This also keeps the local SQLite worker usable.
+        session.commit()
         archive_source_document(law.slug, list_url, checksum, "application/xml; charset=utf-8",
                                body, law.current_version_id)
         relations = parse_relation_xml(body, expected_number=law.number)
@@ -251,6 +255,7 @@ def _process_history_job(job_id: str) -> None:
             normas_history = fetch_normas_history(
                 law.fetch_url, law.law_type, law.number, law.year, senate_detail_xml=body,
             )
+            session.commit()
             archive_source_document(
                 law.slug, normas_history.source_url,
                 hashlib.sha256(normas_history.body).hexdigest(), "application/json; charset=utf-8",

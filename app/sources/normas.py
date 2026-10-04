@@ -149,7 +149,8 @@ def _fetch_normas_metadata(urn: str, *, timeout: int) -> tuple[dict, bytes, str]
         raise SourceDocumentUnavailable("O Normas.leg.br retornou metadados JSON inválidos.") from exc
     if urllib.parse.urlparse(metadata_final_url).hostname != NORMAS_HOST or not isinstance(metadata, dict):
         raise SourceDocumentUnavailable("O Normas.leg.br retornou metadados de domínio ou formato inesperado.")
-    if metadata.get("legislationIdentifier") != urn:
+    returned_urn = metadata.get("legislationIdentifier") or metadata.get("urn")
+    if returned_urn != urn:
         raise SourceDocumentUnavailable("Os metadados do Normas.leg.br não correspondem à URN solicitada.")
     return metadata, metadata_body, metadata_final_url
 
