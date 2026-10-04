@@ -76,7 +76,10 @@ function bindSearch(scope = document) {
           if (!resultRows.length) {
             box.innerHTML = `<div class="suggestion-empty">Nenhuma correspondência no catálogo inicial. Tente o número da norma ou outro nome.</div><div class="suggestion-correction"><a href="/buscar?q=${encodeURIComponent(query)}">Ver busca completa ${externalIcon}</a></div>`;
           } else {
-            box.innerHTML = `<div class="suggestion-heading">Normas encontradas</div>${resultRows.map(row => searchResultRow(row)).join("")}${result.suggestion ? `<div class="suggestion-correction">Sugestão aproximada para <strong>${esc(query)}</strong></div>` : ""}`;
+            const heading = result.parsed?.article && resultRows.length > 1
+              ? `O Art. ${esc(result.parsed.article)} aparece em várias normas`
+              : "Normas encontradas";
+            box.innerHTML = `<div class="suggestion-heading">${heading}</div>${resultRows.map(row => searchResultRow(row)).join("")}${result.suggestion ? `<div class="suggestion-correction">Sugestão aproximada para <strong>${esc(query)}</strong></div>` : ""}`;
           }
           openBox();
         } catch {
@@ -316,7 +319,12 @@ async function renderSearchPage(query) {
     if (!result.results.length) {
       el.innerHTML = `<div class="empty-state"><h2>Nenhuma norma encontrada no catálogo inicial</h2><p>O catálogo está sendo ampliado. Confira a grafia ou tente informar número e ano.</p><a class="source-link" href="https://www.lexml.gov.br/busca/" target="_blank" rel="noopener">Pesquisar na Rede LexML ${externalIcon}</a></div>`;
     } else {
-      el.innerHTML = `<div class="section-kicker">${result.results.length} resultado${result.results.length === 1 ? "" : "s"}${result.suggestion ? ` · sugestão aproximada para “${esc(query)}”` : ""}</div><div class="catalog-list" style="margin-top:12px">${result.results.map(catalogRow).join("")}</div>${result.parsed.article ? `<p class="catalog-footer">A busca também identificou o Art. ${esc(result.parsed.article)}.</p>` : ""}`;
+      const heading = result.parsed.article
+        ? result.results.length > 1
+          ? `Art. ${esc(result.parsed.article)} aparece em ${result.results.length} normas`
+          : `Art. ${esc(result.parsed.article)} encontrado`
+        : `${result.results.length} resultado${result.results.length === 1 ? "" : "s"}`;
+      el.innerHTML = `<div class="section-kicker">${heading}${result.suggestion ? ` · sugestão aproximada para “${esc(query)}”` : ""}</div><div class="catalog-list" style="margin-top:12px">${result.results.map(catalogRow).join("")}</div>${result.parsed.article ? `<p class="catalog-footer">A busca também identificou o Art. ${esc(result.parsed.article)}.</p>` : ""}`;
     }
   } catch (error) { main.querySelector("#search-results").innerHTML = `<div class="error-banner">${esc(error.message)}</div>`; }
 }

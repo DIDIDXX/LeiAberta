@@ -68,6 +68,7 @@ def _similarity(query: str, candidate: str) -> float:
 
 def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     parsed = parse_query(query)
+    normalized_query = normalize_query(query)
     laws = list(session.scalars(select(Law)))
     scored: list[tuple[int, float, Law, bool]] = []
 
@@ -81,6 +82,9 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
         if parsed["number"] and parsed["number"] == normalized_number:
             score = 950 if parsed["year"] is None else (1100 if parsed["year"] == law.year else 0)
             exact = bool(score)
+        if normalized_query in normalized_aliases:
+            score = max(score, 900)
+            exact = True
         terms = parsed["terms"]
         if terms:
             if terms in normalized_aliases:
@@ -107,6 +111,7 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
                         score += 260
                 else:
                     score = max(score, 600)
+                    exact = True
             elif score:
                 score += 30
 

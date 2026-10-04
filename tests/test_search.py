@@ -13,15 +13,18 @@ def test_parses_number_and_two_digit_year():
 
 
 def test_exact_number_year_wins_and_typo_suggests_lgpd(db_session, add_law):
-    law = add_law()
+    law = add_law(aliases=["LGPD", "lei geral de dados"])
     db_session.add(law)
     db_session.commit()
 
     exact = search_laws(db_session, "13709/18")
+    alias = search_laws(db_session, "lei geral de dados")
     fuzzy = search_laws(db_session, "LGDP")
 
     assert exact["results"][0]["slug"] == "13709-2018"
     assert exact["results"][0]["score"] >= 1000
+    assert alias["results"][0]["slug"] == "13709-2018"
+    assert alias["suggestion"] is False
     assert fuzzy["results"][0]["title"] == "Lei Geral de Proteção de Dados Pessoais"
     assert fuzzy["suggestion"] is True
 
@@ -56,3 +59,4 @@ def test_article_only_keeps_ambiguous_norms_as_multiple_options(db_session, add_
 
     result = search_laws(db_session, "art. 121")
     assert {item["slug"] for item in result["results"]} == {first.slug, second.slug}
+    assert result["suggestion"] is False

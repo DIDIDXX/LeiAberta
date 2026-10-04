@@ -35,3 +35,18 @@ test("a cold law shows preparation progress and becomes readable on demand", asy
   await expect(page.getByRole("heading", { name: "Art. 1º" })).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole("link", { name: /Fonte oficial/ })).toHaveAttribute("href", /l12527\.htm/);
 });
+
+test("article-only search labels its multiple exact matches as ambiguity", async ({ page, request }) => {
+  for (const slug of ["5172-1966", "10406-2002"]) {
+    const queued = await request.post(`/api/laws/${slug}/hydrate`);
+    expect(queued.status()).toBe(202);
+    await expect.poll(async () => {
+      const response = await request.get(`/api/laws/${slug}`);
+      return (await response.json()).law.materialization_status;
+    }, { timeout: 60_000 }).toBe("ready");
+  }
+
+  await page.goto("/buscar?q=art%20121");
+  await expect(page.getByText(/Art\. 121 aparece em \d+ normas/)).toBeVisible();
+  await expect(page.getByText(/sugestão aproximada/)).toHaveCount(0);
+});
