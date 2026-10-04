@@ -129,14 +129,14 @@ def _urn_from_senado_xml(body: bytes, expected: tuple[str, str, int]) -> str:
     if document.scheme != "https" or document.hostname != NORMAS_HOST or document.path != "/":
         raise SourceDocumentUnavailable("O registro do Senado não aponta para uma URN pública do Normas.leg.br.")
     urn = urllib.parse.parse_qs(document.query).get("urn", [""])[0]
-    if not urn.startswith("urn:lex:br:federal:"):
-        raise SourceDocumentUnavailable("O registro não contém uma URN federal de legislação reconhecida.")
+    if not urn.startswith(("urn:lex:br:federal:", "urn:lex:br:senado.federal:")):
+        raise SourceDocumentUnavailable("O registro não contém uma URN de legislação reconhecida.")
     return urn
 
 
 def _fetch_normas_metadata(urn: str, *, timeout: int) -> tuple[dict, bytes, str]:
-    if not urn.startswith("urn:lex:br:federal:"):
-        raise SourceDocumentUnavailable("A consulta não contém uma URN federal reconhecida.")
+    if not urn.startswith(("urn:lex:br:federal:", "urn:lex:br:senado.federal:")):
+        raise SourceDocumentUnavailable("A consulta não contém uma URN de legislação reconhecida.")
     metadata_url = "https://normas.leg.br/api/public/normas?" + urllib.parse.urlencode(
         {"urn": urn, "tipo_documento": "maior-detalhe"}
     )
@@ -203,12 +203,21 @@ def fetch_senado_document(
         value for value in _representations(metadata)
         if value.get("contentUrl") and "text/html" in str(value.get("encodingFormat", "")).casefold()
     ]
-    # Prefer the portal's latest consolidated reading when it exists; otherwise
-    # use the original publication transcript and expose that distinction.
+    # A current compilation is the best reading when present. Otherwise, keep
+    # the original publication as the body: a later erratum is a correction to
+    # that publication, not a replacement for the complete legal text.
+    def representation_rank(value: dict) -> tuple[int, int, int, str]:
+        version = str(value.get("version") or "").casefold()
+        name = str(value.get("name") or value.get("additionalType") or "").casefold()
+        is_erratum = any(term in f"{name} {version}" for term in ("retificacao", "retificação", "erratum"))
+        is_current = version == "current"
+        is_original = version == "original" or any(term in name for term in ("publicacaooriginal", "publicação original", "original publication"))
+        return (int(is_current), int(is_original and not is_erratum), int(not is_erratum),
+                str(value.get("datePublished", "")))
+
     representations.sort(key=lambda value: (
-        value.get("version") == "Current",
+        representation_rank(value),
         value.get("legislationLegalValue") == "OfficialLegalValue",
-        value.get("datePublished", ""),
     ), reverse=True)
     if not representations:
         raise SourceDocumentUnavailable("O registro oficial não possui uma representação HTML de texto integral.")

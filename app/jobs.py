@@ -17,7 +17,7 @@ from app.catalog import AMENDING_LAWS
 from app.db import SessionLocal
 from app.models import HistoryEvent, HydrationJob, JobOutbox, Law, LawChange, LawVersion, LegalNode, SourceSnapshot
 from app.sources.normas import SourceDocumentUnavailable
-from app.sources.planalto import PARSER_VERSION, detect_raw_format, extract_paragraphs, fetch_official_html, parse_legal_nodes, source_note_for_law
+from app.sources.planalto import PARSER_VERSION, ParsedNode, detect_raw_format, extract_paragraphs, fetch_official_html, parse_legal_nodes, source_note_for_law
 
 logger = logging.getLogger("leiaberta.jobs")
 QUEUE_NAME = "leiaberta:hydrate"
@@ -89,17 +89,39 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
     session = SessionLocal()
     jobs: list[dict] = []
     try:
-        active_or_attempted = select(HydrationJob.id).where(
-            HydrationJob.law_slug == Law.slug,
-            HydrationJob.job_type == "hydrate",
-        ).exists()
+        latest_hydration_id = (
+            select(HydrationJob.id)
+            .where(HydrationJob.law_slug == Law.slug, HydrationJob.job_type == "hydrate")
+            .order_by(HydrationJob.created_at.desc(), HydrationJob.id.desc())
+            .limit(1)
+            .correlate(Law)
+            .scalar_subquery()
+        )
+        latest_hydration_status = select(HydrationJob.status).where(
+            HydrationJob.id == latest_hydration_id
+        ).scalar_subquery()
+        latest_hydration_error = select(HydrationJob.error).where(
+            HydrationJob.id == latest_hydration_id
+        ).scalar_subquery()
+        # These were permanent failures in the previous release, not source
+        # limitations. Retry each once after the parser/URN fixes; if the new
+        # attempt fails for another reason, it no longer matches this list.
+        repaired_errors = (
+            "A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.",
+            "O registro não contém uma URN federal de legislação reconhecida.",
+        )
+        no_prior_job = latest_hydration_id.is_(None)
+        retry_after_repair = and_(
+            latest_hydration_status == "failed",
+            latest_hydration_error.in_(repaired_errors),
+        )
         laws = list(session.scalars(
             select(Law)
             .where(
                 Law.jurisdiction == "federal",
                 Law.source_name == "Senado Federal — Dados Abertos Legislativos",
                 Law.current_version_id.is_(None),
-                ~active_or_attempted,
+                or_(no_prior_job, retry_after_repair),
             )
             .order_by(Law.slug)
             .limit(limit)
@@ -564,18 +586,29 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         else:
             _update_job(session, job, stage=3, message="Estruturando artigos e dispositivos")
             parsed = parse_legal_nodes(body)
+            unstructured_full_text = False
             if not parsed:
-                raise ValueError("A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.")
+                paragraphs = extract_paragraphs(body)
+                full_text = "\n".join(text.strip() for text, _raw in paragraphs if text.strip())
+                if not full_text:
+                    raise SourceDocumentUnavailable("A fonte respondeu sem texto integral legível para materializar.")
+                parsed = [ParsedNode(
+                    node_id="document:full-text", parent_node_id=None, node_type="document",
+                    label="Texto integral — estrutura não reconhecida", text=full_text,
+                    source_note="Texto extraído integralmente da captura arquivada; artigos e dispositivos não foram estruturados.",
+                    order_index=1,
+                )]
+                unstructured_full_text = True
             session.query(LawVersion).filter(LawVersion.law_slug == law.slug).update({"is_current": False})
             version = LawVersion(
                 law_slug=law.slug,
-                version_name=(
+                version_name=((
                     "Texto compilado consultado no Planalto"
                     if source_metadata is None else
                     f"{source_metadata.version} — "
                     + ("compilação atual da Câmara" if source_metadata.version == "Current" else "transcrição da publicação original")
                     + (" (valor jurídico oficial)" if source_metadata.legal_value == "OfficialLegalValue" else " (valor jurídico não oficial)")
-                )[:160],
+                ) + (" — estrutura não reconhecida" if unstructured_full_text else ""))[:160],
                 source_url=fetched_url,
                 checksum=checksum, parser_version=PARSER_VERSION, is_current=True,
                 article_count=sum(1 for node in parsed if node.node_type == "article"),
@@ -609,7 +642,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         coverage = dict(law.coverage or {})
         coverage.update({
             "official_source": "available",
-            "structured_text": "partial",
+            "structured_text": "unstructured" if any(node.node_type == "document" for node in nodes) else "partial",
             "history": "partial" if linked_changes or session.scalar(select(LawChange.id).where(LawChange.law_slug == law.slug).limit(1)) else coverage.get("history", "not_materialized"),
             "attribution": "partial" if linked_changes else "not_identified",
             "authors": "not_available",
@@ -630,7 +663,12 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         coverage["text_source_status"] = "available"
         law.coverage = coverage
         _update_job(session, job, status="succeeded", stage=5,
-                    message=("Texto e dispositivos disponíveis; transcrição do DOU com cobertura parcial" if source_metadata else "Texto e dispositivos disponíveis"))
+                    message=(
+                        "Texto integral disponível; estrutura jurídica não reconhecida, revisão necessária"
+                        if any(node.node_type == "document" for node in nodes) else
+                        "Texto e dispositivos disponíveis; transcrição do DOU com cobertura parcial" if source_metadata else
+                        "Texto e dispositivos disponíveis"
+                    ))
         session.commit()
         logger.info("hydration_finished source=%s job=%s jurisdiction=%s law_id=%s duration_state=success articles=%s changes=%s checksum=%s",
                     law.source_name, job.id, law.jurisdiction, law.slug, version.article_count, linked_changes, checksum)

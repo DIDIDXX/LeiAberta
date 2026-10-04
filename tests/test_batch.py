@@ -54,3 +54,41 @@ def test_senado_text_batch_is_bounded_idempotent_and_persists_outbox(db_session,
     assert db_session.query(HydrationJob).filter_by(job_type="hydrate").count() == 2
     assert db_session.query(JobOutbox).count() == 2
     assert db_session.get(Law, "planalto-3").materialization_status == "catalog"
+
+
+def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, monkeypatch):
+    from datetime import datetime, timezone
+
+    from app import jobs
+    from app.models import HydrationJob
+
+    common = dict(jurisdiction="federal", law_type="Resolução do Senado Federal", year=2017, number="8",
+                  description="", status="Não verificado", aliases=[],
+                  source_url="https://legis.senado.leg.br/dadosabertos/legislacao/12345",
+                  fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/12345",
+                  hot=False, materialization_status="unavailable")
+    retryable = Law(slug="senado-retry", title="Resolução antiga", source_name="Senado Federal — Dados Abertos Legislativos", **common)
+    permanent = Law(slug="senado-permanent", title="Sem texto", source_name="Senado Federal — Dados Abertos Legislativos", **common)
+    active = Law(slug="senado-active", title="Em fila", source_name="Senado Federal — Dados Abertos Legislativos", **common)
+    db_session.add_all([retryable, permanent, active])
+    now = datetime.now(timezone.utc)
+    db_session.add_all([
+        HydrationJob(id="old-parser-error", law_slug=retryable.slug, job_type="hydrate", status="failed",
+                     attempts=5, error="A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.",
+                     stage_name="failed", message="Falhou", created_at=now, updated_at=now),
+        HydrationJob(id="permanent-source-error", law_slug=permanent.slug, job_type="hydrate", status="failed",
+                     attempts=1, error="O registro oficial não possui uma representação HTML de texto integral.",
+                     stage_name="failed", message="Sem texto", created_at=now, updated_at=now),
+        HydrationJob(id="already-active", law_slug=active.slug, job_type="hydrate", status="queued",
+                     attempts=0, error="", stage_name="queued", message="Na fila", created_at=now, updated_at=now),
+    ])
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+
+    first = jobs.queue_senado_text_batch(limit=10)
+    second = jobs.queue_senado_text_batch(limit=10)
+
+    assert first["queued_count"] == 1
+    assert first["jobs"][0]["slug"] == retryable.slug
+    assert second["queued_count"] == 0
