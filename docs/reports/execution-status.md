@@ -1,6 +1,6 @@
 # Execução do plano LeiAberta — Luna 6
 
-Atualizado em 04/10/2026. Branch local: `docs/luna6-next-steps`. O commit publicado no branch até a criação deste relatório é `6d32fd8debbdef62fd205ebde102ac30ab8400e7`; as alterações de execução abaixo ainda estão em validação e não foram implantadas.
+Atualizado em 04/10/2026. Branch: `docs/luna6-next-steps`. Commit de planejamento: `6d32fd8debbdef62fd205ebde102ac30ab8400e7`. Primeiro commit de execução publicado: `f4b2af5112bc337b9dbeaeb53eb29ffb4f22d6e0`. Essas alterações passaram nos testes locais listados abaixo, mas ainda não foram implantadas.
 
 ## Resultado observado
 
