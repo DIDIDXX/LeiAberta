@@ -1,0 +1,232 @@
+{
+  "research_date": "2026-10-04",
+  "base_commit": "16c78fe888b3507409dbfda0dc951f06d28e0d50",
+  "method": "Leitura do código atual, requisições HTTP oficiais, especificação OpenAPI Senado e código upstream SAPL. Nenhuma correção implantada nesta etapa.",
+  "sources": [
+    {
+      "name": "Senado OpenAPI",
+      "url": "https://legis.senado.leg.br/dadosabertos/v3/api-docs",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_json",
+      "findings": [
+        "Rotas legislacao, processo e votacao verificadas na especificação.",
+        "Diversas rotas materia estão deprecated."
+      ],
+      "decoded_response_sha256": "2cb82991ed7ee76520c977e76215de63f9b01e747cb51be4c6dc23a7a7943c19"
+    },
+    {
+      "name": "Senado LGPD",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/LEI/13709/2018",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_xml",
+      "findings": [
+        "Identificação, publicações, relações e declarações de alteração por dispositivo.",
+        "Relações de atos posteriores até 2026.",
+        "Metadados não substituem textos de cada ato nem validação de vigência."
+      ],
+      "decoded_bytes": 96602,
+      "decoded_response_sha256": "e3a786b571909aaee77a4f6771726648ac0b8bc036ee131738a70a0c94be0f1a"
+    },
+    {
+      "name": "Senado lista Lei14550",
+      "url": "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI&numero=14550&ano=2023",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_xml",
+      "findings": [
+        "Registro da norma retornado."
+      ],
+      "decoded_response_sha256": "c6c23715452296d64b64992b7ab2bd7de33afbf7d6655354b932c9eeaa1ac704"
+    },
+    {
+      "name": "Senado processo PL1604",
+      "url": "https://legis.senado.leg.br/dadosabertos/processo?tipo=PL&numero=1604&ano=2022",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_json",
+      "findings": [
+        "Resposta retornou PL1604/2022, processo8272922, materia153558 e normaGerada Lei14550/2023.",
+        "tipo é parâmetro não documentado nessa rota; na implementação usar sigla e confirmar filtro.",
+        "Autoria declarada: Senadora Simone Tebet (MDB/MS); não prova autoria individual de cada dispositivo."
+      ],
+      "decoded_response_sha256": "99e566c0436a8420449962d2bc34c2958efab0980abe85470752d5d7693ce1d4"
+    },
+    {
+      "name": "Câmara pesquisa",
+      "url": "https://www.camara.leg.br/legislacao/pesquisa-avancada",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Formulário GET /legislacao/busca com numero/ano/tipo/abrangencia e outros filtros.",
+        "Resultado /legislacao/busca possui paginação pagina e exportação limitada a300 documentos."
+      ],
+      "decoded_response_sha256": "0f9bf5c54446fe0372fb399e345b45a81ec9a9095be9f4cc5c428ef47e0288d3"
+    },
+    {
+      "name": "Câmara ficha Lei14550",
+      "url": "https://www2.camara.leg.br/legin/fed/lei/2023/lei-14550-19-abril-2023-794072-norma-pl.html",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Proposição originária PL1604/2022.",
+        "Publicação original DOU Seção1 de20/04/2023 página1.",
+        "Situação literal: Não consta revogação expressa.",
+        "Link publicação original: lei-14550-19-abril-2023-794072-publicacaooriginal-167635-pl.html"
+      ],
+      "decoded_response_sha256": "a4b6e6c0fc99d82053a3f009c00a9e58a23620f7352986fab7b02a544fbc6b05"
+    },
+    {
+      "name": "Câmara API",
+      "url": "https://dadosabertos.camara.leg.br/swagger/api.html",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Documentação extensa da API de proposições/autores/votações.",
+        "Consulta numero14550/ano2023 em proposicoes retorna vazio; não resolver lei por número igual de PL."
+      ],
+      "decoded_response_sha256": "09c62f9a7d2dcd51300ebd9eb3a88c3ab0815dfabb4c5de99a24e821fe0a7bdf"
+    },
+    {
+      "name": "LexML acervo",
+      "url": "https://www.lexml.gov.br/desc_acervo.html",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Provedores federais, estaduais, municipais e DF; Campinas consta no acervo.",
+        "Acervo também inclui jurisprudência/doutrina.",
+        "Contadores não são denominador universal de leis únicas."
+      ],
+      "decoded_response_sha256": "082c4847343d02bb0da311193e88893da7dbe267e9759c260ce8fcea573b73f4"
+    },
+    {
+      "name": "LexML SRU",
+      "url": "https://www.lexml.gov.br/busca/SRU?operation=searchRetrieve&version=1.1&query=13709&maximumRecords=1",
+      "observed_on": "2026-10-04",
+      "status": "blocked_html_challenge",
+      "findings": [
+        "HTTP200 retornou verificação de segurança do Senado, não XML SRU.",
+        "Adapter não validado; confirmar protocolo e acesso oficial."
+      ],
+      "decoded_response_sha256": "6a4ce1cb583d209a0882d9fa4a4f09ce4e0c26a864e912aeb2c3069560df1490"
+    },
+    {
+      "name": "LexML documentação",
+      "url": "https://projeto.lexml.gov.br/documentacao",
+      "observed_on": "2026-10-04",
+      "status": "login_redirect",
+      "findings": [
+        "Redirecionou para login; documentação pública dessa URL não demonstrada."
+      ]
+    },
+    {
+      "name": "IBGE municípios",
+      "url": "https://servicodados.ibge.gov.br/api/v1/localidades/municipios",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_json",
+      "findings": [
+        "5571 registros após decomprimir gzip.",
+        "Classificar Brasília/Fernando de Noronha e demais particularidades antes de assumir legislaturas municipais.",
+        "Denominador territorial dinâmico; não é denominador de leis."
+      ],
+      "records": 5571,
+      "decoded_response_sha256": "86ecdccdf97d72e7e5e46f0854cfcea8bacc28154cc1bc4ed0e6110e3a6c9c02"
+    },
+    {
+      "name": "IBGE localidades docs",
+      "url": "https://servicodados.ibge.gov.br/api/docs/localidades",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Documentação oficial da API."
+      ],
+      "decoded_response_sha256": "b679b089b03415bbf036519374b5a4f9715a7bbf90fca8edff7c80b5f4cba6b8"
+    },
+    {
+      "name": "INLABS",
+      "url": "https://inlabs.in.gov.br/",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_login_required",
+      "findings": [
+        "Redireciona /acessar.php; exige cadastro/login.",
+        "Portal informa XML de dados abertos, sem substituir publicação certificada.",
+        "Abrangência histórica/download ainda precisam de investigação."
+      ],
+      "decoded_response_sha256": "5dd0d9605957687cf3836df32bb1b7ce084b5f067b33bc5b0705bb52165feffb"
+    },
+    {
+      "name": "ALESP",
+      "url": "https://www.al.sp.gov.br/norma/",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Portal oficial de legislação estadual.",
+        "Contrato de enumeração/detalhes ainda não implementado nem integralmente validado."
+      ],
+      "decoded_response_sha256": "bd1519b17997b029bcbec1557570d6af4c4acb9e61aca0bab5481f20c945a2c9"
+    },
+    {
+      "name": "SINJ DF",
+      "url": "https://www.sinj.df.gov.br/sinj/",
+      "observed_on": "2026-10-04",
+      "status": "confirmed_http_200_html",
+      "findings": [
+        "Portal oficial de pesquisa de normas/diários e histórico.",
+        "Contrato de enumeração/detalhes ainda não implementado nem integralmente validado."
+      ],
+      "decoded_response_sha256": "dea75dcb88d6c19f8567133c9c1c8a18ca8703bb4f4a54c420ce5487817f94e5"
+    },
+    {
+      "name": "SAPL upstream",
+      "url": "https://github.com/interlegis/sapl",
+      "observed_on": "2026-10-04",
+      "status": "source_code_inspected",
+      "findings": [
+        "Commit ecfd65a8b353be5368bce5ff624d19f4b95d3491.",
+        "sapl/api/urls.py: /api/schema/, swagger-ui, redoc e router dinâmico.",
+        "sapl/norma/models.py: texto_integral, materia, data_vigencia, texto_articulado/anexos.",
+        "Instalações variam: validar schema e paginação no host oficial."
+      ]
+    },
+    {
+      "name": "Host SAPL Campinas candidato",
+      "url": "https://sapl.campinas.sp.leg.br/",
+      "observed_on": "2026-10-04",
+      "status": "unverified_candidate_host",
+      "findings": [
+        "Host não comprovado por link de órgão oficial.",
+        "Probe swagger403 e listagem503; não concluir que Campinas usa SAPL."
+      ]
+    },
+    {
+      "name": "Rota Senado inválida",
+      "url": "https://legis.senado.leg.br/dadosabertos/norma/pesquisa/lista?numero=13709&ano=2018",
+      "observed_on": "2026-10-04",
+      "status": "http_404",
+      "findings": [
+        "Rota suposta inválida; usar rotas legislacao encontradas na especificação."
+      ]
+    }
+  ],
+  "parser_audit": [
+    {
+      "law": "Código Civil",
+      "url": "https://www.planalto.gov.br/ccivil_03/leis/2002/L10406compilada.htm",
+      "raw_bytes": 923899,
+      "current_parser_article_nodes": 1007,
+      "art_1_text_characters": 174903,
+      "source_mentions_art_2046": true,
+      "finding": "Numerais com ponto de milhar causam identificação/concatenação incorreta; ready atual não comprova estrutura integral."
+    },
+    {
+      "law": "Constituição",
+      "raw_bytes": 1501690,
+      "current_parser_article_nodes": 284,
+      "source_contains_ADCT": true,
+      "finding": "IDs art:n sem componente permitem colisões entre corpo principal e ADCT."
+    }
+  ],
+  "limitations": [
+    "Probes pontuais não comprovam enumeração integral nem SLA.",
+    "Hashes referem-se a respostas decodificadas UTF8 arquivadas temporariamente durante pesquisa; fixtures de implementação precisam bytes brutos e manifestos completos.",
+    "Votações nominais específicas não foram validadas nesta pesquisa.",
+    "Contratos de integração ALESP/SINJ/hosts municipais ainda precisam validação."
+  ]
+}
