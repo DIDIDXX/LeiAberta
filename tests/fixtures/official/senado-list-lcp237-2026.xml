@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListaDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/ListaDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 16:55:52</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém a lista de Legislação Federal com base nos parâmetros informados.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="43892883"><tipo>LCP</tipo><descricao>Lei Complementar</descricao><numero>237</numero><norma>LCP-237-2026-09-15</norma><normaNome>Lei Complementar nº 237 de 15/09/2026</normaNome><ementa>Altera a Lei Complementar nº 229, de 30 de março de 2026, para incluir o regime especial de tributação para serviços de datacenter, os programas federais de financiamento de ações de apoio às pessoas com câncer e às pessoas com deficiência, bem como a desoneração do Imposto sobre a Renda das Pessoas Jurídicas (IRPJ) e da Contribuição Social sobre o Lucro Líquido (CSLL) das sociedades resseguradoras locais, entre as exceções às regras aplicáveis à concessão de benefícios tributários; e altera a Lei Complementar nº 101, de 4 de maio de 2000 (Lei de Responsabilidade Fiscal), para desobrigar os Municípios com até 65.000 (sessenta e cinco mil) habitantes de comprovar, para fins de realização de transferências voluntárias, o pagamento de tributos, empréstimos e financiamentos devidos ao ente transferidor e a prestação de contas de recursos anteriormente dele recebidos.</ementa><dataassinatura>15/09/2026</dataassinatura><anoassinatura>2026</anoassinatura><apelido>LCP-237-2026-09-15</apelido></documento></documentos>
+</ListaDocumento>

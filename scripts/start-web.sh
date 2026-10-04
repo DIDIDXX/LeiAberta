@@ -13,10 +13,11 @@ until alembic upgrade head; do
 done
 
 python -m app.seed --enqueue-hot
+python scripts/audit_archived_documents.py --limit 1000
 if ! python scripts/sync_jurisdictions.py; then
   echo "IBGE jurisdiction sync failed; serving the last stored inventory" >&2
 fi
 if ! python scripts/sync_senado_catalog.py; then
-  echo "Senate law catalog sync failed; serving the last stored catalog" >&2
+  echo "Senate legal catalog sync failed; serving the last stored catalogs" >&2
 fi
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"

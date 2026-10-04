@@ -1,0 +1,11 @@
+{
+  "source": "Normas.leg.br API pública do Congresso Nacional",
+  "urn": "urn:lex:br:federal:medida.provisoria:2001-09-06;2206-1",
+  "metadata_url": "https://normas.leg.br/api/public/normas?urn=urn%3Alex%3Abr%3Afederal%3Amedida.provisoria%3A2001-09-06%3B2206-1&tipo_documento=maior-detalhe",
+  "content_url": "https://normas.leg.br/api/public/binario/cbd5aed7-ad41-4252-a2c2-c128bffde4a3/texto",
+  "retrieved_at": "2026-10-04",
+  "metadata_sha256": "b3b4f23df9164307a7924e2cefb1aad75c5f34ee9e9dc5f2458f6b90ef359eb1",
+  "content_sha256": "76c8ba16cad7abafdc266836b7140008f2070a4446671d9b5bb5c730a6ed0fe6",
+  "representation": "Publicação Original [Medida Provisória nº 2.206-1 de 06/09/2001]  [Diário Oficial da União  de 10/09/2001] (p. 3, col. 1)",
+  "legal_value": "UnofficialLegalValue"
+}

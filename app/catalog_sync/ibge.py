@@ -4,7 +4,7 @@ from __future__ import annotations
 import gzip
 import json
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -13,6 +13,7 @@ from app.models import Jurisdiction, SourceRegistry
 
 IBGE_STATES = "https://servicodados.ibge.gov.br/api/v1/localidades/estados"
 IBGE_MUNICIPALITIES = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
+IBGE_MAX_AGE = timedelta(hours=24)
 
 
 def _get_json(url: str):
@@ -92,7 +93,7 @@ def _seed_sources(session, observed_at: datetime) -> int:
     return len(seeds)
 
 
-def sync_ibge_jurisdictions() -> dict:
+def sync_ibge_jurisdictions(*, force: bool = False) -> dict:
     """Idempotently upsert federal, state and municipality entities.
 
     IBGE lists districts/administrative localities along with municipalities.
@@ -100,6 +101,15 @@ def sync_ibge_jurisdictions() -> dict:
     municipal legislatures; Brasília is a DF region and Fernando de Noronha is
     a district of PE. All fetched records remain in the inventory.
     """
+    if not force:
+        with SessionLocal() as session:
+            previous = session.get(SourceRegistry, "territory:ibge:directory")
+            if previous and previous.status == "enumerated" and previous.last_checked_at:
+                checked_at = previous.last_checked_at
+                if checked_at.tzinfo is None:
+                    checked_at = checked_at.replace(tzinfo=timezone.utc)
+                if checked_at > datetime.now(timezone.utc) - IBGE_MAX_AGE:
+                    return {"skipped_fresh": True, "observed_at": checked_at.isoformat()}
     states = _get_json(IBGE_STATES)
     municipalities = _get_json(IBGE_MUNICIPALITIES)
     observed_at = datetime.now(timezone.utc)
@@ -125,8 +135,28 @@ def sync_ibge_jurisdictions() -> dict:
                     code=code, uf=uf, parent_id=f"state:{uf}", eligible=code not in special,
                     note=special.get(code, ""), source_url=IBGE_MUNICIPALITIES, observed_at=observed_at)
         source_count = _seed_sources(session, observed_at)
-        session.commit()
         eligible_count = sum(1 for city in municipalities if str(city["id"]) not in special)
+        inventory_source = session.get(SourceRegistry, "territory:ibge:directory")
+        if inventory_source is None:
+            inventory_source = SourceRegistry(
+                id="territory:ibge:directory", jurisdiction_id="federal",
+                name="IBGE — diretório territorial", adapter="ibge_localities",
+                base_url=IBGE_MUNICIPALITIES, evidence_url="https://servicodados.ibge.gov.br/api/docs/localidades",
+                status="discovered", scope={}, last_error="",
+            )
+            session.add(inventory_source)
+        inventory_source.jurisdiction_id = "federal"
+        inventory_source.name = "IBGE — diretório territorial"
+        inventory_source.adapter = "ibge_localities"
+        inventory_source.base_url = IBGE_MUNICIPALITIES
+        inventory_source.evidence_url = "https://servicodados.ibge.gov.br/api/docs/localidades"
+        inventory_source.scope = {"states": len(states), "localities": len(municipalities),
+                                  "municipal_legislatures": eligible_count,
+                                  "special_localities_excluded": list(special)}
+        inventory_source.status = "enumerated"
+        inventory_source.last_checked_at = observed_at
+        inventory_source.last_error = ""
+        session.commit()
         return {"states": len(states), "localities": len(municipalities),
                 "municipal_legislatures": eligible_count, "excluded_special_localities": len(special),
                 "sources_seeded": source_count, "observed_at": observed_at.isoformat()}

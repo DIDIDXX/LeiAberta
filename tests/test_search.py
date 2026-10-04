@@ -9,6 +9,7 @@ def test_normalizes_accents_numbers_and_punctuation():
 def test_parses_number_and_two_digit_year():
     parsed = parse_query("Lei nº 13.709/18")
     assert parsed["number"] == "13709"
+    assert parsed["number_sequence"] is None
     assert parsed["year"] == 2018
 
 
@@ -27,6 +28,46 @@ def test_exact_number_year_wins_and_typo_suggests_lgpd(db_session, add_law):
     assert alias["suggestion"] is False
     assert fuzzy["results"][0]["title"] == "Lei Geral de Proteção de Dados Pessoais"
     assert fuzzy["suggestion"] is True
+
+
+def test_hyphenated_official_number_resolves_the_exact_measure_sequence(db_session):
+    from app.models import Law
+
+    common = dict(jurisdiction="federal", law_type="Medida Provisória", year=2001,
+                  description="", status="Não verificado", aliases=[], source_name="Senado",
+                  source_url="https://senado.example", fetch_url="https://senado.example",
+                  hot=False, materialization_status="catalog", coverage={})
+    db_session.add_all([
+        Law(slug="mpv-2206", number="2.206", title="Medida Provisória nº 2.206", **common),
+        Law(slug="mpv-2206-1", number="2.206-1", title="Medida Provisória nº 2.206-1", **common),
+    ])
+    db_session.commit()
+
+    exact = search_laws(db_session, "MPV 2.206-1/2001")
+    base = search_laws(db_session, "MPV 2.206/2001")
+
+    assert exact["parsed"]["number"] == "2206"
+    assert exact["parsed"]["number_sequence"] == "1"
+    assert [item["slug"] for item in exact["results"]] == ["mpv-2206-1"]
+    assert {item["slug"] for item in base["results"]} == {"mpv-2206", "mpv-2206-1"}
+
+
+def test_short_number_with_year_is_not_treated_as_a_fuzzy_title_query(db_session):
+    from app.models import Law
+
+    db_session.add(Law(slug="lcp-237-2026", jurisdiction="federal", law_type="Lei Complementar",
+                       number="237", year=2026, title="Lei Complementar nº 237 de 15/09/2026",
+                       description="", status="Não verificado", aliases=[], source_name="Senado",
+                       source_url="https://senado.example", fetch_url="https://senado.example",
+                       hot=False, materialization_status="catalog", coverage={}))
+    db_session.commit()
+
+    result = search_laws(db_session, "Lei Complementar 237/2026")
+
+    assert result["parsed"]["number"] == "237"
+    assert result["parsed"]["year"] == 2026
+    assert result["parsed"]["law_type"] == "Lei Complementar"
+    assert [item["slug"] for item in result["results"]] == ["lcp-237-2026"]
 
 
 def test_article_query_returns_matching_law(db_session, add_law):

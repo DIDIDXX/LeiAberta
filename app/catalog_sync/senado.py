@@ -6,20 +6,36 @@ import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Jurisdiction, Law, SourceRegistry
 
-SENATE_LIST_URL = "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LEI"
+SENATE_LIST_BASE = "https://legis.senado.leg.br/dadosabertos/legislacao/lista"
 MAX_CATALOG_BYTES = 20_000_000
+CATALOG_MAX_AGE = timedelta(hours=24)
+
+# These exact type codes were confirmed against the official Senate API. This is
+# a broad federal catalog, not a claim that the Senate endpoint covers every
+# executive or subnational act.
+TYPE_LABELS = {
+    "LEI": "Lei",
+    "LCP": "Lei Complementar",
+    "EMC": "Emenda Constitucional",
+    "MPV": "Medida Provisória",
+    "DLG": "Decreto Legislativo",
+    "RSF": "Resolução do Senado Federal",
+}
+MINIMUM_RECORDS = {"LEI": 1_000, "LCP": 100, "EMC": 100, "MPV": 1_000, "DLG": 5_000, "RSF": 1_000}
 
 
 @dataclass(frozen=True)
 class SenadoCatalogLaw:
     remote_id: str
+    type_code: str
+    law_type: str
     number: str
     year: int
     signed_at: date | None
@@ -47,9 +63,23 @@ def _format_number(number: str) -> str:
     return ".".join(reversed(groups))
 
 
-def fetch_law_catalog(*, timeout: int = 60) -> tuple[bytes, str]:
+def _official_number(number: str, title: str) -> str:
+    # Several temporary measures use a final sequence (`2.206-1`). Prefer the
+    # official number embedded in normaNome, then fall back to grouping digits.
+    match = re.search(r"\bn[º°o]?\s*([\d.]+(?:-\d+)?)\s+de\b", title, re.I)
+    return match.group(1).strip(".") if match else _format_number(number)
+
+
+def _source_id(type_code: str) -> str:
+    return "federal:senado:leis" if type_code == "LEI" else f"federal:senado:{type_code.casefold()}"
+
+
+def fetch_law_catalog(type_code: str = "LEI", *, timeout: int = 60) -> tuple[bytes, str]:
+    if type_code not in TYPE_LABELS:
+        raise ValueError(f"Tipo do catálogo Senado não validado: {type_code}")
+    url = f"{SENATE_LIST_BASE}?tipo={type_code}"
     request = urllib.request.Request(
-        SENATE_LIST_URL,
+        url,
         headers={"Accept": "application/xml", "User-Agent": "LeiAberta/0.3 (+fontes oficiais)"},
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -59,8 +89,12 @@ def fetch_law_catalog(*, timeout: int = 60) -> tuple[bytes, str]:
         return body, response.geturl()
 
 
-def parse_law_catalog(body: bytes, *, base_url: str = "https://legis.senado.leg.br/dadosabertos",
-                      minimum_records: int = 1_000) -> list[SenadoCatalogLaw]:
+def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
+                      base_url: str = "https://legis.senado.leg.br/dadosabertos",
+                      minimum_records: int | None = None) -> list[SenadoCatalogLaw]:
+    if type_code not in TYPE_LABELS:
+        raise ValueError(f"Tipo do catálogo Senado não validado: {type_code}")
+    minimum_records = MINIMUM_RECORDS[type_code] if minimum_records is None else minimum_records
     if not body or len(body) > MAX_CATALOG_BYTES:
         raise ValueError("A lista federal do Senado está vazia ou excede o limite de tamanho.")
     try:
@@ -75,7 +109,7 @@ def parse_law_catalog(body: bytes, *, base_url: str = "https://legis.senado.leg.
     for entry in entries:
         remote_id = (entry.get("id") or "").strip()
         year_text = (entry.findtext("anoassinatura") or "").strip()
-        number = re.sub(r"\D", "", (entry.findtext("numero") or ""))
+        number = entry.findtext("numero") or ""
         year = int(year_text) if year_text.isdigit() else None
         title = (entry.findtext("normaNome") or "").strip()
         if not remote_id.isdigit() or year is None or not 1800 <= year <= 2200 or not title:
@@ -85,7 +119,8 @@ def parse_law_catalog(body: bytes, *, base_url: str = "https://legis.senado.leg.
         seen.add(remote_id)
         source_urn = (entry.findtext("norma") or "").strip()
         results.append(SenadoCatalogLaw(
-            remote_id=remote_id, number=_format_number(number), year=year,
+            remote_id=remote_id, type_code=type_code, law_type=TYPE_LABELS[type_code],
+            number=_official_number(number, title), year=year,
             signed_at=_date(entry.findtext("dataassinatura") or ""),
             title=title[:300], description=(entry.findtext("ementa") or "").strip(),
             source_url=f"{base_url.rstrip('/')}/legislacao/{remote_id}", source_urn=source_urn,
@@ -95,8 +130,21 @@ def parse_law_catalog(body: bytes, *, base_url: str = "https://legis.senado.leg.
     return results
 
 
-def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw]) -> dict:
+def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw], *,
+                     type_code: str | None = None, catalog_url: str | None = None,
+                     total_records: int | None = None, records_committed: int | None = None,
+                     final_chunk: bool = True) -> dict:
     """Idempotently sync list metadata; does not claim the Senate list is every federal act."""
+    if not records:
+        raise ValueError("Não é permitido sincronizar um catálogo vazio.")
+    codes = {record.type_code for record in records}
+    if type_code is None:
+        if len(codes) != 1:
+            raise ValueError("Uma execução de sincronização deve conter exatamente um tipo normativo.")
+        type_code = next(iter(codes))
+    if type_code not in TYPE_LABELS or codes != {type_code}:
+        raise ValueError("Os registros não correspondem ao tipo normativo solicitado.")
+    catalog_url = catalog_url or f"{SENATE_LIST_BASE}?tipo={type_code}"
     laws = list(session.scalars(select(Law)))
     by_remote = {law.external_source_id: law for law in laws if law.external_source_id}
     by_identity: dict[tuple[str, str, int], list[Law]] = {}
@@ -109,8 +157,12 @@ def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw]) -> dict:
     for record in records:
         existing = by_remote.get(record.remote_id)
         if existing:
+            if (existing.source_name.startswith("Senado Federal") and
+                    existing.law_type.casefold() != record.law_type.casefold()):
+                raise ValueError(f"O identificador remoto {record.remote_id} apareceu em dois tipos Senado distintos.")
             existing.signed_at = record.signed_at
             if existing.source_name.startswith("Senado Federal"):
+                existing.law_type = record.law_type
                 existing.title = record.title[:300]
                 existing.description = record.description
                 existing.source_url = record.source_url
@@ -122,7 +174,7 @@ def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw]) -> dict:
             refreshed += 1
             continue
 
-        identity = ("lei", re.sub(r"\D", "", record.number), record.year)
+        identity = (record.law_type.casefold(), re.sub(r"\D", "", record.number), record.year)
         candidates = by_identity.get(identity, [])
         seed = next((row for row in candidates if row.external_source_id is None), None) if len(candidates) == 1 else None
         if seed:
@@ -139,7 +191,7 @@ def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw]) -> dict:
         slug = f"senado-{record.remote_id}"
         aliases = [record.source_urn] if record.source_urn else []
         law = Law(
-            slug=slug, jurisdiction="federal", law_type="Lei", number=record.number,
+            slug=slug, jurisdiction="federal", law_type=record.law_type, number=record.number,
             year=record.year, external_source_id=record.remote_id, signed_at=record.signed_at,
             title=record.title[:300], description=record.description,
             status="Não verificado", published_at=None, aliases=aliases,
@@ -155,38 +207,95 @@ def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw]) -> dict:
         by_identity.setdefault(identity, []).append(law)
         added += 1
     session.add_all(new_laws)
-    registry = session.get(SourceRegistry, "federal:senado:leis")
+    source_id = _source_id(type_code)
+    registry = session.get(SourceRegistry, source_id)
     if registry is None:
         registry = SourceRegistry(
-            id="federal:senado:leis", name="Senado Federal — catálogo de leis",
-            adapter="senado_catalog", base_url=SENATE_LIST_URL,
+            id=source_id, name=f"Senado Federal — catálogo {record.law_type}",
+            adapter="senado_catalog", base_url=catalog_url,
             evidence_url="https://legis.senado.leg.br/dadosabertos/v3/api-docs",
             scope={}, status="discovered", last_error="",
         )
         session.add(registry)
     registry.jurisdiction_id = "federal" if session.get(Jurisdiction, "federal") else None
-    registry.name = "Senado Federal — catálogo de leis"
+    registry.name = f"Senado Federal — catálogo {TYPE_LABELS[type_code]}"
     registry.adapter = "senado_catalog"
-    registry.base_url = SENATE_LIST_URL
+    registry.base_url = catalog_url
     registry.evidence_url = "https://legis.senado.leg.br/dadosabertos/v3/api-docs"
-    registry.scope = {"normative_class": "Lei", "records_enumerated": len(records),
-                      "universe": "Senado API records returned by tipo=LEI; excludes other normative type codes and jurisdictions"}
-    registry.status = "enumerated"
+    registry.scope = {"normative_class": TYPE_LABELS[type_code], "senate_type_code": type_code,
+                      "records_enumerated": total_records or len(records),
+                      "records_committed": records_committed or len(records),
+                      "last_remote_id": records[-1].remote_id,
+                      "universe": f"Senado API records returned by tipo={type_code}; excludes types not listed and subnational jurisdictions"}
+    registry.status = "enumerated" if final_chunk else "syncing"
     registry.last_checked_at = now
     registry.last_error = ""
     session.commit()
     digest = hashlib.sha256("\n".join(record.remote_id for record in records).encode()).hexdigest()
-    return {"source": SENATE_LIST_URL, "listed": len(records), "added": added,
+    return {"source": catalog_url, "type_code": type_code, "listed": len(records), "added": added,
             "attached_to_seed": attached, "refreshed": refreshed,
             "catalog_ids_sha256": digest, "observed_at": now.isoformat()}
 
 
-def sync_senado_law_catalog() -> dict:
+def _catalog_is_fresh(type_code: str, *, max_age=CATALOG_MAX_AGE) -> bool:
     from app.db import SessionLocal
 
-    body, url = fetch_law_catalog()
-    records = parse_law_catalog(body, base_url=url.rsplit("/legislacao/", 1)[0])
+    source_id = _source_id(type_code)
     with SessionLocal() as session:
-        result = sync_law_catalog(session, records)
-        result["source_response_sha256"] = hashlib.sha256(body).hexdigest()
-        return result
+        row = session.get(SourceRegistry, source_id)
+        if not row or not row.last_checked_at or row.status != "enumerated":
+            return False
+        checked_at = row.last_checked_at
+        if checked_at.tzinfo is None:
+            checked_at = checked_at.replace(tzinfo=timezone.utc)
+        return checked_at > datetime.now(timezone.utc) - max_age
+
+
+def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *, force: bool = False) -> dict:
+    from app.db import SessionLocal
+
+    results = []
+    errors = []
+    skipped = []
+    for type_code in type_codes:
+        if type_code not in TYPE_LABELS:
+            errors.append({"type_code": type_code, "error": "tipo não validado"})
+            continue
+        if not force and _catalog_is_fresh(type_code):
+            skipped.append(type_code)
+            continue
+        try:
+            body, url = fetch_law_catalog(type_code)
+            records = parse_law_catalog(body, type_code=type_code,
+                                        base_url="https://legis.senado.leg.br/dadosabertos")
+            counts = {"added": 0, "attached_to_seed": 0, "refreshed": 0}
+            chunk_size = 1_000
+            for start in range(0, len(records), chunk_size):
+                chunk = records[start:start + chunk_size]
+                final_chunk = start + len(chunk) == len(records)
+                with SessionLocal() as session:
+                    result = sync_law_catalog(
+                        session, chunk, type_code=type_code, catalog_url=url,
+                        total_records=len(records), records_committed=start + len(chunk),
+                        final_chunk=final_chunk,
+                    )
+                for key in counts:
+                    counts[key] += result[key]
+            result.update(counts)
+            result["listed"] = len(records)
+            result["catalog_ids_sha256"] = hashlib.sha256("\n".join(item.remote_id for item in records).encode()).hexdigest()
+            result["source_response_sha256"] = hashlib.sha256(body).hexdigest()
+            results.append(result)
+        except Exception as exc:
+            error = str(exc)[:300]
+            errors.append({"type_code": type_code, "error": error})
+            with SessionLocal() as session:
+                registry = session.get(SourceRegistry, _source_id(type_code))
+                if registry:
+                    registry.status = "stale"
+                    registry.last_error = error
+                    session.commit()
+    return {"synced": results, "skipped_fresh": skipped, "errors": errors,
+            "listed": sum(item["listed"] for item in results),
+            "added": sum(item["added"] for item in results),
+            "observed_at": datetime.now(timezone.utc).isoformat()}

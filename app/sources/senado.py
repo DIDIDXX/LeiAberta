@@ -11,7 +11,8 @@ from datetime import date
 BASE_URL = "https://legis.senado.leg.br/dadosabertos"
 TYPE_CODES = {
     "Lei": "LEI", "Lei Complementar": "LCP", "Medida Provisória": "MPV",
-    "Emenda Constitucional": "EC", "Decreto Legislativo": "DLG",
+    "Emenda Constitucional": "EMC", "Decreto Legislativo": "DLG",
+    "Resolução do Senado Federal": "RSF",
     "Decreto-Lei": "DEL", "Constituição": "CF",
 }
 CHANGE_WORDS = ("altera", "acréscimo", "acrescimo", "revogação", "revogacao", "restabelecimento")
@@ -47,7 +48,12 @@ def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) 
     type_code = TYPE_CODES.get(law_type)
     if not type_code:
         raise ValueError(f"Tipo normativo ainda não mapeado no catálogo Senado: {law_type}")
-    normalized_number = "".join(ch for ch in number if ch.isdigit())
+    # MPVs and a few historical norms distinguish multiple sequences with a
+    # hyphen (e.g. 2.206-1). The list endpoint filters on the base number, so
+    # resolve its returned records by the displayed official identity and then
+    # fetch the unique record by Senate ID.
+    normalized_display = re.sub(r"[^\d-]", "", number)
+    normalized_number = normalized_display.split("-", 1)[0]
     if not normalized_number:
         raise ValueError("O catálogo Senado exige número para resolver esta norma.")
     headers = {"User-Agent": "LeiAberta/0.2 (+fontes oficiais)", "Accept": "application/xml"}
@@ -62,13 +68,23 @@ def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) 
     except ET.ParseError as exc:
         raise ValueError("O Senado retornou lista XML inválida.") from exc
     entries = root.findall("./documentos/documento")
-    if len(entries) != 1:
-        raise ValueError(f"Esperado um resultado no catálogo do Senado; encontrados {len(entries)}.")
-    entry = entries[0]
-    actual_number = "".join(ch for ch in _text(entry, "numero") if ch.isdigit())
-    if actual_number != normalized_number or _text(entry, "anoassinatura") != str(year):
-        raise ValueError("A lista do Senado retornou identidade normativa divergente.")
-    detail_url = f"{BASE_URL}/legislacao/{type_code}/{normalized_number}/{year}"
+    expected_key = normalized_display.casefold()
+    matching = []
+    for entry in entries:
+        actual_year = _text(entry, "anoassinatura")
+        actual_base = "".join(ch for ch in _text(entry, "numero") if ch.isdigit())
+        official_name = _text(entry, "normaNome")
+        displayed = re.search(r"\bn[º°o]?\s*([\d.]+(?:-\d+)?)\s+de\b", official_name, re.I)
+        actual_display = re.sub(r"[^\d-]", "", displayed.group(1) if displayed else actual_base)
+        if actual_year == str(year) and actual_base == normalized_number and actual_display.casefold() == expected_key:
+            matching.append(entry)
+    if len(matching) != 1:
+        raise ValueError(f"Esperada uma identidade Senado {law_type} {number}/{year}; encontrados {len(matching)}.")
+    entry = matching[0]
+    source_id = (entry.get("id") or "").strip()
+    if not source_id.isdigit():
+        raise ValueError("A lista do Senado retornou identidade sem código numérico.")
+    detail_url = f"{BASE_URL}/legislacao/{source_id}"
     request = urllib.request.Request(detail_url, headers=headers)
     with urllib.request.urlopen(request, timeout=timeout) as response:
         body = response.read()
@@ -90,9 +106,11 @@ def parse_relation_xml(body: bytes, *, expected_number: str | None = None) -> li
     if identity is None:
         raise ValueError("O documento do Senado não inclui identificação normativa.")
     actual_number = "".join(ch for ch in _text(identity, "numero") if ch.isdigit())
-    expected = "".join(ch for ch in (expected_number or "") if ch.isdigit())
-    if expected and actual_number != expected:
-        raise ValueError(f"Identidade divergente na resposta do Senado: {actual_number} != {expected}.")
+    actual_reissue = "".join(ch for ch in _text(identity, "reedicao") if ch.isdigit())
+    actual_display = f"{actual_number}-{actual_reissue}" if actual_reissue else actual_number
+    expected_display = re.sub(r"[^\d-]", "", expected_number or "")
+    if expected_display and actual_display != expected_display:
+        raise ValueError(f"Identidade divergente na resposta do Senado: {actual_display} != {expected_display}.")
 
     relations: dict[tuple[str, str], SenateRelation] = {}
     for item in document.findall("./disps/disp"):

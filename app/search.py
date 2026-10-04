@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session, load_only
 from app.models import Law, LegalNode
 
 ARTICLE_QUERY_RE = re.compile(r"\b(?:art(?:igo)?\.?\s*)(\d+[a-z]?)\b", re.I)
-NUMBER_YEAR_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[.\s]\d{3})+|\d{4,8})\s*(?:/|\s+de\s+|\s+)(\d{2,4})(?!\d)", re.I)
-NUMBER_ONLY_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[.\s]\d{3})+|\d{4,8})(?!\d)")
+NUMBER_YEAR_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[.\s]\d{3})*|\d{4,8})(?:-(\d+))?\s*(?:/|\s+de\s+|\s+)(\d{2,4})(?!\d)", re.I)
+NUMBER_ONLY_RE = re.compile(r"(?<!\d)(\d{1,3}(?:[.\s]\d{3})+|\d{4,8})(?:-(\d+))?(?!\d)")
 
 
 def normalize_query(value: str) -> str:
@@ -26,13 +26,43 @@ def digits_only(value: str) -> str:
     return re.sub(r"\D", "", value)
 
 
+def _query_type(value: str) -> str | None:
+    normalized = normalize_query(value)
+    for phrase, canonical in (
+        ("lei complementar", "Lei Complementar"),
+        ("emenda constitucional", "Emenda Constitucional"),
+        ("medida provisoria", "Medida Provisória"),
+        ("decreto legislativo", "Decreto Legislativo"),
+        ("resolucao do senado federal", "Resolução do Senado Federal"),
+        ("resolucao senado", "Resolução do Senado Federal"),
+        ("decreto lei", "Decreto-Lei"),
+        ("constituicao", "Constituição"),
+        (r"\blc\b", "Lei Complementar"),
+        (r"\blcp\b", "Lei Complementar"),
+        (r"\bmpv\b", "Medida Provisória"),
+        (r"\bemc\b", "Emenda Constitucional"),
+        (r"\bec\b", "Emenda Constitucional"),
+        (r"\bdlg\b", "Decreto Legislativo"),
+        (r"\brsf\b", "Resolução do Senado Federal"),
+    ):
+        if phrase.startswith("\\b"):
+            if re.search(phrase, normalized):
+                return canonical
+        elif phrase in normalized:
+            return canonical
+    if re.search(r"\blei\b", normalized):
+        return "Lei"
+    return None
+
+
 def parse_query(value: str) -> dict:
     article = ARTICLE_QUERY_RE.search(value)
     reference = NUMBER_YEAR_RE.search(value)
-    number = year = None
+    number = year = number_sequence = None
     if reference:
         number = digits_only(reference.group(1))
-        year_text = reference.group(2)
+        number_sequence = reference.group(2)
+        year_text = reference.group(3)
         year = int(year_text)
         if len(year_text) == 2:
             year += 2000 if year < 50 else 1900
@@ -40,6 +70,7 @@ def parse_query(value: str) -> dict:
         plain = NUMBER_ONLY_RE.search(value)
         if plain:
             number = digits_only(plain.group(1))
+            number_sequence = plain.group(2)
     cleaned = ARTICLE_QUERY_RE.sub(" ", value)
     if reference:
         cleaned = cleaned.replace(reference.group(0), " ")
@@ -49,6 +80,8 @@ def parse_query(value: str) -> dict:
     return {
         "article": article.group(1).lower() if article else None,
         "number": number,
+        "number_sequence": number_sequence,
+        "law_type": _query_type(value),
         "year": year,
         "terms": normalize_query(cleaned),
     }
@@ -80,10 +113,20 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     parsed = parse_query(query)
     normalized_query = normalize_query(query)
     candidate_query = select(Law)
+    if parsed["law_type"]:
+        candidate_query = candidate_query.where(Law.law_type == parsed["law_type"])
     description_loaded = False
     if parsed["number"]:
-        number_forms = {parsed["number"], _display_number(parsed["number"])}
-        exact = candidate_query.where(Law.number.in_(number_forms))
+        display_number = _display_number(parsed["number"])
+        number_forms = {parsed["number"], display_number}
+        if parsed["number_sequence"]:
+            number_forms.add(f"{display_number}-{parsed['number_sequence']}")
+            number_forms.add(f"{parsed['number']}-{parsed['number_sequence']}")
+        if not parsed["number_sequence"]:
+            exact = candidate_query.where(or_(Law.number.in_(number_forms),
+                                              Law.number.like(f"{display_number}-%")))
+        else:
+            exact = candidate_query.where(Law.number.in_(number_forms))
         if parsed["year"]:
             exact = exact.where(Law.year == parsed["year"])
         laws = list(session.scalars(exact.limit(500)))
@@ -128,11 +171,15 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     for law in laws:
         aliases = [law.title, *law.aliases, f"{law.law_type} {law.number}/{law.year}", f"{law.number}/{law.year}", law.number]
         normalized_aliases = {normalize_query(alias) for alias in aliases}
-        normalized_number = digits_only(law.number)
+        number_match = re.match(r"^(.*?)(?:-(\d+))?$", law.number)
+        law_number_base = digits_only(number_match.group(1)) if number_match else digits_only(law.number)
+        law_number_sequence = number_match.group(2) if number_match else None
         score = 0
         exact = False
 
-        if parsed["number"] and parsed["number"] == normalized_number:
+        if parsed["number"] and parsed["number"] == law_number_base and (
+            parsed["number_sequence"] is None or parsed["number_sequence"] == law_number_sequence
+        ):
             score = 950 if parsed["year"] is None else (1100 if parsed["year"] == law.year else 0)
             exact = bool(score)
         if normalized_query in normalized_aliases:
@@ -179,6 +226,10 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             scored.append((score, _similarity(terms or query, law.title), law, exact))
 
     scored.sort(key=lambda entry: (entry[0], entry[1], entry[2].hot), reverse=True)
+    if not parsed["article"] and any(entry[3] for entry in scored):
+        # Once an exact identity/title/alias exists, typo candidates must not
+        # clutter the exact search result page.
+        scored = [entry for entry in scored if entry[3]]
     descriptions = {}
     if not description_loaded and scored:
         top_slugs = [entry[2].slug for entry in scored[:limit]]

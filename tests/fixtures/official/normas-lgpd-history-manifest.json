@@ -1,0 +1,8 @@
+{
+  "source": "Normas.leg.br API pública do Congresso Nacional",
+  "urn": "urn:lex:br:federal:lei:2018-08-14;13709",
+  "request_url": "https://normas.leg.br/api/public/normas?urn=urn%3Alex%3Abr%3Afederal%3Alei%3A2018-08-14%3B13709&tipo_documento=maior-detalhe",
+  "retrieved_at": "2026-10-04",
+  "sha256": "cf507e267013ff009896df1b2b2521311efff42ea80f4cdc44ebda585f83f5a2",
+  "bytes": 780389
+}

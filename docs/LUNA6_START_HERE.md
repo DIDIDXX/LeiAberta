@@ -1,59 +1,29 @@
-# Luna 6 — comece aqui
+# Luna 6 — estado da execução
 
-## Pedido do usuário
+O pedido é entregar o máximo do LeiAberta funcionando em produção: busca, leitura, histórico apoiado por fonte, catálogo amplo e backfill contínuo. A instrução mais recente pede execução completa e que só fiquem impossibilidades técnicas.
 
-“Quero tudo funcionando”, incluindo histórico real e leis completas de todas as jurisdições. Usar o Railway disponível. Este handoff foi preparado após auditoria do código e pesquisa de fontes oficiais em 04/10/2026.
+Leia:
 
-## Leia nesta ordem
+1. [Plano e requisitos completos](LEIABERTA_LUNA6_EXECUTION_PLAN.md)
+2. [Requisitos originais](LEIABERTA_ORIGINAL_REQUIREMENTS.md)
+3. [Relatório atualizado por tarefa](reports/execution-status.md)
+4. [Pesquisa e limites de fontes](research/2026-10-04-source-findings.json)
 
-1. [Plano completo de execução](LEIABERTA_LUNA6_EXECUTION_PLAN.md).
-2. [Requisitos originais do produto](LEIABERTA_ORIGINAL_REQUIREMENTS.md).
-3. [Resultados da pesquisa oficial](research/2026-10-04-source-findings.json).
-4. README e eventuais `AGENTS.md` aplicáveis.
+## Código preparado nesta execução
 
-O plano completo contém 28 tarefas T00–T27, dependências, modelo de dados, contratos de API, reconstrução histórica, ingestão nacional, testes, runbook Railway e seis portões de aceite. Os comandos novos descritos nele ainda precisam ser implementados.
+Base local: commit `b42466a` na branch `main`; as alterações desta execução ainda aguardam publicação. Incluem catálogo Senado para `LEI`, `LCP`, `EMC`, `MPV`, `DLG`, `RSF`; procura por número/ano e reedições MPV; captura Normas.leg.br; histórico com diferenças comprovadas; arquivo bruto antes de parsing; auditoria estrutural; worker para hidratar 100 textos por lote a cada cinco minutos; estatísticas de cobertura.
 
-## Estado após execução e deploy (04/10/2026)
+Evidência local: **42 testes unitários e 4 E2E passaram**. O catálogo real isolado enumerou **47.327 entradas** sem erros; uma segunda sincronização não duplicou identidades. A integração LGPD guardou **54 comparações de antes/depois** e preservou **98 relações sem texto histórico** como pendentes. A captura de `MPV 2.206-1/2001` estruturou 10 artigos e 35 nós. Transcrições do Normas.leg.br são classificadas pelo próprio portal como valor jurídico não oficial.
 
-As primeiras entregas de execução já estão em `main` e em produção (PR #1, merge `197da4502a97786abca43d98f2f3f395c32ea648`). Web e worker Railway estão `SUCCESS`: https://web-production-12e95.up.railway.app. O catálogo sincronizou 16.883 leis federais do Senado; o diretório registrou 27 UFs e 5.571 localidades. O worker e a fila durável foram exercitados: preparar o histórico da LGPD em produção retornou 146 relações oficiais, com cobertura `partial`. Home, busca, detalhe, artigo, histórico e uso móvel passaram no smoke test.
+## Publicação
 
-“Todas as leis” continua incompleto. A lista do Senado ainda é somente `tipo=LEI`, e a maioria dos registros está no catálogo sem texto integral. Histórico textual genérico, Câmara, LexML, legislativos estaduais/municipais, anexos e auditoria integral continuam pendentes. Não foi possível demonstrar um backup restaurável ou ambiente staging nesta sessão. Consulte [`execution-status.md`](reports/execution-status.md) para números, IDs e evidências do deploy.
+Depois de atualizar esta documentação e os manifests finais, publique no GitHub e espere os serviços web/worker do Railway em `SUCCESS`. O endereço conhecido é https://web-production-12e95.up.railway.app. Confirme `/health`, `/api/stats`, busca de uma lei, busca de uma MPV com sufixo, o estado de um texto em backfill e histórico da LGPD. Atualize `reports/execution-status.md` com SHA e deployment IDs reais. Não copie contagens locais como se fossem produção.
 
-## Próximas tarefas de execução
+## Impedimentos comprovados
 
-1. Resolver T01 com credencial/CLI ou ações via Dashboard Railway: backup lógico verificável, ambiente staging isolado e restore testado antes de novas migrations em produção.
-2. Continuar T04–T08: arquivar resposta de fonte antes do parse, baixar/analisar anexos e implementar auditoria documental por segmento para as leis prioritárias.
-3. Ampliar catálogo federal para outros tipos e fontes Câmara; implementar adaptações LexML, ALESP/SINJ e uma jurisdição municipal de piloto, preservando checkpoints e origem.
-4. Construir relações históricas e diffs textuais genéricos apenas com evidência de texto anterior/posterior e datas oficiais; medir a cobertura por jurisdição e tipo.
-5. Completar operação contínua, scheduler, autoria/processos/votos e os portões restantes descritos no plano integral.
+- Railway Hobby tem `maxBackupsCount=0`, e as ferramentas conectadas não dão shell, CLI ou GraphQL para exportar/dumpar ou duplicar ambiente. Nenhum backup restaurável ou staging foi criado nesta execução.
+- A API do Senado entrega seis tipos catalogáveis, não todo o universo de leis brasileiras. Não existe endpoint nacional único para os acervos estaduais e municipais.
+- Normas.leg.br oferece conteúdo utilizável, mas o próprio portal marca essas transcrições/compilações como valor jurídico não oficial.
+- Relações históricas nem sempre possuem redação anterior/posterior e data de vigência; texto ausente permanece pendente, nunca inventado.
 
-Não terminar depois dos pilotos. LMP/LGPD e fontes estaduais/municipais piloto validam algoritmos; o catálogo e os backfills precisam prosseguir para todas as normas descobertas. Não declarar cobertura nacional completa sem inventário e reconciliação por jurisdição.
-
-## Registro persistente
-
-Criar `docs/reports/execution-status.md` e manter por tarefa:
-
-```text
-Tarefa:
-Estado: pending | running | complete | blocked
-SHA / deployment:
-Arquivos / migrations:
-Fontes oficiais / IDs:
-Dados e intervalos efetivamente processados:
-Validações / resultados:
-Lacunas e bloqueios específicos:
-Checkpoint de retomada:
-Próxima ação:
-```
-
-Não usar dados fictícios para preencher esse registro. Fontes inacessíveis viram bloqueios específicos; tarefas independentes continuam. Preservar versões/snapshots existentes e links públicos.
-
-## Produção existente
-
-- Repositório: https://github.com/DIDIDXX/LeiAberta.
-- Base auditada: `16c78fe888b3507409dbfda0dc951f06d28e0d50`.
-- Site: https://web-production-12e95.up.railway.app.
-- Railway: web, worker, Postgres e Redis já provisionados; IDs no plano completo.
-- Web atende `$PORT`; domínio atual aponta para8080.
-
-Esta entrega já inclui implementação, merge, deploy e smoke público das entregas parciais listadas acima. O trabalho é retomar pelas tarefas restantes, ampliar as fontes sem mascarar lacunas e documentar precisamente o que funciona.
+As tarefas de Câmara, assembleias, câmaras municipais, anexos/PDF, autoria, projetos e votos não estão implementadas neste lote. Consulte a matriz de execução para a fonte específica que precisa ser confirmada em cada família. Não afirme que essas tarefas estão concluídas ou que o Brasil inteiro foi sincronizado.

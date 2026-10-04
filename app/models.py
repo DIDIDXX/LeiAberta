@@ -19,7 +19,7 @@ class Law(Base):
     state_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
     municipality: Mapped[str | None] = mapped_column(String(120), nullable=True)
     law_type: Mapped[str] = mapped_column(String(48))
-    number: Mapped[str] = mapped_column(String(24))
+    number: Mapped[str] = mapped_column(String(24), index=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
     external_source_id: Mapped[str | None] = mapped_column(String(96), unique=True, nullable=True)
     signed_at: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -113,10 +113,12 @@ class SourceSnapshot(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), index=True)
-    version_id: Mapped[int] = mapped_column(ForeignKey("law_versions.id", ondelete="CASCADE"), index=True)
+    # A captured official response exists independently of whether parsing
+    # succeeds or a parser representation has been published.
+    version_id: Mapped[int | None] = mapped_column(ForeignKey("law_versions.id", ondelete="SET NULL"), nullable=True, index=True)
     source_url: Mapped[str] = mapped_column(Text)
     checksum: Mapped[str] = mapped_column(String(64), index=True)
-    raw_format: Mapped[str] = mapped_column(String(32), default="text/html; charset=iso-8859-1")
+    raw_format: Mapped[str] = mapped_column(String(80), default="text/html; charset=iso-8859-1")
     raw_body: Mapped[bytes] = mapped_column(LargeBinary)
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

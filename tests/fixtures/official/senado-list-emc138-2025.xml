@@ -1,0 +1,13 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<ListaDocumento xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+    xsi:noNamespaceSchemaLocation='https://legis.senado.leg.br/dadosabertos/dados/ListaDocumentov3.xsd'>
+    <Metadados>
+    <Versao>04/10/2026 16:55:54</Versao>
+    <VersaoServico>3</VersaoServico>
+    <DataVersaoServico>2017-02-01</DataVersaoServico>
+    <DescricaoDataSet>Obtém a lista de Legislação Federal com base nos parâmetros informados.</DescricaoDataSet>
+    
+</Metadados>
+
+    <documentos><documento id="41853798"><tipo>EMC-n</tipo><descricao>Emenda Constitucional Numerada</descricao><numero>138</numero><norma>EMC-138-2025-12-19</norma><normaNome>Emenda Constitucional nº 138 de 19/12/2025</normaNome><ementa>Altera o art. 37 da Constituição Federal para permitir a acumulação remunerada de um cargo de professor com outro de qualquer natureza.</ementa><dataassinatura>19/12/2025</dataassinatura><anoassinatura>2025</anoassinatura><apelido>EMC-138-2025-12-19</apelido></documento></documentos>
+</ListaDocumento>

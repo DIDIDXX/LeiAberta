@@ -8,13 +8,15 @@ import threading
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import and_, or_, update
+from sqlalchemy import and_, func, or_, update
 
 from sqlalchemy import select
 
+from app.audit import audit_archived_document
 from app.catalog import AMENDING_LAWS
 from app.db import SessionLocal
 from app.models import HistoryEvent, HydrationJob, JobOutbox, Law, LawChange, LawVersion, LegalNode, SourceSnapshot
+from app.sources.normas import SourceDocumentUnavailable
 from app.sources.planalto import PARSER_VERSION, detect_raw_format, extract_paragraphs, fetch_official_html, parse_legal_nodes, source_note_for_law
 
 logger = logging.getLogger("leiaberta.jobs")
@@ -80,8 +82,87 @@ def queue_hydration(law: Law, *, refresh: bool = False) -> HydrationJob:
     return queue_job(law.slug, "hydrate", refresh=refresh)
 
 
+def queue_senado_text_batch(*, limit: int = 100) -> dict:
+    """Queue one bounded part of the Senate catalog for text retrieval."""
+    if not 1 <= limit <= 500:
+        raise ValueError("O lote de textos deve conter de 1 a 500 normas.")
+    session = SessionLocal()
+    jobs: list[dict] = []
+    try:
+        active_or_attempted = select(HydrationJob.id).where(
+            HydrationJob.law_slug == Law.slug,
+            HydrationJob.job_type == "hydrate",
+        ).exists()
+        laws = list(session.scalars(
+            select(Law)
+            .where(
+                Law.jurisdiction == "federal",
+                Law.source_name == "Senado Federal — Dados Abertos Legislativos",
+                Law.current_version_id.is_(None),
+                ~active_or_attempted,
+            )
+            .order_by(Law.slug)
+            .limit(limit)
+        ))
+        now = datetime.now(timezone.utc)
+        for law in laws:
+            job = HydrationJob(
+                id=str(uuid.uuid4()), law_slug=law.slug, job_type="hydrate", status="queued",
+                stage_name="queued", message="Aguardando captura do texto legislativo",
+                created_at=now, updated_at=now,
+            )
+            law.materialization_status = "preparing"
+            session.add(job)
+            session.add(JobOutbox(job_id=job.id, created_at=now, available_at=now))
+            jobs.append({"slug": law.slug, "job_id": job.id})
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    if jobs:
+        try:
+            dispatch_outbox()
+        except Exception as exc:
+            logger.warning("senado_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
+    return {"queued_count": len(jobs), "limit": limit, "jobs": jobs}
+
+
 def queue_history(law: Law) -> HydrationJob:
     return queue_job(law.slug, "history")
+
+
+def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_format: str,
+                           raw_body: bytes, version_id: int | None = None) -> int:
+    """Durably archive official bytes before parsing or relation extraction starts."""
+    session = SessionLocal()
+    try:
+        snapshot = session.scalar(select(SourceSnapshot).where(
+            SourceSnapshot.law_slug == law_slug, SourceSnapshot.checksum == checksum,
+        ).limit(1))
+        if snapshot:
+            if snapshot.version_id is None and version_id is not None:
+                snapshot.version_id = version_id
+            session.commit()
+            return snapshot.id
+        snapshot = SourceSnapshot(
+            law_slug=law_slug, version_id=version_id, source_url=source_url,
+            checksum=checksum, raw_format=raw_format, raw_body=raw_body,
+        )
+        session.add(snapshot)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            snapshot = session.scalar(select(SourceSnapshot).where(
+                SourceSnapshot.law_slug == law_slug, SourceSnapshot.checksum == checksum,
+            ).limit(1))
+            if not snapshot:
+                raise
+        return snapshot.id
+    finally:
+        session.close()
 
 
 def dispatch_outbox(limit: int = 100) -> int:
@@ -128,6 +209,7 @@ def _update_job(session, job: HydrationJob, *, status: str | None = None, stage:
 
 def _process_history_job(job_id: str) -> None:
     from app.sources.senado import fetch_norm_xml, parse_relation_xml
+    from app.sources.normas import fetch_normas_history
 
     session = SessionLocal()
     try:
@@ -137,13 +219,27 @@ def _process_history_job(job_id: str) -> None:
             raise ValueError("Job ou norma não encontrados.")
         _update_job(session, job, stage=1, message="Consultando relações normativas do Senado")
         body, list_url = fetch_norm_xml(law.law_type, law.number, law.year)
-        relations = parse_relation_xml(body, expected_number=law.number)
-        current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
         checksum = hashlib.sha256(body).hexdigest()
-        if current_version and not session.scalar(select(SourceSnapshot.id).where(SourceSnapshot.law_slug == law.slug, SourceSnapshot.checksum == checksum).limit(1)):
-            session.add(SourceSnapshot(law_slug=law.slug, version_id=current_version.id, source_url=list_url,
-                                       checksum=checksum, raw_format="application/xml; charset=utf-8", raw_body=body))
-        _update_job(session, job, stage=2, message=f"Conferindo {len(relations)} referências oficiais")
+        archive_source_document(law.slug, list_url, checksum, "application/xml; charset=utf-8",
+                               body, law.current_version_id)
+        relations = parse_relation_xml(body, expected_number=law.number)
+        normas_history = None
+        normas_changes = []
+        try:
+            normas_history = fetch_normas_history(
+                law.fetch_url, law.law_type, law.number, law.year, senate_detail_xml=body,
+            )
+            archive_source_document(
+                law.slug, normas_history.source_url,
+                hashlib.sha256(normas_history.body).hexdigest(), "application/json; charset=utf-8",
+                normas_history.body, law.current_version_id,
+            )
+            normas_changes = normas_history.changes
+        except SourceDocumentUnavailable as exc:
+            logger.info("history_text_metadata_unavailable law_id=%s reason=%s", law.slug, str(exc)[:200])
+        current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
+        _update_job(session, job, stage=2,
+                    message=f"Conferindo {len(relations)} referências e {len(normas_changes)} versões de dispositivos")
         created = 0
         for relation in relations:
             event = HistoryEvent(
@@ -160,25 +256,143 @@ def _process_history_job(job_id: str) -> None:
             if not exists:
                 session.add(event)
                 created += 1
+        session.flush()
+
+        linked_changes = _persist_normas_text_changes(session, law, current_version, normas_changes)
+        if normas_changes:
+            relation_events = list(session.scalars(select(HistoryEvent).where(HistoryEvent.law_slug == law.slug)))
+            for change in normas_changes:
+                matching_events = [event for event in relation_events if _history_event_matches_change(event, change)]
+                if matching_events:
+                    for event in matching_events:
+                        event.status = "compared"
+                else:
+                    source_id = "normas:" + re.split(r"[@!]", change.source_urn, maxsplit=1)[0]
+                    event_id = str(uuid.uuid5(uuid.NAMESPACE_URL,
+                                              f"normas:{law.slug}:{source_id}:{change.node_id}"))
+                    existing = session.scalar(select(HistoryEvent.id).where(HistoryEvent.id == event_id).limit(1))
+                    if not existing:
+                        session.add(HistoryEvent(
+                            id=event_id, law_slug=law.slug, source_id=source_id,
+                            device_ref=change.node_id, relation=change.operation,
+                            event_label=change.source_law_label, event_url=change.source_url,
+                            signed_at=change.changed_at, publication_date=None,
+                            evidence=f"Normas.leg.br: {change.operation}; {change.source_urn}",
+                            status="compared",
+                        ))
         coverage = dict(law.coverage or {})
         # The Senate relations identify candidate events, but do not prove each historical text or legal-effective date.
         coverage["history"] = "partial"
-        coverage["history_source"] = "senado"
+        coverage["history_source"] = "senado+normas" if normas_history else "senado"
         coverage["history_checked_at"] = datetime.now(timezone.utc).isoformat()
         coverage["history_relation_count"] = len(relations)
-        coverage["history_events_pending_text"] = len(relations)
+        session.flush()
+        pending_text = session.scalar(select(func.count()).select_from(HistoryEvent).where(
+            HistoryEvent.law_slug == law.slug, HistoryEvent.status != "compared",
+        )) or 0
+        coverage["history_events_pending_text"] = pending_text
+        coverage["history_comparison_count"] = linked_changes
+        coverage["history_effective_dates"] = "not_verified"
+        if normas_history:
+            coverage["history_text_source"] = {
+                "provider": "Normas.leg.br / Senado Federal",
+                "urn": normas_history.urn,
+                "metadata_url": normas_history.source_url,
+                "legal_value": "UnofficialLegalValue",
+                "notice": "O portal classifica as transcrições como valor jurídico não oficial; datas de vigência ainda exigem confirmação.",
+            }
+        else:
+            coverage["history_text_source"] = {"status": "unavailable"}
         law.coverage = coverage
         job.status = "succeeded"
         job.stage = 5
         job.stage_name = "discovered"
-        job.message = f"{len(relations)} referências oficiais localizadas; redações anteriores ainda precisam ser conferidas"
+        job.message = (f"{len(relations)} referências oficiais e {linked_changes} comparações textuais verificadas; "
+                       f"{pending_text} referências continuam sem redação conferida")
         job.error = ""
         job.lease_until = None
         job.updated_at = datetime.now(timezone.utc)
         session.commit()
-        logger.info("history_relations_discovered law_id=%s found=%s added=%s", law.slug, len(relations), created)
+        logger.info("history_relations_discovered law_id=%s found=%s added=%s text_changes=%s pending=%s",
+                    law.slug, len(relations), created, linked_changes, pending_text)
     finally:
         session.close()
+
+
+def _persist_normas_text_changes(session, law: Law, current_version: LawVersion | None, changes) -> int:
+    compared = 0
+    source_version_url = current_version.source_url if current_version else law.source_url
+    operation_labels = {"Text_Change": "Alteração", "Insertion": "Inclusão", "Repeal": "Revogação"}
+    for change in changes:
+        existing = session.scalar(select(LawChange.id).where(
+            LawChange.law_slug == law.slug,
+            LawChange.node_id == change.node_id,
+            LawChange.source_law_number == change.source_law_number,
+            LawChange.source_law_year == change.source_law_year,
+        ).limit(1))
+        compared += 1
+        if existing:
+            continue
+        change_type = {"Text_Change": "UPDATE", "Insertion": "ADD", "Repeal": "REPEAL"}[change.operation]
+        session.add(LawChange(
+            id=str(uuid.uuid5(uuid.NAMESPACE_URL,
+                              f"normas-change:{law.slug}:{change.node_id}:{change.source_law_number}:{change.source_law_year}")),
+            law_slug=law.slug, node_id=change.node_id, change_type=change_type,
+            summary=f"{operation_labels[change.operation]}: {change.node_label}",
+            changed_at=change.changed_at, source_law_label=change.source_law_label,
+            source_law_number=change.source_law_number, source_law_year=change.source_law_year,
+            source_url=change.source_url, law_source_url=source_version_url,
+            before_text=change.before_text, after_text=change.after_text,
+            evidence_marker=f"Normas.leg.br; versão por dispositivo: {change.source_urn}",
+        ))
+    return compared
+
+
+def _history_event_matches_change(event: HistoryEvent, change) -> bool:
+    number_match = re.search(r"n[º°o]?\s*([\d.]+(?:-\d+)?)", event.event_label, re.I)
+    year_values = re.findall(r"\b(?:18|19|20|21)\d{2}\b", event.event_label)
+    if not number_match or not year_values:
+        return False
+    event_number = re.sub(r"\D", "", number_match.group(1))
+    change_number = re.sub(r"\D", "", change.source_law_number)
+    if event_number != change_number or int(year_values[-1]) != change.source_law_year:
+        return False
+    reference = event.device_ref.split(" [", 1)[0]
+    article = re.search(r"\bArt(?:igo)?\.?\s*((?:\d{1,3}(?:\.\d{3})+|\d+)(?:-[A-Za-z])?)", reference, re.I)
+    if not article:
+        return False
+    article_id = f"art:{re.sub(r'[^\da-z-]', '', article.group(1).casefold())}"
+    target = change.node_id
+    if target != article_id and not target.startswith(article_id + "."):
+        return False
+    inciso = re.search(r"\bInciso\s+(\d+|[IVXLCDM]+)\b", reference, re.I)
+    if inciso:
+        value = inciso.group(1).upper()
+        if value.isdigit():
+            value = _roman_number(int(value))
+        if f".inciso:{value}" not in target:
+            return False
+    paragraph = re.search(r"§\s*(\d+)|Parágrafo\s+Único", reference, re.I)
+    if paragraph:
+        value = "unico" if "único" in reference.casefold() else str(int(paragraph.group(1)))
+        if f".par:{value}" not in target:
+            return False
+    alinea = re.search(r"\bal[ií]nea\s+([a-z])\b", reference, re.I)
+    if alinea and f".alinea:{alinea.group(1).casefold()}" not in target:
+        return False
+    return True
+
+
+def _roman_number(value: int) -> str:
+    numerals = ((1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"),
+                (90, "XC"), (50, "L"), (40, "XL"), (10, "X"), (9, "IX"),
+                (5, "V"), (4, "IV"), (1, "I"))
+    result = []
+    for amount, numeral in numerals:
+        while value >= amount:
+            result.append(numeral)
+            value -= amount
+    return "".join(result)
 
 
 def process_hydration_job(job_id: str) -> bool:
@@ -221,7 +435,7 @@ def process_hydration_job(job_id: str) -> bool:
             failed.updated_at = datetime.now(timezone.utc)
             failed.lease_until = None
             outbox = retry_session.scalar(select(JobOutbox).where(JobOutbox.job_id == job_id).limit(1))
-            if failed.attempts < 5 and outbox:
+            if failed.attempts < 5 and outbox and not isinstance(exc, SourceDocumentUnavailable):
                 delay = min(3600, 15 * (2 ** max(0, failed.attempts - 1)))
                 failed.status = "queued"
                 failed.stage_name = "retry_wait"
@@ -232,7 +446,11 @@ def process_hydration_job(job_id: str) -> bool:
             else:
                 failed.status = "failed"
                 failed.stage_name = "failed"
-                failed.message = "O processamento falhou após novas tentativas"
+                failed.message = (
+                    "A fonte oficial não fornece um texto compatível"
+                    if isinstance(exc, SourceDocumentUnavailable) else
+                    "O processamento falhou após novas tentativas"
+                )
                 law = retry_session.get(Law, failed.law_slug)
                 if law:
                     if failed.job_type == "history":
@@ -240,6 +458,13 @@ def process_hydration_job(job_id: str) -> bool:
                         coverage["history"] = "unavailable" if coverage.get("history") in {None, "queued"} else "partial"
                         coverage["history_error"] = failed.error[:500]
                         law.coverage = coverage
+                    elif isinstance(exc, SourceDocumentUnavailable):
+                        coverage = dict(law.coverage or {})
+                        coverage["structured_text"] = "partial" if law.current_version_id else "unavailable"
+                        coverage["text_source_status"] = "unavailable"
+                        coverage["text_source_error"] = failed.error[:500]
+                        law.coverage = coverage
+                        law.materialization_status = "partial" if law.current_version_id else "unavailable"
                     elif not law.current_version_id:
                         law.materialization_status = "unavailable"
             retry_session.commit()
@@ -295,6 +520,8 @@ def _verified_lmp_changes(session, law: Law, version: LawVersion, nodes: list[Le
 
 
 def _process_hydration_job_unchecked(job_id: str) -> None:
+    from app.sources.normas import fetch_senado_document
+
     session = SessionLocal()
     try:
         job = session.get(HydrationJob, job_id)
@@ -312,8 +539,19 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         logger.info("hydration_started source=%s job=%s jurisdiction=%s law_id=%s", law.source_name, job.id, law.jurisdiction, law.slug)
 
         _update_job(session, job, stage=2, message="Obtendo texto da fonte oficial")
-        body, _fetched_url = fetch_official_html(law.fetch_url)
+        source_metadata = None
+        if law.source_name == "Presidência da República — Planalto":
+            body, fetched_url = fetch_official_html(law.fetch_url)
+        elif law.source_name == "Senado Federal — Dados Abertos Legislativos":
+            document = fetch_senado_document(law.fetch_url, law.law_type, law.number, law.year)
+            body, fetched_url = document.body, document.source_url
+            source_metadata = document
+        else:
+            from app.sources.normas import SourceDocumentUnavailable
+            raise SourceDocumentUnavailable(f"Não existe adapter de texto integral para {law.source_name}.")
         checksum = hashlib.sha256(body).hexdigest()
+        archive_source_document(law.slug, fetched_url, checksum, detect_raw_format(body), body,
+                               law.current_version_id)
 
         version = session.scalar(select(LawVersion).where(
             LawVersion.law_slug == law.slug, LawVersion.checksum == checksum,
@@ -330,7 +568,15 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                 raise ValueError("A fonte respondeu, mas nenhum dispositivo jurídico foi reconhecido.")
             session.query(LawVersion).filter(LawVersion.law_slug == law.slug).update({"is_current": False})
             version = LawVersion(
-                law_slug=law.slug, version_name="Texto consolidado consultado", source_url=law.source_url,
+                law_slug=law.slug,
+                version_name=(
+                    "Texto compilado consultado no Planalto"
+                    if source_metadata is None else
+                    f"{source_metadata.version} — "
+                    + ("compilação atual da Câmara" if source_metadata.version == "Current" else "transcrição da publicação original")
+                    + (" (valor jurídico oficial)" if source_metadata.legal_value == "OfficialLegalValue" else " (valor jurídico não oficial)")
+                )[:160],
+                source_url=fetched_url,
                 checksum=checksum, parser_version=PARSER_VERSION, is_current=True,
                 article_count=sum(1 for node in parsed if node.node_type == "article"),
             )
@@ -342,15 +588,13 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                 order_index=node.order_index,
             ) for node in parsed]
             session.add_all(nodes)
-            snapshot_exists = session.scalar(select(SourceSnapshot.id).where(
-                SourceSnapshot.law_slug == law.slug, SourceSnapshot.checksum == checksum,
-            ).limit(1))
-            if not snapshot_exists:
-                session.add(SourceSnapshot(
-                    law_slug=law.slug, version_id=version.id, source_url=law.source_url,
-                    checksum=checksum, raw_format=detect_raw_format(body), raw_body=body,
-                ))
             session.flush()
+
+        archived_snapshot = session.scalar(select(SourceSnapshot).where(
+            SourceSnapshot.law_slug == law.slug, SourceSnapshot.checksum == checksum,
+        ).limit(1))
+        if archived_snapshot and archived_snapshot.version_id is None:
+            archived_snapshot.version_id = version.id
 
         job.stage = 4
         job.stage_name = "validate"
@@ -361,16 +605,32 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
         # Parsing succeeded, but no independent whole-document completeness audit exists yet.
         law.materialization_status = "partial"
         law.last_hydrated_at = datetime.now(timezone.utc)
-        law.coverage = {
+        document_audit = audit_archived_document(body, nodes)
+        coverage = dict(law.coverage or {})
+        coverage.update({
             "official_source": "available",
             "structured_text": "partial",
-            "history": "partial" if linked_changes or session.scalar(select(LawChange.id).where(LawChange.law_slug == law.slug).limit(1)) else "not_materialized",
+            "history": "partial" if linked_changes or session.scalar(select(LawChange.id).where(LawChange.law_slug == law.slug).limit(1)) else coverage.get("history", "not_materialized"),
             "attribution": "partial" if linked_changes else "not_identified",
             "authors": "not_available",
             "votes": "not_available",
             "snapshot_checksum": checksum,
-        }
-        _update_job(session, job, status="succeeded", stage=5, message="Texto e dispositivos disponíveis")
+            "document_audit": document_audit,
+        })
+        if source_metadata is not None:
+            coverage["text_source"] = {
+                "provider": "Normas.leg.br / Senado Federal",
+                "representation": source_metadata.representation,
+                "version": source_metadata.version,
+                "legal_value": source_metadata.legal_value,
+                "notice": source_metadata.notice,
+                "source_url": fetched_url,
+            }
+        coverage.pop("text_source_error", None)
+        coverage["text_source_status"] = "available"
+        law.coverage = coverage
+        _update_job(session, job, status="succeeded", stage=5,
+                    message=("Texto e dispositivos disponíveis; transcrição do DOU com cobertura parcial" if source_metadata else "Texto e dispositivos disponíveis"))
         session.commit()
         logger.info("hydration_finished source=%s job=%s jurisdiction=%s law_id=%s duration_state=success articles=%s changes=%s checksum=%s",
                     law.source_name, job.id, law.jurisdiction, law.slug, version.article_count, linked_changes, checksum)

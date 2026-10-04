@@ -13,13 +13,18 @@ from sqlalchemy.orm import Session
 from xml.sax.saxutils import escape
 
 from app.db import get_session
+from app.audit import audit_archived_document
 from app.jobs import queue_history, queue_hydration
-from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SourceRegistry
+from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SourceRegistry, SourceSnapshot
 from app.search import search_laws
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.api")
 ROOT = Path(__file__).resolve().parent.parent
+TEXT_SOURCE_NAMES = {
+    "Presidência da República — Planalto",
+    "Senado Federal — Dados Abertos Legislativos",
+}
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
@@ -75,10 +80,39 @@ def api_health(session: Session = Depends(get_session)):
 @app.get("/api/stats")
 def stats(session: Session = Depends(get_session)):
     indexed = session.scalar(select(func.count()).select_from(Law)) or 0
-    materialized = session.scalar(select(func.count()).select_from(Law).where(Law.materialization_status == "ready")) or 0
-    articles = session.scalar(select(func.count()).select_from(LegalNode).where(LegalNode.node_type == "article")) or 0
+    materialized = session.scalar(select(func.count()).select_from(Law).where(Law.current_version_id.is_not(None))) or 0
+    articles = session.scalar(select(func.count()).select_from(LegalNode).join(
+        Law, LegalNode.law_slug == Law.slug,
+    ).where(LegalNode.node_type == "article", LegalNode.version_id == Law.current_version_id)) or 0
     changes = session.scalar(select(func.count()).select_from(LawChange)) or 0
-    return {"indexed_laws": indexed, "materialized_laws": materialized, "structured_articles": articles, "documented_changes": changes}
+    senate_total = session.scalar(select(func.count()).select_from(Law).where(
+        Law.source_name == "Senado Federal — Dados Abertos Legislativos",
+    )) or 0
+    senate_with_text = session.scalar(select(func.count()).select_from(Law).where(
+        Law.source_name == "Senado Federal — Dados Abertos Legislativos", Law.current_version_id.is_not(None),
+    )) or 0
+    senate_unavailable = session.scalar(select(func.count()).select_from(Law).where(
+        Law.source_name == "Senado Federal — Dados Abertos Legislativos", Law.materialization_status == "unavailable",
+    )) or 0
+    senate_active = session.scalar(select(func.count()).select_from(HydrationJob).join(
+        Law, HydrationJob.law_slug == Law.slug,
+    ).where(
+        Law.source_name == "Senado Federal — Dados Abertos Legislativos",
+        HydrationJob.job_type == "hydrate", HydrationJob.status.in_(["queued", "running"]),
+    )) or 0
+    return {
+        "indexed_laws": indexed,
+        "materialized_laws": materialized,
+        "structured_articles": articles,
+        "documented_changes": changes,
+        "senado_text": {
+            "catalog_laws": senate_total,
+            "with_text": senate_with_text,
+            "unavailable": senate_unavailable,
+            "pending": max(0, senate_total - senate_with_text - senate_unavailable),
+            "active_jobs": senate_active,
+        },
+    }
 
 
 @app.get("/api/laws")
@@ -134,7 +168,7 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
         LegalNode.version_id == law.current_version_id,
     )) if law.current_version_id else 0
     job = None
-    materializable = law.source_name == "Presidência da República — Planalto"
+    materializable = law.source_name in TEXT_SOURCE_NAMES
     if not law.current_version_id and materializable:
         job = queue_hydration(law)
     version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
@@ -155,7 +189,7 @@ def law_nodes(slug: str, article: str | None = None, session: Session = Depends(
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
     if not law.current_version_id:
-        if law.source_name != "Presidência da República — Planalto":
+        if law.source_name not in TEXT_SOURCE_NAMES:
             return {"status": "catalog", "source_url": law.source_url, "items": []}
         job = queue_hydration(law)
         return {"status": law.materialization_status, "job_id": job.id, "items": []}
@@ -198,7 +232,7 @@ def law_history(slug: str, session: Session = Depends(get_session)):
         "changed_at": item.signed_at.isoformat() if item.signed_at else None,
         "source_law_label": item.event_label, "source_url": item.event_url,
         "comparison_available": False, "evidence": item.evidence,
-    } for item in events)
+    } for item in events if item.status != "compared")
     items.sort(key=lambda item: item["changed_at"] or "0000-01-01", reverse=True)
     return {
         "law": _law_summary(law),
@@ -234,13 +268,42 @@ def law_coverage(slug: str, session: Session = Depends(get_session)):
     return {"law": _law_summary(law), "coverage": law.coverage or {}}
 
 
+@app.get("/api/laws/{slug}/audit")
+def law_document_audit(slug: str, session: Session = Depends(get_session)):
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
+    if not version:
+        raise HTTPException(status_code=409, detail="A norma ainda não tem uma versão estruturada para auditar.")
+    snapshot = session.scalar(select(SourceSnapshot).where(
+        SourceSnapshot.law_slug == law.slug, SourceSnapshot.checksum == version.checksum,
+    ).limit(1))
+    if not snapshot:
+        raise HTTPException(status_code=409, detail="A captura da fonte oficial desta versão não está arquivada.")
+    nodes = list(session.scalars(select(LegalNode).where(
+        LegalNode.version_id == version.id,
+    ).order_by(LegalNode.order_index)))
+    return {
+        "law": _law_summary(law),
+        "version_id": version.id,
+        "parser_version": version.parser_version,
+        "source": {"url": snapshot.source_url, "format": snapshot.raw_format,
+                   "checksum": snapshot.checksum, "retrieved_at": snapshot.retrieved_at.isoformat()},
+        "audit": audit_archived_document(snapshot.raw_body, nodes),
+    }
+
+
 @app.post("/api/laws/{slug}/hydrate", status_code=202)
 def hydrate_law(slug: str, session: Session = Depends(get_session)):
     law = session.get(Law, slug)
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
-    if law.source_name != "Presidência da República — Planalto":
-        raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; o adapter para obter o texto integral desta fonte ainda não está disponível.")
+    if law.source_name not in {
+        "Presidência da República — Planalto",
+        "Senado Federal — Dados Abertos Legislativos",
+    }:
+        raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; esta fonte ainda não fornece texto integral pelo LeiAberta.")
     refresh = False
     job = queue_hydration(law, refresh=refresh)
     return {"job_id": job.id, "status": job.status, "stage": job.stage, "message": job.message}

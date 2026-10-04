@@ -1,0 +1,92 @@
+{
+  "observed_at": "2026-10-04T20:59:15.272469+00:00",
+  "repository_base_commit": "b42466a",
+  "environment": "isolated SQLite database; migrations 0001-0007; no seed rows",
+  "catalog_source": "https://legis.senado.leg.br/dadosabertos/v3/api-docs",
+  "sync_command": "DATABASE_URL=sqlite:////tmp/leiaberta-catalog-final.db .venv/bin/python scripts/sync_senado_catalog.py --force",
+  "first_sync": {
+    "listed": 47327,
+    "added": 47327,
+    "errors": 0,
+    "types": [
+      {
+        "code": "LEI",
+        "listed": 16883,
+        "added": 16883,
+        "catalog_ids_sha256": "a90b440313bd6a901b6dfe5b060da6cc1d76b873421ea6f7319ca893bad24a39",
+        "source_response_sha256": "c0e750340d642a2b0d91a7f8cdbefc6ceb972684adc661348030d766f6ad34ee"
+      },
+      {
+        "code": "LCP",
+        "listed": 239,
+        "added": 239,
+        "catalog_ids_sha256": "639b162002d6bf01e5f19816d1860c704ba6a6bf11b8aab7f1dccaa2c2fcb43d",
+        "source_response_sha256": "c74278fa9543d3a99e93d3a2f1d72646440f47a8718500c2617bc6296b3608cd"
+      },
+      {
+        "code": "EMC",
+        "listed": 188,
+        "added": 188,
+        "catalog_ids_sha256": "5266c7b53806815d54b3eb5871130d3d514eabd45b3ff8aba2bff5640b44306d",
+        "source_response_sha256": "38bbc4d406b68e4e521ec18de389c1637527d01738176e40a9409d7926832de7"
+      },
+      {
+        "code": "MPV",
+        "listed": 7495,
+        "added": 7495,
+        "catalog_ids_sha256": "9deba94e59a525a88e1cae48fd6bc62971145ce20d3081f2b8381a7f4e86fbab",
+        "source_response_sha256": "0ba9842f5de64dcf51a62996e0f51de03db9c6c5890c0c8d2be8934237778238"
+      },
+      {
+        "code": "DLG",
+        "listed": 15944,
+        "added": 15944,
+        "catalog_ids_sha256": "31e8823a1e49b85f24cdd918a786eaa0d9b0ccf710562b2da12a936ab2d62e3b",
+        "source_response_sha256": "f439cf5eaa5bbfaed980e5e1e680b973e70664dd0dd401f09a27b9cd19aa6c2b"
+      },
+      {
+        "code": "RSF",
+        "listed": 6578,
+        "added": 6578,
+        "catalog_ids_sha256": "b92caba9803357bd0cec35250dc1827bf17ba96852cd84ba4504649f22729343",
+        "source_response_sha256": "323d822d24bbdf4c576b21c4da23783bdd0d5dfe3c369ae1fa6c1de13cc7daf9"
+      }
+    ]
+  },
+  "second_sync": {
+    "listed": 47327,
+    "added": 0,
+    "refreshed": 47327,
+    "errors": 0,
+    "catalog_id_hashes_unchanged": true,
+    "note": "The XML response checksums can change between requests; the six ID-sequence checksums remained identical."
+  },
+  "history_integration": {
+    "law": "Lei 13.709/2018 (LGPD)",
+    "isolated_database": true,
+    "senate_relations_discovered": 146,
+    "textual_changes_with_before_and_after": 54,
+    "history_events_without_verified_text": 98,
+    "job_status": "succeeded",
+    "coverage": "partial",
+    "effective_dates": "not_verified",
+    "source_representation_legal_value": "UnofficialLegalValue",
+    "raw_source_snapshots_archived": 2
+  },
+  "text_hydration_probe": {
+    "law": "MPV 2.206-1/2001",
+    "job_status": "succeeded",
+    "structured_articles": 10,
+    "structured_nodes": 35,
+    "source_representation_legal_value": "UnofficialLegalValue",
+    "coverage": "partial"
+  },
+  "limitations": [
+    "These measurements are from isolated SQLite, not Railway production.",
+    "The six Senate types are not a complete inventory of all federal norms.",
+    "No state or municipal catalogs are included in these totals.",
+    "The source portal classifies the tested representations as non-official legal value.",
+    "98 LGPD history relations had no verified before-and-after text in the tested response; legal-effective dates were not confirmed.",
+    "The backfill scheduler is in this pending code release; production progress begins only after its successful deployment."
+  ]
+}

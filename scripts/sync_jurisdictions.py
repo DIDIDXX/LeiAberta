@@ -10,7 +10,8 @@ from app.catalog_sync.ibge import sync_ibge_jurisdictions
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Sincroniza o diretório territorial oficial do IBGE.")
-    parser.parse_args()
+    parser.add_argument("--force", action="store_true", help="Ignora a janela de frescor de 24 horas.")
+    args = parser.parse_args()
     if not inspect(engine).has_table("jurisdictions"):
         raise SystemExit("Tabela jurisdictions ausente. Execute `alembic upgrade head` antes da sincronização.")
-    print(json.dumps(sync_ibge_jurisdictions(), ensure_ascii=False, indent=2))
+    print(json.dumps(sync_ibge_jurisdictions(force=args.force), ensure_ascii=False, indent=2))
