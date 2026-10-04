@@ -20,7 +20,7 @@ O catálogo não representa cobertura nacional completa. Nesta primeira versão,
 - FastAPI serve a API e uma interface editorial responsiva em HTML, CSS e JavaScript.
 - SQLAlchemy e Alembic guardam normas, versões, dispositivos, snapshots, alterações e jobs em PostgreSQL.
 - Redis transporta pedidos do worker Python.
-- Railway executa `web`, `worker`, `Postgres` e `Redis`. `web` contém a API e a interface na mesma unidade de deploy para manter o MVP pequeno.
+- Railway executa `web`, `worker`, `Postgres` e `Redis`. `web` e `worker` compartilham o Dockerfile; o worker inicia com `sh scripts/start-worker.sh`, enquanto a web aplica migrations, sincroniza o catálogo e inicia a API.
 - As relações de autoria e votação são marcadas como indisponíveis; não são inferidas.
 
 ## Rodar localmente
