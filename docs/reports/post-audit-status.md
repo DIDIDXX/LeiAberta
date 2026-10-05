@@ -1,36 +1,38 @@
-# LeiAberta — status final de execução
+# LeiAberta — relatório final da execução autônoma
 
-Data: 2026-10-05. Repositório: `DIDIDXX/LeiAberta`. URL pública: https://web-production-12e95.up.railway.app.
+Data: 2026-10-05. Repositório: `DIDIDXX/LeiAberta`. URL: https://web-production-12e95.up.railway.app.
 
-## Produção confirmada após PR #62
+## Estado implantado
 
-- SHA implantado: `81982a28d36836563acf83b7115af355b31ea830` (`Prevent horizontal overflow on mobile law pages`).
-- Deploys SUCCESS: web `679ff153-080e-4ee1-9e88-27b2a52c7a77`; worker `034f637d-1546-461e-9d36-a69861d7582c`; backup `6c2e5d02-39cb-4b38-a08f-56acab1cd3bc`. Web e worker estão online, uma réplica cada; Postgres e Redis seguem SUCCESS.
-- Playwright real em viewport 390px e 1440px: busca “LGDP” encontrou Lei 13.709/2018, Art. 7 abriu, scroll width = viewport width, sem erros de console, pageerror ou request.
-- Smoke público: `/health` 200 em 0,395s; typo search 200 em 0,390s; busca `art 7 LGPD` 200 em 2,705s sob execução concorrente; lei HTML 200 em 0,396s; nodes Art. 7 200 em 0,409s; histórico Maria da Penha 200 em 0,416s; sitemap index 200 em 0,485s; stats 200 em 0,896s. São amostras individuais, não p95.
-- A UI de histórico agora permite solicitar preparação e apresenta evidência parcial com transparência. Maria da Penha permanece parcial: 65 relações, 62 sem texto pareado; nenhum diff foi inventado para essas relações.
+- SHA principal: `b2054b00aa934a1eea94f5cd5428dbac2e97fcb9` (PR #64). CI verde nos checks Python, E2E e imagem Docker; PRs #62–#64 integrados.
+- Railway SUCCESS: web `ae4ba59d-eaed-4791-813e-b2308a70faab`, worker `15ec5d66-6b66-4a9c-8156-cfa4a420b992`, backup `0380388b-ad6f-4b0e-b189-88a68b414396`, Redis `e0cc2708-a527-4918-aa06-3f994675234a` e Postgres `78c139ee-fc38-4883-be04-99d72052c7d0`. Réplicas: uma por serviço. Web, DB, Redis e backup em Singapura; worker em US East. Volumes provisionados de 5 GB para Postgres e Redis.
+- `/health` 200/0,343s; `/ready` 200/0,424s (conexão DB e Alembic heads atuais); typo search `LGDP` 200/0,356s; busca `art 7 LGPD` 200/2,263s; lei HTML 200/0,382s; nodes Art. 7 200/0,353s; histórico Maria da Penha 200/0,329s; sitemap 200/0,442s; `/api/stats` 200/0,826s. São amostras, não p95/benchmark controlado.
+- Catálogo reportou 1.162.975 registros e 22.293 leis materializadas nesta coleta. Isso mede registros enumerados por fontes integradas, não cobertura nacional completa.
+- Playwright em produção: 390px e 1440px; `scrollWidth` da página igual à viewport; busca LGDP abriu a LGPD; Art. 7 visível; zero erros de console, página ou rede. CSP ativo permite scripts/API same-origin e apenas os hosts Google Fonts já usados para stylesheet/font.
+- Maria da Penha: histórico segue `partial`, com 65 itens, 62 relações sem texto pareado e sem job ativo; não foi criado diff para relação sem dois textos comprovados.
 
-## Correções acumuladas integradas
+## Alterações integradas
 
-- Corrigidos os gargalos comprovados de `/api/stats`, sugestões typo e sitemap; adicionados canonical/metadata e conteúdo sem JavaScript limitado.
-- Melhorias de busca mantêm o alias oficial da LGPD acima do falso positivo “LGDP”.
-- Adicionados headers básicos, CSP, imagem Docker non-root, CI, Dependabot, licença MIT, guias OSS e runbook de backup/restore.
-- Corrigido overflow de textos longos na página mobile de lei; CI do PR #62 passou (Python, E2E, imagem Docker).
-- Testes locais do hardening complementar atual: 138 Python e 5 Playwright E2E passaram; uma advertência upstream de depreciação Starlette/httpx continua.
+- `/api/stats` consolidado em consulta agrupada; typo suggestions limitadas aos candidatos quentes; sitemap dividido em índice e fragmentos.
+- Canonical/metadata e resumo sem JS; correção de overflow legal em dispositivos móveis.
+- CSP e headers de segurança; readiness com verificação de schema; fetch do Planalto limitado a 25 MB; container web non-root.
+- CI (Python/E2E/Docker), Dependabot, licença MIT, documentação de contribuição/segurança, templates e runbook de backup/restore.
+- Histórico da Maria da Penha solicitado no worker; trabalho terminou sem travar o status: UI/API expõem lacunas como parciais.
 
-## Hardening complementar em andamento
+## Verificação de código
 
-O hardening PR #63 (`f31a06e`) já está implantado: CSP, `/ready` (DB + Alembic heads) e limite Planalto 25 MB. Browser encontrou o Google Fonts bloqueado pela CSP; PR #64 ajusta a política para permitir somente `fonts.googleapis.com` e `fonts.gstatic.com` em estilos/fontes. A validação final desse ajuste ainda precisa CI, deploy e novo smoke sem erros.
+- `pytest -q`: 138 passed, uma advertência upstream Starlette/httpx.
+- `npm run test:e2e`: 5 passed; inclui busca, artigo, histórico/diff comprovado, preparação de lei fria e desambiguação.
+- CI remoto dos PRs #63 e #64: Python, E2E e build Docker concluídos com sucesso.
+- Nenhuma migration de produção ou exclusão de dados foi executada.
 
-## Pendências reais e limites
+## Limitações que permanecem
 
-1. **“Todas as leis” do Brasil não é uma meta verificável com as fontes disponíveis:** não há denominador nacional único e o inventário inclui leis federais e integrações estaduais/municipais selecionadas, com cobertura e materialização incompletas. Expandir estados/municípios exige descoberta e validação fonte a fonte; nunca apresentar catálogo parcial como completo.
-2. **Accesso de auditoria:** Railway connector não oferece SQL read-only/EXPLAIN nem fatura; tamanhos por tabela/índice, conexões, queue age, invoice e p95 controlado não foram medidos. Volume Postgres observado: 3,053/5 GB na baseline. São limitações de ferramenta/sessão, não prova de ausência de risco.
-3. **Identidade de cliente e rate limit:** a origem confiável de client IP no proxy Railway ainda não foi comprovada; limiter por IP baseado em `X-Forwarded-For` sem essa validação seria spoofável. Dedupe e limites da fila seguem ativos.
-4. **Redirect dos fetchers:** Planalto agora tem cap de corpo; validação uniforme de host final/scheme e limites de todos os adapters ainda requer fixtures de cada fonte oficial/mirror.
-5. **Recurso diagnóstico Railway:** remoção está staged, mas efetivação exige 2FA via Railway Dashboard; a ferramenta MCP recusou por falta de 2FA. Serviço sem volume e fora do caminho do produto.
-6. **Heartbeat do worker:** Railway mostra o worker Online; falta heartbeat de aplicação separado com regra de frescor.
+1. **Corpus “todas as leis”:** não há inventário nacional único que forneça um denominador verificável; acervos estaduais/municipais têm fontes e cobertura independentes. Portanto, “todas” não pode ser garantido por engenharia nesta sessão. Aumentar cobertura requer localizar e validar cada catálogo oficial e materializar os textos sem exceder política das fontes.
+2. **Métricas DB/fatura:** a integração Railway não oferece SQL read-only/EXPLAIN nem billing detalhado. Baseline mediu o volume Postgres em ~3,053/5 GB, mas não tamanho por relação/índice, conexões, EXPLAIN, idade da fila ou invoice real. O custo do relatório é estimativa por preço público.
+3. **Rate limit por cliente:** Railway ingress logs exibem IP na borda, mas não comprovamos qual identidade/IP chega à aplicação nem a confiança/ordem dos forwarded headers. Usar `X-Forwarded-For` sem prova permite spoofing; os limites de fila, dedupe e backpressure existentes permanecem, e limiter por cliente precisa de teste de confiança do proxy.
+4. **Redirects e adapters:** Planalto agora tem limite de resposta de 25 MB. Validação uniforme do host final/scheme e limites para todos os adapters (em especial Senado) ainda exige fixtures e verificação de redirects legítimos das fontes oficiais.
+5. **Worker heartbeat de aplicação:** Railway confirma worker Online e deploy SUCCESS, mas não existe heartbeat separado com regra de frescor visível em API.
+6. **Serviço diagnóstico Railway:** `pg-diagnostic-8187f5d5-103d-45b9-992c-d60926ae3276` permanece com ação de delete staged (sem volume, fora do caminho do produto). Railway recusou efetivar o patch pelo connector por exigir 2FA no Dashboard. A exclusão exige a sessão autenticada humana já existente no Railway.
 
-## Próxima ação
-
-Concluir CI/merge/deploy do hardening complementar, validar `/ready` em produção e repetir o smoke mobile. Depois publicar este status com o SHA final. Aplicar a exclusão staged do serviço diagnóstico no Dashboard com 2FA quando o responsável acessar a conta.
+Esses itens estão diferenciados entre impossibilidade de provar por esta integração (DB/billing/2FA), ausência de denominador oficial nacional e trabalho técnico futuro (proxy/rate limit, redirects, heartbeat e expansão da cobertura). Não são apresentados como corrigidos.

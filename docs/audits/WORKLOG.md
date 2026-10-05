@@ -80,3 +80,14 @@ Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
 - Próxima ação exata: criar branch e PR do hardening; CI verde; merge/deploy; confirmar `/ready` e CSP via HTTP; reexecutar browser/smoke; atualizar status com SHA e deployment IDs definitivos.
 
 - Smoke CSP em produção encontrou bloqueio da folha já existente do Google Fonts; patch restrito a `fonts.googleapis.com` e `fonts.gstatic.com` preparado, após validar necessidade pelo console do browser. Precisa CI/merge/redeploy e smoke limpo.
+
+
+## Fechamento publicado (2026-10-05 UTC)
+
+- HEAD `b2054b00aa934a1eea94f5cd5428dbac2e97fcb9`; PR #64. Deploys finais SUCCESS: web `ae4ba59d-eaed-4791-813e-b2308a70faab`, worker `15ec5d66-6b66-4a9c-8156-cfa4a420b992`, backup `0380388b-ad6f-4b0e-b189-88a68b414396`; Redis/Postgres SUCCESS.
+- Browser após CSP final: mobile 390 e desktop 1440, página Art. 7 cabe sem overflow, busca LGDP funciona e console/network limpos. Hosts Google Fonts já existentes permitidos de forma explícita e restrita.
+- Readiness `/ready` 200; saúde e smoke endpoints passaram. Últimas amostras: health .343s, ready .424s, search typo .356s, lei .382s, nodes .353s, history .329s, sitemap .442s, stats .826s. Não são p95.
+- Catálogo: 1.162.975 registros, 22.293 materializadas no endpoint de estatísticas. History Maria da Penha mantém 65 itens, 62 sem texto correlato, estado partial.
+- Testes local/remoto: Python 138 passou com 1 deprecation warning; Playwright 5/5; CI dos PR #62/#63/#64 (python/e2e/image) verde.
+- Post-audit status atualizado com limitações: corpus nacional sem denominator, SQL/billing ausentes no connector, confiança do IP de proxy sem verificação, limites/redirects heterogêneos de adapters, heartbeat de worker e exclusão Railway exigindo 2FA.
+- Próxima ação técnica recomendada: obter via ambiente autenticado consulta SQL read-only + billing, verificar forwarded IP no app/proxy Railway e implementar limiter apropriado; expandir fontes oficiais em catálogo por jurisdição. Única ação de conta imediata: aceitar remoção staged do diagnóstico com 2FA no Dashboard.
