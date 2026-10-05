@@ -52,7 +52,9 @@
 
 ## Deploy realizado nesta execução
 
-- Nenhum deploy de código nesta execução; branch isolada aguarda commit, PR e checks.
+- CI inicial: Python e Docker passaram; E2E revelou que Playwright usava caminho `.venv/bin` indisponível no runner GitHub. `playwright.config.js` foi ajustado para usar `.venv/bin/python` local quando existe e `python` do runner fora do ambiente; E2E local passou novamente, 5/5 em 30.0s. CI rerun #2 está em andamento.
+- PR #47 aberto; head atual `d58783078ae3db7abe9fcbf491b8b48c650905be`, aguardando checks finais.
+- Nenhum deploy de código nesta execução; branch isolada aguarda CI verde, merge e deploy.
 - Um Railway Function `pg-diagnostic` surgiu na ferramenta durante leitura de DB; exclusão ficou como staged delete, sem volume. Railway exige 2FA do Dashboard para confirmar; API recusou a confirmação. Não houve alteração em Postgres/Redis.
 
 ## Problemas restantes
@@ -64,4 +66,4 @@
 
 ## Próxima ação exata
 
-Validar `git diff --check`, publicar branch/PR via GitHub; aguardar CI, merge, Railway SUCCESS e smoke pós-deploy.
+Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
