@@ -15,7 +15,10 @@ def main() -> None:
     try:
         with engine.connect() as connection:
             rows = connection.execute(text("""
-                SELECT a.pid, a.application_name, a.backend_type, a.state,
+                SELECT a.pid, a.application_name, a.backend_type,
+                       a.client_addr::text AS client_address, a.client_port,
+                       a.backend_start, a.query_start, a.state_change, a.xact_start,
+                       a.state,
                        a.wait_event_type, a.wait_event,
                        EXTRACT(EPOCH FROM now() - a.xact_start)::integer AS transaction_age_seconds,
                        array_agg(DISTINCT l.mode ORDER BY l.mode) AS held_lock_modes
@@ -25,8 +28,9 @@ def main() -> None:
                 JOIN pg_stat_activity AS a ON a.pid = l.pid
                 WHERE n.nspname = 'public' AND c.relname = 'laws'
                   AND l.granted AND a.pid <> pg_backend_pid()
-                GROUP BY a.pid, a.application_name, a.backend_type, a.state,
-                         a.wait_event_type, a.wait_event, a.xact_start
+                GROUP BY a.pid, a.application_name, a.backend_type, a.client_addr, a.client_port,
+                         a.backend_start, a.query_start, a.state_change, a.xact_start,
+                         a.state, a.wait_event_type, a.wait_event
                 ORDER BY a.xact_start NULLS LAST
                 LIMIT 30
             """)).mappings().all()
