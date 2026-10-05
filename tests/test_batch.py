@@ -96,3 +96,46 @@ def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, mon
     assert first["queued_count"] == 2
     assert {item["slug"] for item in first["jobs"]} == {retryable.slug, dou_retryable.slug}
     assert second["queued_count"] == 0
+
+
+def test_subnational_text_backfill_is_fair_and_skips_unpublished_text(db_session, monkeypatch):
+    from app import jobs
+    from app.models import HydrationJob, JobOutbox
+
+    shared = dict(year=2024, number="1", description="", status="Não verificado", aliases=[],
+                  signed_at=None, published_at=None, hot=False, materialization_status="catalog",
+                  current_version_id=None)
+    db_session.add_all([
+        Law(slug="sp-alesp-1", jurisdiction="state", state_code="SP", municipality=None,
+            law_type="Lei", title="Lei SP", source_name="Assembleia Legislativa do Estado de São Paulo — ALESP",
+            source_url="https://www.al.sp.gov.br/norma/1", fetch_url="https://www.al.sp.gov.br/norma/1",
+            coverage={"text_url_in_catalog": True}, **shared),
+        Law(slug="df-sinj-a", jurisdiction="state", state_code="DF", municipality=None,
+            law_type="Lei", title="Lei DF sem anexo", source_name="Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+            source_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=1",
+            fetch_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=1",
+            coverage={"text_attachment_types": []}, **shared),
+        Law(slug="df-sinj-b", jurisdiction="state", state_code="DF", municipality=None,
+            law_type="Lei", title="Lei DF", source_name="Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+            source_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=2",
+            fetch_url="https://www.sinj.df.gov.br/sinj/DetalhesDeNorma.aspx?id_doc=2",
+            coverage={"text_attachment_types": ["application/pdf"]}, **shared),
+        Law(slug="manaus-sapl-1", jurisdiction="municipality", state_code="AM", municipality="Manaus",
+            law_type="Lei Ordinária", title="Lei Manaus", source_name="Câmara Municipal de Manaus — SAPL",
+            source_url="https://sapl.cmm.am.gov.br/api/norma/normajuridica/1/",
+            fetch_url="https://sapl.cmm.am.gov.br/api/norma/normajuridica/1/",
+            coverage={"text_url_in_catalog": True}, **shared),
+    ])
+    db_session.commit()
+    monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_CURSORS", {})
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+
+    result = jobs.queue_subnational_text_batch(limit=3)
+
+    assert result["queued_count"] == 3
+    assert set(result["queued_by_source"].values()) == {1}
+    assert {item["slug"] for item in result["jobs"]} == {"sp-alesp-1", "df-sinj-b", "manaus-sapl-1"}
+    assert db_session.query(HydrationJob).filter_by(job_type="hydrate").count() == 3
+    assert db_session.query(JobOutbox).count() == 3
+    assert db_session.get(Law, "df-sinj-a").materialization_status == "catalog"

@@ -8,14 +8,14 @@ LeiAberta é um acervo público para pesquisar legislação brasileira, ler disp
 
 - Busca em português com normalização de acentos e pontuação, siglas, números e anos, nomes populares e aproximação para erros comuns como `LGDP`.
 - Catálogo federal com seis categorias enumeradas pelo Senado: leis, leis complementares, emendas constitucionais, medidas provisórias, decretos legislativos e resoluções do Senado. A validação mais recente encontrou 47.327 registros distintos; a enumeração não cobre todos os atos federais.
-- Catálogos oficiais da ALESP (SP) e do SINJ-DF: 181.172 e 125.478 registros na validação completa de 04/10/2026. São catálogos de normas desses acervos, não denominadores de todas as leis brasileiras.
+- Catálogos oficiais da ALESP (SP), SINJ-DF e SAPL da Câmara Municipal de Manaus: 181.172, 125.478 e 9.846 registros validados nas APIs oficiais em 04/10/2026. São os acervos enumerados dessas jurisdições, não um denominador de todas as leis brasileiras.
 - Leitura por artigo e subdivisões, com IDs estáveis como `art:7.par:2.inciso:I`.
 - Preparação sob demanda com job persistido, fila Redis Streams com confirmação/retomada, snapshots oficiais, checksum SHA-256 e registro da versão consultada. Para desenvolvimento local, execução inline exige `LOCAL_INLINE_JOBS=1`.
-- Histórico com relações e fontes próprias do Senado, ALESP e SINJ-DF. Diferenças textuais só aparecem quando antes/depois foram verificados. Relações oficiais sem redação histórica ficam identificadas como pendentes, sem comparação inventada.
-- Captura sob demanda de textos do Planalto, do portal Normas.leg.br, da ALESP e do SINJ-DF. PDFs do SINJ são extraídos e páginas digitalizadas passam por OCR em português; arquivos DOCX também são convertidos para leitura. A resposta bruta oficial continua arquivada com checksum.
+- Histórico com relações e fontes próprias do Senado, ALESP, SINJ-DF e SAPL/Manaus. Diferenças textuais só aparecem quando antes/depois foram verificados. Relações oficiais sem redação histórica ficam identificadas como pendentes, sem comparação inventada.
+- Captura de textos do Planalto, Normas.leg.br, ALESP, SINJ-DF e SAPL/Manaus por pedido e por backfill gradual de todos os anexos que cada catálogo declara. PDFs são extraídos e páginas digitalizadas passam por OCR em português; DOCX também é convertido para leitura. A resposta bruta oficial continua arquivada com checksum.
 - Indicadores de cobertura que distinguem texto encontrado, histórico parcial e informações ainda não identificadas.
 
-O catálogo não representa cobertura nacional completa. O diretório territorial sincroniza as 27 UFs e localidades do IBGE, mas o cadastro territorial não significa que suas leis já foram descobertas. Os catálogos legislativos integrados nesta entrega são federais, ALESP/SP e SINJ-DF; as outras 25 assembleias estaduais e as câmaras municipais ainda exigem integração por fonte. Tramitação, autores e votos seguem como conjuntos de dados separados.
+O catálogo não representa cobertura nacional completa. O diretório territorial sincroniza as 27 UFs e localidades do IBGE, mas o cadastro territorial não significa que suas leis já foram descobertas. Os catálogos legislativos integrados são federais, ALESP/SP, SINJ-DF e Câmara Municipal de Manaus; os demais acervos estaduais e municipais precisam ser enumerados por fonte. Tramitação, autores e votos seguem como conjuntos de dados separados.
 
 ## Arquitetura
 
@@ -50,7 +50,7 @@ python scripts/sync_jurisdictions.py
 python scripts/sync_senado_catalog.py
 ```
 
-No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza o diretório IBGE e os seis catálogos federais do Senado. O worker atualiza ALESP e SINJ-DF em segundo plano, mantendo checkpoint, contagem esperada e reconciliação. Ele também enfileira textos federais ainda não obtidos; os textos estaduais e distritais são capturados sob demanda. A fila é persistente, deduplicada e processa duas capturas simultâneas por padrão. A origem seleciona a publicação original ou uma compilação atual disponível e preserva a classificação jurídica informada pela fonte. `/api/stats` informa cobertura dos catálogos federais, estaduais e distrital. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
+No deploy, `scripts/start-web.sh` aplica as migrations e sincroniza o diretório IBGE e os seis catálogos federais do Senado. O worker atualiza ALESP, SINJ-DF e SAPL/Manaus em segundo plano, mantendo checkpoint, contagem esperada e reconciliação. Ele enfileira textos federais e subnacionais com limites por lote; o backfill continua após reinícios e respeita a concorrência da fila. A origem seleciona a publicação ou compilação disponível e preserva sua classificação jurídica. `/api/stats` informa a cobertura de cada catálogo; `with_text` cresce conforme o worker captura e confere as fontes. Em ambiente local, a fila não usa thread por padrão; defina `LOCAL_INLINE_JOBS=1` para habilitar esse modo de desenvolvimento.
 
 Após `alembic upgrade head`, atualize o inventário territorial com `python scripts/sync_jurisdictions.py` e os seis tipos do Senado com `python scripts/sync_senado_catalog.py`. Use `--type MPV --type LCP` para selecionar categorias ou `--force` para ignorar a janela de frescor de 24 horas. O sincronizador faz upsert por identidade oficial, preservando reedições como `2.206-1`. Para adiantar a fila de texto, execute `python scripts/queue_senado_text_batch.py --limit 500`; o worker continua o lote em segundo plano.
 
@@ -85,13 +85,13 @@ Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguida
 
 ## Fontes e limitações
 
-- Catálogo e texto integrados: Presidência da República — Planalto, Senado, ALESP e SINJ-DF. O snapshot do SINJ de 04/10/2026 tinha 125.478 registros; 120.294 anunciavam pelo menos um anexo textual, PDF ou DOCX e 5.184 não anunciavam arquivo. Anexos que a fonte não publica precisam ser localizados em diários/portais oficiais adicionais.
+- Catálogo e texto integrados: Presidência da República — Planalto, Senado, ALESP, SINJ-DF e SAPL/Manaus. O snapshot SINJ de 04/10/2026 tinha 125.478 registros; 120.294 anunciavam pelo menos um anexo textual, PDF ou DOCX e 5.184 não anunciavam arquivo. Esses casos continuam em pesquisa por diários e repositórios oficiais alternativos.
 - A API do Senado enumera seis tipos e não cobre todos os atos federais. A ALESP e o SINJ-DF são apenas dois acervos subnacionais; o restante do país permanece no plano de integração.
 - O Normas.leg.br classifica muitas transcrições/compilações como valor jurídico não oficial. O LeiAberta preserva essa classificação e não converte transcrição em publicação oficial consolidada.
 - Relações normativas: API do Senado, anotações ALESP e relações do SINJ-DF. Uma relação não demonstra, por si só, o conteúdo integral anterior/posterior nem a data de eficácia.
 - A linha do tempo distingue diferença textual validada de referência oficial que ainda não tem comparação.
 - O vínculo entre lei e projeto legislativo, a autoria de dispositivos, relatorias, emendas e votos individuais ainda não está implementado.
-- A expansão estadual e municipal requer confirmar os portais oficiais de cada jurisdição e desenvolver adapters para suas famílias de fonte (por exemplo, SAPL), além de reconciliar coberturas e metadados.
+- A expansão estadual e municipal requer confirmar os portais oficiais de cada jurisdição e desenvolver adapters para as demais famílias e instalações, além de reconciliar coberturas e metadados. A integração SAPL de Manaus cobre 9.846 registros e valida o caminho reutilizável para outras instalações compatíveis.
 - A interface usa HTML, CSS e JavaScript simples servidos pela API; Next.js e Tailwind não foram necessários para este MVP enxuto.
 
 ## Plano de expansão

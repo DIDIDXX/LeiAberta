@@ -26,6 +26,7 @@ TEXT_SOURCE_NAMES = {
     "Senado Federal — Dados Abertos Legislativos",
     "Assembleia Legislativa do Estado de São Paulo — ALESP",
     "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+    "Câmara Municipal de Manaus — SAPL",
 }
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
@@ -106,6 +107,7 @@ def stats(session: Session = Depends(get_session)):
     for source_id, source_name in (
         ("state:SP:alesp", "Assembleia Legislativa do Estado de São Paulo — ALESP"),
         ("state:DF:sinj", "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF"),
+        ("municipality:1302603:sapl", "Câmara Municipal de Manaus — SAPL"),
     ):
         total = session.scalar(select(func.count()).select_from(Law).where(Law.source_name == source_name)) or 0
         with_text = session.scalar(select(func.count()).select_from(Law).where(
@@ -270,6 +272,7 @@ def prepare_history(slug: str, session: Session = Depends(get_session)):
         "Senado Federal — Dados Abertos Legislativos",
         "Assembleia Legislativa do Estado de São Paulo — ALESP",
         "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+        "Câmara Municipal de Manaus — SAPL",
     }
     if law.source_name not in supported_sources:
         raise HTTPException(status_code=409, detail="Esta fonte ainda não fornece relações oficiais para reconstruir o histórico.")
@@ -325,6 +328,7 @@ def hydrate_law(slug: str, session: Session = Depends(get_session)):
         "Senado Federal — Dados Abertos Legislativos",
         "Assembleia Legislativa do Estado de São Paulo — ALESP",
         "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+        "Câmara Municipal de Manaus — SAPL",
     }:
         raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; esta fonte ainda não fornece texto integral pelo LeiAberta.")
     refresh = False

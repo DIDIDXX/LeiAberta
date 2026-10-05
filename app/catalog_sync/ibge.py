@@ -75,6 +75,7 @@ def _seed_sources(session, observed_at: datetime) -> int:
         ("discovery:lexml", None, "LexML Brasil", "lexml", "https://www.lexml.gov.br/", {"status": "discovery_only", "limitation": "protocol not validated"}),
         ("state:SP:alesp", "state:SP", "ALESP — Normas", "alesp", "https://www.al.sp.gov.br/norma/", {"status": "entrypoint_confirmed", "coverage": "pilot pending"}),
         ("state:DF:sinj", "state:DF", "SINJ-DF", "sinj", "https://www.sinj.df.gov.br/sinj/", {"status": "entrypoint_confirmed", "coverage": "pilot pending"}),
+        ("municipality:1302603:sapl", "municipality:1302603", "Câmara Municipal de Manaus — SAPL", "sapl_catalog", "https://sapl.cmm.am.gov.br/api/norma/normajuridica/", {"status": "confirmed_api", "coverage": "catalog synchronization pending"}),
     ]
     for rid, jid, name, adapter, url, scope in seeds:
         row = session.get(SourceRegistry, rid)

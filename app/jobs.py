@@ -23,6 +23,7 @@ logger = logging.getLogger("leiaberta.jobs")
 QUEUE_NAME = "leiaberta:hydrate"
 QUEUE_GROUP = "leiaberta-workers"
 ACTIVE_STATUSES = ["queued", "running"]
+_SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
 
 
 def queue_job(law_slug: str, job_type: str, *, refresh: bool = False) -> HydrationJob:
@@ -151,6 +152,93 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
         except Exception as exc:
             logger.warning("senado_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
     return {"queued_count": len(jobs), "limit": limit, "jobs": jobs}
+
+
+def queue_subnational_text_batch(*, limit: int = 100) -> dict:
+    """Backfill every source-published SP, DF and Manaus text at a bounded pace."""
+    if not 1 <= limit <= 500:
+        raise ValueError("O lote de textos subnacionais deve conter de 1 a 500 normas.")
+    source_names = (
+        "Assembleia Legislativa do Estado de São Paulo — ALESP",
+        "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+        "Câmara Municipal de Manaus — SAPL",
+    )
+    session = SessionLocal()
+    jobs: list[dict] = []
+    queued_by_source = {name: 0 for name in source_names}
+    try:
+        now = datetime.now(timezone.utc)
+        quota = max(1, limit // len(source_names))
+        remaining = limit
+        for source_index, source_name in enumerate(source_names):
+            source_quota = min(remaining, quota + (1 if source_index < limit % len(source_names) else 0))
+            if source_quota < 1:
+                continue
+            cursor = _SUBNATIONAL_BACKFILL_CURSORS.get(source_name, "")
+            scan_limit = max(500, source_quota * 20)
+            statement = select(Law).where(
+                Law.source_name == source_name,
+                Law.current_version_id.is_(None),
+                Law.materialization_status.in_(["catalog", "retryable"]),
+                Law.slug > cursor,
+            ).order_by(Law.slug).limit(scan_limit)
+            candidates = list(session.scalars(statement))
+            if not candidates and cursor:
+                cursor = ""
+                candidates = list(session.scalars(select(Law).where(
+                    Law.source_name == source_name, Law.current_version_id.is_(None),
+                    Law.materialization_status.in_(["catalog", "retryable"]),
+                    Law.slug > cursor,
+                ).order_by(Law.slug).limit(scan_limit)))
+            selected = []
+            last_scanned = cursor
+            for law in candidates:
+                last_scanned = law.slug
+                coverage = dict(law.coverage or {})
+                if source_name == "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF":
+                    has_text = bool(coverage.get("text_attachment_types"))
+                else:
+                    has_text = coverage.get("text_url_in_catalog") is True
+                if not has_text:
+                    continue
+                retry_after = coverage.get("text_source_retry_after")
+                if coverage.get("text_source_status") == "retryable" and retry_after:
+                    try:
+                        retry_at = datetime.fromisoformat(str(retry_after).replace("Z", "+00:00"))
+                        if retry_at.tzinfo is None:
+                            retry_at = retry_at.replace(tzinfo=timezone.utc)
+                        if retry_at > now:
+                            continue
+                    except ValueError:
+                        pass
+                selected.append(law)
+                if len(selected) >= source_quota:
+                    break
+            _SUBNATIONAL_BACKFILL_CURSORS[source_name] = last_scanned
+            for law in selected:
+                job = HydrationJob(
+                    id=str(uuid.uuid4()), law_slug=law.slug, job_type="hydrate", status="queued",
+                    stage_name="queued", message="Aguardando captura integral da fonte oficial",
+                    created_at=now, updated_at=now,
+                )
+                law.materialization_status = "preparing"
+                session.add(job)
+                session.add(JobOutbox(job_id=job.id, created_at=now, available_at=now))
+                jobs.append({"slug": law.slug, "job_id": job.id, "source": source_name})
+                queued_by_source[source_name] += 1
+                remaining -= 1
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    if jobs:
+        try:
+            dispatch_outbox()
+        except Exception as exc:
+            logger.warning("subnational_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
+    return {"queued_count": len(jobs), "limit": limit, "queued_by_source": queued_by_source, "jobs": jobs}
 
 
 def queue_history(law: Law) -> HydrationJob:
@@ -290,6 +378,16 @@ def _process_history_job(job_id: str) -> None:
                                    "text/html; charset=utf-8", snapshot.body, law.current_version_id)
             relations = snapshot.relations
             provider = "sinj_df"
+        elif law.source_name == "Câmara Municipal de Manaus — SAPL":
+            from app.sources.sapl import fetch_sapl_history
+
+            _update_job(session, job, stage=1, message="Consultando relações oficiais do SAPL de Manaus")
+            snapshot = fetch_sapl_history(law.source_url, law.law_type, law.number, law.year)
+            session.commit()
+            archive_source_document(law.slug, snapshot.source_url, hashlib.sha256(snapshot.body).hexdigest(),
+                                   "application/json; charset=utf-8", snapshot.body, law.current_version_id)
+            relations = snapshot.relations
+            provider = "sapl_manaus"
         else:
             raise SourceDocumentUnavailable(f"A fonte {law.source_name} não oferece adapter de histórico.")
         current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
@@ -532,7 +630,14 @@ def process_hydration_job(job_id: str) -> bool:
                         law.coverage = coverage
                         law.materialization_status = "partial" if law.current_version_id else "unavailable"
                     elif not law.current_version_id:
-                        law.materialization_status = "unavailable"
+                        law.materialization_status = "catalog"
+                        coverage = dict(law.coverage or {})
+                        coverage["text_source_status"] = "retryable"
+                        coverage["text_source_error"] = failed.error[:500]
+                        coverage["text_source_retry_after"] = (
+                            datetime.now(timezone.utc) + timedelta(hours=6)
+                        ).isoformat()
+                        law.coverage = coverage
             retry_session.commit()
             logger.exception("job_attempt_failed job=%s type=%s", job_id, job_type)
         finally:
@@ -624,6 +729,12 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             document = fetch_sinj_df_document(law.source_url, law.law_type, law.number, law.year)
             body, fetched_url = document.body, document.source_url
             source_metadata = document
+        elif law.source_name == "Câmara Municipal de Manaus — SAPL":
+            from app.sources.sapl import fetch_sapl_document
+
+            document = fetch_sapl_document(law.source_url, law.law_type, law.number, law.year)
+            body, fetched_url = document.body, document.source_url
+            source_metadata = document
         else:
             from app.sources.normas import SourceDocumentUnavailable
             raise SourceDocumentUnavailable(f"Não existe adapter de texto integral para {law.source_name}.")
@@ -668,7 +779,8 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                         if source_metadata.source_url.startswith("https://www.in.gov.br/web/dou/-/") else
                         source_metadata.representation
                         if (source_metadata.source_url.startswith("https://www.al.sp.gov.br/repositorio/legislacao/")
-                            or source_metadata.source_url.startswith("https://www.sinj.df.gov.br/sinj/Norma/")) else
+                            or source_metadata.source_url.startswith("https://www.sinj.df.gov.br/sinj/Norma/")
+                            or source_metadata.source_url.startswith("https://sapl.cmm.am.gov.br/media/sapl/public/normajuridica/")) else
                         "compilação atual do Normas.leg.br"
                         if source_metadata.version == "Current" else
                         "transcrição da publicação original"
@@ -723,8 +835,17 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             "document_audit": document_audit,
         })
         if source_metadata is not None:
+            if source_metadata.source_url.startswith("https://www.in.gov.br/web/dou/-/"):
+                provider = "Diário Oficial da União / Senado Federal"
+            else:
+                provider = {
+                    "Senado Federal — Dados Abertos Legislativos": "Senado Federal / Normas.leg.br",
+                    "Assembleia Legislativa do Estado de São Paulo — ALESP": "ALESP",
+                    "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF": "SINJ-DF",
+                    "Câmara Municipal de Manaus — SAPL": "Câmara Municipal de Manaus — SAPL",
+                }.get(law.source_name, law.source_name)
             coverage["text_source"] = {
-                "provider": "Normas.leg.br / Senado Federal",
+                "provider": provider,
                 "representation": source_metadata.representation,
                 "version": source_metadata.version,
                 "legal_value": source_metadata.legal_value,
