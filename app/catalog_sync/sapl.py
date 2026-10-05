@@ -2,19 +2,22 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
+import logging
+import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Jurisdiction, Law, SourceRegistry
-from app.sources.network import open_with_retry
+from app.sources.network import RETRYABLE_HTTP_CODES
 
 
 SAPL_HOST = "https://sapl.cmm.am.gov.br"
@@ -26,6 +29,7 @@ SOURCE_NAME = "Câmara Municipal de Manaus — SAPL"
 PAGE_SIZE = 100
 MAX_BYTES = 10_000_000
 MAX_AGE = timedelta(days=7)
+logger = logging.getLogger("leiaberta.sapl_catalog")
 
 
 @dataclass(frozen=True)
@@ -45,24 +49,48 @@ class SaplCatalogNorm:
 def _get_json(url: str, *, timeout: int = 45) -> tuple[dict, str]:
     request = urllib.request.Request(url, headers={
         "Accept": "application/json", "User-Agent": "LeiAberta/1.0 (+fontes oficiais)",
+        "Connection": "close",
     })
-    try:
-        with open_with_retry(request, timeout=timeout) as response:
-            body = response.read(MAX_BYTES + 1)
-            final_url = response.geturl()
-            status = response.status
-    except HTTPError as exc:
-        raise ValueError(f"O SAPL de Manaus respondeu HTTP {exc.code}.") from exc
-    parsed = urllib.parse.urlparse(final_url)
-    if status != 200 or len(body) > MAX_BYTES or parsed.scheme != "https" or parsed.hostname != "sapl.cmm.am.gov.br":
-        raise ValueError("A API SAPL de Manaus falhou, excedeu o limite ou redirecionou para domínio desconhecido.")
-    try:
-        payload = json.loads(body)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise ValueError("O SAPL de Manaus não retornou JSON válido.") from exc
-    if not isinstance(payload, dict):
-        raise ValueError("A API SAPL de Manaus retornou objeto inesperado.")
-    return payload, final_url
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                # urllib applies the timeout while opening the response. Set it
+                # on the body socket too, so a stalled keep-alive read cannot
+                # leave the catalog thread in "syncing" forever.
+                response_file = getattr(response, "fp", None)
+                raw_socket = getattr(getattr(response_file, "raw", None), "_sock", None)
+                if raw_socket is None:
+                    raw_socket = getattr(response_file, "_sock", None)
+                if raw_socket is not None:
+                    raw_socket.settimeout(timeout)
+                body = response.read(MAX_BYTES + 1)
+                final_url = response.geturl()
+                status = response.status
+            parsed = urllib.parse.urlparse(final_url)
+            if (status != 200 or len(body) > MAX_BYTES or parsed.scheme != "https"
+                    or parsed.hostname != "sapl.cmm.am.gov.br"):
+                raise ValueError("A API SAPL de Manaus falhou, excedeu o limite ou redirecionou para domínio desconhecido.")
+            try:
+                payload = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                if attempt == 2:
+                    raise ValueError("O SAPL de Manaus não retornou JSON válido após três tentativas.") from exc
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            if not isinstance(payload, dict):
+                raise ValueError("A API SAPL de Manaus retornou objeto inesperado.")
+            return payload, final_url
+        except HTTPError as exc:
+            if exc.code in RETRYABLE_HTTP_CODES and attempt < 2:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            raise ValueError(f"O SAPL de Manaus respondeu HTTP {exc.code}.") from exc
+        except (URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as exc:
+            if attempt < 2:
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            raise ValueError(f"Falha de rede/leitura na API SAPL após três tentativas: {str(exc)[:240]}") from exc
+    raise ValueError("A API SAPL de Manaus não respondeu após três tentativas.")
 
 
 def _date(value: object) -> date | None:
@@ -229,6 +257,7 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
     total, pages = pagination["total_entries"], pagination["total_pages"]
     if total < 1 or pages < 1 or pages > total:
         raise ValueError("O catálogo SAPL retornou universo ou paginação inválida.")
+    logger.info("sapl_catalog_sync_started expected_records=%s expected_pages=%s", total, pages)
     scope = {"universe": "API oficial normajuridica da Câmara Municipal de Manaus; atos municipais cadastrados no SAPL.",
              "records_expected": total, "pages_expected": pages, "page_size": PAGE_SIZE,
              "type_count": len(types), "records_enumerated": 0, "started_at": observed_at.isoformat()}
@@ -249,11 +278,13 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
     added = refreshed = enumerated = 0
     try:
         for page in range(1, pages + 1):
+            logger.info("sapl_catalog_page_fetch_started page=%s total_pages=%s", page, pages)
             payload = first if page == 1 else fetch_catalog_page(page)[0]
             current = payload["pagination"]
             if current["total_entries"] != total or current["total_pages"] != pages:
                 raise ValueError("O total SAPL mudou durante a paginação.")
             records = parse_catalog_page(payload, types)
+            logger.info("sapl_catalog_page_fetched page=%s records=%s", page, len(records))
             if page < pages and len(records) != PAGE_SIZE:
                 raise ValueError(f"Página SAPL truncada {page}: {len(records)} de {PAGE_SIZE}.")
             for item in records:
@@ -271,6 +302,7 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
                                   "catalog_ids_sha256_partial": digest.hexdigest()}
                 registry.last_checked_at = observed_at
                 session.commit()
+            logger.info("sapl_catalog_page_committed page=%s enumerated=%s", page, enumerated)
     except Exception as exc:
         with SessionLocal() as session:
             registry = session.get(SourceRegistry, SOURCE_ID)
