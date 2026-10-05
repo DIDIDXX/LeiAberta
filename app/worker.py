@@ -202,11 +202,11 @@ def run() -> None:
                         sapl_sync_future = catalog_executor.submit(sync_sapl_manaus_catalog)
                     except Exception:
                         logger.exception("sapl_manaus_catalog_refresh_start_failed")
-            dispatch_outbox()
             priority_job_ids = queued_interactive_job_ids(limit=concurrency)
             if priority_job_ids:
                 process_priority_jobs(priority_job_ids, executor)
                 continue
+            dispatch_outbox()
             claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
                                        start_id="0-0", count=concurrency)
             messages = claimed[1] if claimed and len(claimed) > 1 else []
