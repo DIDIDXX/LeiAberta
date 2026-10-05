@@ -91,7 +91,7 @@ def run() -> None:
     except Exception as exc:
         if "BUSYGROUP" not in str(exc):
             raise
-    concurrency = min(4, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "2"))))
+    concurrency = min(8, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "2"))))
     logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
