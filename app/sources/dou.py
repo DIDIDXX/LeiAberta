@@ -142,7 +142,18 @@ def fetch_senado_dou_document(
     for item in articles:
         if not isinstance(item, dict):
             continue
-        if item.get("artType") != "Resolução do Senado Federal":
+        # Recent DOU editions use the generic type ``Resolução`` for Senate
+        # acts, while older editions use ``Resolução do Senado Federal``.
+        # Keep the publisher hierarchy exact so the generic label cannot admit
+        # resolutions from another institution.
+        is_senate_resolution = (
+            item.get("artType") == "Resolução do Senado Federal"
+            or (
+                item.get("artType") == "Resolução"
+                and item.get("hierarchyStr") == "Atos do Senado Federal"
+            )
+        )
+        if not is_senate_resolution:
             continue
         if str(item.get("numberPage", "")).strip() != page:
             continue
