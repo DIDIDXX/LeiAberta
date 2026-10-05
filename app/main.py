@@ -7,6 +7,7 @@ from functools import lru_cache
 from html import escape as html_escape
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -56,7 +57,7 @@ def _rate_limit_policy(method: str, path: str) -> tuple[str, int, int] | None:
         return "search", 600, 60
     parts = path.strip("/").split("/")
     if method == "GET" and len(parts) >= 3 and parts[:2] == ["api", "laws"]:
-        if len(parts) == 3 or parts[-1] == "nodes":
+        if len(parts) == 3 or parts[-1] in {"nodes", "blame", "provenance"} or "provenance" in parts:
             return "law-detail", 240, 60
     if method == "POST" and len(parts) == 5 and parts[:2] == ["api", "laws"]:
         if parts[3:] in (["history", "prepare"], ["proceedings", "prepare"]):
@@ -162,6 +163,27 @@ def _node_payload(node: LegalNode) -> dict:
     }
 
 
+def _change_evidence(item: LawChange) -> dict:
+    """Describe stored text comparisons without upgrading a catalog link to primary evidence."""
+    try:
+        host = (urlsplit(item.source_url).hostname or "").lower()
+    except ValueError:
+        host = ""
+    primary_hosts = (
+        "planalto.gov.br", "legis.senado.leg.br", "camara.leg.br",
+        "al.sp.gov.br", "sinj.df.gov.br",
+    )
+    primary = any(host == domain or host.endswith("." + domain) for domain in primary_hosts)
+    comparison = bool(item.after_text) and (bool(item.before_text) or item.change_type == "ADD")
+    return {
+        "level": "verified_primary" if primary and comparison else "verified_source" if comparison else "partial",
+        "label": "Fonte primária confirmada" if primary and comparison else "Comparação registrada" if comparison else "Evidência parcial",
+        "comparison_available": comparison,
+        "source_host": host,
+        "evidence_marker": item.evidence_marker,
+    }
+
+
 @app.get("/health", include_in_schema=False)
 def health(session: Session = Depends(get_session)):
     session.execute(text("SELECT 1"))
@@ -228,6 +250,10 @@ def stats(session: Session = Depends(get_session)):
         Law, LegalNode.law_slug == Law.slug,
     ).where(LegalNode.node_type == "article", LegalNode.version_id == Law.current_version_id)) or 0
     changes = session.scalar(select(func.count()).select_from(LawChange)) or 0
+    source_registry_count = session.scalar(select(func.count()).select_from(SourceRegistry)) or 0
+    integrated_source_count = session.scalar(select(func.count()).select_from(SourceRegistry).where(
+        SourceRegistry.status == "enumerated",
+    )) or 0
     senate = counts_by_source.get("Senado Federal — Dados Abertos Legislativos", {})
     senate_total = senate.get("total", 0)
     senate_with_text = senate.get("with_text", 0)
@@ -265,6 +291,8 @@ def stats(session: Session = Depends(get_session)):
         "materialized_laws": materialized,
         "structured_articles": articles,
         "documented_changes": changes,
+        "configured_sources": source_registry_count,
+        "enumerated_sources": integrated_source_count,
         "senado_text": {
             "catalog_laws": senate_total,
             "with_text": senate_with_text,
@@ -362,6 +390,98 @@ def law_nodes(slug: str, article: str | None = None, session: Session = Depends(
     return {"status": law.materialization_status, "items": [_node_payload(node) for node in items]}
 
 
+@app.get("/api/laws/{slug}/blame")
+def law_blame(slug: str, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+               node_id: str | None = None, session: Session = Depends(get_session)):
+    """Batch view of verified responsible acts; never attributes prose to a person."""
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    if not law.current_version_id:
+        return {"law": _law_summary(law), "status": "not_materialized", "items": [], "count": 0,
+                "limit": limit, "offset": offset, "has_more": False}
+    base = select(LegalNode).where(LegalNode.version_id == law.current_version_id)
+    count_query = select(func.count()).select_from(LegalNode).where(LegalNode.version_id == law.current_version_id)
+    if node_id:
+        base = base.where(LegalNode.node_id == node_id)
+        count_query = count_query.where(LegalNode.node_id == node_id)
+    total = session.scalar(count_query) or 0
+    nodes = list(session.scalars(base.order_by(LegalNode.order_index).offset(offset).limit(limit)))
+    ids = [node.node_id for node in nodes]
+    changes = list(session.scalars(select(LawChange).where(
+        LawChange.law_slug == slug, LawChange.node_id.in_(ids),
+    ).order_by(LawChange.changed_at.desc().nullslast(), LawChange.created_at.desc()))) if ids else []
+    newest = {}
+    for change in changes:
+        newest.setdefault(change.node_id, change)
+    items = []
+    for node in nodes:
+        change = newest.get(node.node_id)
+        evidence = _change_evidence(change) if change else None
+        confirmed = bool(change and evidence["comparison_available"])
+        items.append({
+            "node_id": node.node_id, "label": node.label, "node_type": node.node_type,
+            "current_text": node.text,
+            "origin_status": "verified_change" if confirmed else "not_identified",
+            "responsible_act": ({"label": change.source_law_label, "number": change.source_law_number,
+                                 "year": change.source_law_year, "url": change.source_url,
+                                 "changed_at": change.changed_at.isoformat() if change.changed_at else None}
+                                if change else None),
+            "change_id": change.id if change else None,
+            "evidence_level": evidence["level"] if evidence else "not_identified",
+            "source_url": change.source_url if change else None,
+        })
+    return {"law": _law_summary(law), "status": "available", "items": items, "count": total,
+            "limit": limit, "offset": offset, "has_more": offset + len(items) < total}
+
+
+@app.get("/api/laws/{slug}/nodes/{node_id:path}/provenance")
+def node_provenance(slug: str, node_id: str, session: Session = Depends(get_session)):
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    if not law.current_version_id:
+        return {"law": _law_summary(law), "status": "not_materialized", "node": None,
+                "current_text": None, "evidence": {"level": "not_identified", "label": "Ainda não identificado"},
+                "last_verified_change": None, "relations": []}
+    node = session.scalar(select(LegalNode).where(
+        LegalNode.version_id == law.current_version_id, LegalNode.node_id == node_id,
+    ).limit(1))
+    if not node:
+        raise HTTPException(status_code=404, detail="Dispositivo não encontrado nesta versão.")
+    changes = list(session.scalars(select(LawChange).where(
+        LawChange.law_slug == slug, LawChange.node_id == node_id,
+    ).order_by(LawChange.changed_at.desc().nullslast(), LawChange.created_at.desc())))
+    verified = next((change for change in changes if _change_evidence(change)["comparison_available"]), None)
+    partial = changes[0] if changes else None
+    selected = verified or partial
+    events = list(session.scalars(select(HistoryEvent).where(
+        HistoryEvent.law_slug == slug, HistoryEvent.device_ref == node_id,
+    ).order_by(HistoryEvent.signed_at.desc().nullslast())))
+    evidence = _change_evidence(selected) if selected else {
+        "level": "not_identified", "label": "Ainda não identificado", "comparison_available": False,
+        "source_host": "", "evidence_marker": "",
+    }
+    change_payload = None
+    if selected:
+        change_payload = {
+            "id": selected.id, "change_type": selected.change_type, "summary": selected.summary,
+            "changed_at": selected.changed_at.isoformat() if selected.changed_at else None,
+            "source_law_label": selected.source_law_label, "source_law_number": selected.source_law_number,
+            "source_law_year": selected.source_law_year, "source_url": selected.source_url,
+            "law_source_url": selected.law_source_url, "before_text": selected.before_text,
+            "after_text": selected.after_text, "evidence_marker": selected.evidence_marker,
+        }
+    return {"law": _law_summary(law), "status": "verified" if verified else "partial" if selected or events else "not_identified",
+            "node": _node_payload(node), "current_text": node.text, "evidence": evidence,
+            "last_verified_change": change_payload,
+            "relations": [{"label": event.event_label, "relation": event.relation,
+                           "signed_at": event.signed_at.isoformat() if event.signed_at else None,
+                           "source_url": event.event_url,
+                           "notice": "Relação oficial localizada; texto histórico ainda não reconstruído."}
+                          for event in events]}
+
+
 @app.get("/api/laws/{slug}/history")
 def law_history(slug: str, session: Session = Depends(get_session)):
     law = session.get(Law, slug)
@@ -376,10 +496,12 @@ def law_history(slug: str, session: Session = Depends(get_session)):
     coverage = dict(law.coverage or {})
     status = active_job.status if active_job else (coverage.get("history") or "not_requested")
     items = [{
-        "id": item.id, "kind": "diff", "node_id": item.node_id, "change_type": item.change_type,
+        "id": item.id, "kind": "diff" if _change_evidence(item)["comparison_available"] else "relation",
+        "node_id": item.node_id, "change_type": item.change_type,
         "summary": item.summary, "changed_at": item.changed_at.isoformat() if item.changed_at else None,
         "source_law_label": item.source_law_label, "source_url": item.source_url,
-        "comparison_available": True,
+        "comparison_available": _change_evidence(item)["comparison_available"],
+        "evidence": _change_evidence(item),
     } for item in changes]
     items.extend({
         "id": item.id, "kind": "relation", "node_id": item.device_ref, "change_type": item.relation,
@@ -547,6 +669,7 @@ def change_detail(change_id: str, session: Session = Depends(get_session)):
         "source_law_label": item.source_law_label, "source_url": item.source_url,
         "law_source_url": item.law_source_url, "before_text": item.before_text,
         "after_text": item.after_text, "evidence_marker": item.evidence_marker,
+        "evidence": _change_evidence(item),
     }
 
 
@@ -560,11 +683,67 @@ def sources(jurisdiction_id: str | None = None, status: str | None = None,
         statement = statement.where(SourceRegistry.status == status)
     rows = list(session.scalars(statement))
     if not rows:
-        return {"items": [{"name": "Presidência da República — Planalto", "url": "https://www.planalto.gov.br/ccivil_03/", "jurisdiction": "Federal", "status": "integrated"}]}
-    return {"items": [{"id": row.id, "name": row.name, "adapter": row.adapter, "base_url": row.base_url,
-                       "jurisdiction_id": row.jurisdiction_id, "status": row.status, "scope": row.scope,
-                       "evidence_url": row.evidence_url, "last_checked_at": row.last_checked_at.isoformat() if row.last_checked_at else None,
-                       "last_error": row.last_error} for row in rows], "count": len(rows)}
+        return {"items": [], "count": 0, "checked_at": datetime.now(timezone.utc).isoformat()}
+    names = list(dict.fromkeys(row.name for row in rows))
+    jurisdiction_ids = list({row.jurisdiction_id for row in rows if row.jurisdiction_id})
+    jurisdiction_names = dict(session.execute(select(Jurisdiction.id, Jurisdiction.name).where(
+        Jurisdiction.id.in_(jurisdiction_ids),
+    )).all()) if jurisdiction_ids else {}
+    counts = {}
+    if names:
+        law_counts = session.execute(select(
+            Law.source_name, func.count(Law.slug),
+            func.sum(case((Law.current_version_id.is_not(None), 1), else_=0)),
+        ).where(Law.source_name.in_(names)).group_by(Law.source_name)).all()
+        counts = {name: {"cataloged_laws": total or 0, "with_text": with_text or 0}
+                  for name, total, with_text in law_counts}
+    freshness = {"senado": 86400, "senado_catalog": 86400, "ibge_localities": 86400,
+                 "ibge_jurisdictions": 86400,
+                 "alesp_catalog": 604800, "sinj_df_catalog": 604800, "sapl_catalog": 604800}
+    request_policies = {
+        "senado_catalog": {"max_response_bytes": 20_000_000, "timeout_seconds": 60, "max_attempts": 3},
+        "alesp_catalog": {"page_size": 5000, "max_response_bytes": 20_000_000, "timeout_seconds": 60},
+        "sinj_df_catalog": {"page_size": 5000, "max_response_bytes": 25_000_000, "timeout_seconds": 60},
+        "sapl_catalog": {"page_size": 100, "max_response_bytes": 10_000_000, "timeout_seconds": 45, "max_attempts": 3},
+        "ibge_localities": {"timeout_seconds": 45},
+        "ibge_jurisdictions": {"timeout_seconds": 45},
+    }
+    now = datetime.now(timezone.utc)
+    items = []
+    for row in rows:
+        checked = row.last_checked_at
+        max_age = freshness.get(row.adapter)
+        scope = row.scope or {}
+        last_success = scope.get("last_success_at") or (checked.isoformat() if row.status == "enumerated" and checked else None)
+        try:
+            success_dt = datetime.fromisoformat(last_success) if last_success else None
+        except ValueError:
+            success_dt = None
+        if success_dt and success_dt.tzinfo is None:
+            success_dt = success_dt.replace(tzinfo=timezone.utc)
+        success_age = now - success_dt if success_dt else None
+        is_stale = bool(max_age and success_age and success_age.total_seconds() > max_age)
+        freshness_status = "stale" if is_stale else "current" if success_dt and max_age else "unknown"
+        source_counts = counts.get(row.name, {"cataloged_laws": None, "with_text": None})
+        items.append({
+            "id": row.id, "name": row.name, "adapter": row.adapter, "base_url": row.base_url,
+            "jurisdiction_id": row.jurisdiction_id,
+            "jurisdiction_name": jurisdiction_names.get(row.jurisdiction_id) or row.jurisdiction_id or "Jurisdição não classificada",
+            "status": row.status, "scope": scope,
+            "evidence_url": row.evidence_url,
+            "last_checked_at": checked.isoformat() if checked else None,
+            "last_success_at": last_success,
+            "last_success_semantics": "Última enumeração concluída registrada" if last_success else None,
+            "freshness_seconds": max_age,
+            "freshness_status": freshness_status,
+            "request_policy": request_policies.get(row.adapter),
+            "cataloged_laws": source_counts["cataloged_laws"], "with_text": source_counts["with_text"],
+            "new_records": scope.get("new_records"), "updated_records": scope.get("updated_records"),
+            "failed_records": scope.get("failed_records"),
+            "sync_failures": scope.get("sync_failures"),
+            "last_error": row.last_error,
+        })
+    return {"items": items, "count": len(items), "checked_at": now.isoformat()}
 
 
 @app.get("/robots.txt", include_in_schema=False)
@@ -601,14 +780,17 @@ def sitemap_laws(page: int, request: Request, session: Session = Depends(get_ses
 
 
 @app.get("/lei/{slug}", include_in_schema=False)
-def law_page(slug: str, request: Request, session: Session = Depends(get_session)):
+def law_page(slug: str, request: Request, session: Session = Depends(get_session), article: str | None = None):
     law = session.get(Law, slug)
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
     canonical_base = _public_base_url(request)
-    canonical = f"{canonical_base}/lei/{slug}"
-    title = f"{law.title} — LeiAberta"
-    description = law.description or f"{law.law_type} {law.number}/{law.year} — consulte o registro oficial e a cobertura disponível."
+    canonical_path = f"/lei/{slug}/artigo/{article}" if article else f"/lei/{slug}"
+    canonical = f"{canonical_base}{canonical_path}"
+    number_label = law.title if law.law_type == "Constituição" else f"{law.law_type} nº {law.number}/{law.year}"
+    title = f"Art. {article} da {number_label} — {law.title} | LeiAberta" if article else f"{number_label} — {law.title} | LeiAberta"
+    description = (f"Art. {article} da {law.title}: texto, alterações verificadas e fontes oficiais."
+                   if article else law.description or f"{number_label} — consulte o registro oficial e a cobertura disponível.")
     details = f"{law.law_type} {law.number}/{law.year} · {law.jurisdiction} · {law.status}"
     no_script = [f"<h1>{html_escape(law.title)}</h1>", f"<p>{html_escape(details)}</p>"]
     if law.description:
@@ -633,18 +815,32 @@ def law_page(slug: str, request: Request, session: Session = Depends(get_session
             "Consultar fonte oficial</a></p>"
         )
     page = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-    page = page.replace("<title>LeiAberta — veja o que mudou</title>", f"<title>{html_escape(title)}</title>")
+    page = page.replace("<title>LeiAberta — entenda como uma lei chegou ao texto atual</title>", f"<title>{html_escape(title)}</title>")
     page = page.replace(
         '<meta name="description" content="Pesquise legislação brasileira e acompanhe o texto, as fontes oficiais e as alterações documentadas." />',
         f'<meta name="description" content="{html_escape(description, quote=True)}" />',
     )
     page = page.replace(
-        '<meta property="og:title" content="LeiAberta — legislação com histórico" />',
+        '<meta property="og:title" content="LeiAberta — entenda como uma lei chegou ao texto atual" />',
         f'<meta property="og:title" content="{html_escape(title, quote=True)}" />',
     )
     page = page.replace(
-        '<meta property="og:description" content="Veja o que mudou. Quem mudou. E por quê." />',
+        '<meta property="og:description" content="Siga alterações verificadas até suas fontes oficiais." />',
         f'<meta property="og:description" content="{html_escape(description, quote=True)}" />',
+    )
+    page = page.replace(
+        '<meta property="og:image" content="/static/og-image.png" />',
+        f'<meta property="og:image" content="{html_escape(canonical_base + "/static/og-image.png", quote=True)}" />',
+    ).replace(
+        '<meta name="twitter:image" content="/static/og-image.png" />',
+        f'<meta name="twitter:image" content="{html_escape(canonical_base + "/static/og-image.png", quote=True)}" />',
+    )
+    page = page.replace(
+        '<meta name="twitter:title" content="LeiAberta — entenda como uma lei chegou ao texto atual" />',
+        f'<meta name="twitter:title" content="{html_escape(title, quote=True)}" />',
+    ).replace(
+        '<meta name="twitter:description" content="Siga alterações verificadas até suas fontes oficiais." />',
+        f'<meta name="twitter:description" content="{html_escape(description, quote=True)}" />',
     )
     page = page.replace('<link rel="canonical" href="/" />', f'<link rel="canonical" href="{html_escape(canonical, quote=True)}" />')
     page = page.replace(
@@ -656,9 +852,14 @@ def law_page(slug: str, request: Request, session: Session = Depends(get_session
 
 
 @app.get("/{path:path}", include_in_schema=False)
-def public_app(path: str):
+def public_app(path: str, request: Request, session: Session = Depends(get_session)):
     if path.startswith("api/"):
         raise HTTPException(status_code=404, detail="Rota não encontrada.")
+    parts = path.split("/")
+    if len(parts) >= 2 and parts[0] == "lei":
+        article = parts[3] if len(parts) == 4 and parts[2] == "artigo" else None
+        if len(parts) == 2 or article is not None or len(parts) > 2:
+            return law_page(parts[1], request, session, article=article)
     index = ROOT / "static" / "index.html"
     if not index.exists():
         return JSONResponse({"detail": "Interface não encontrada."}, status_code=500)

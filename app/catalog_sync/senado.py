@@ -415,6 +415,17 @@ def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *,
                         })
                         registry.scope = scope
                         session.commit()
+            with SessionLocal() as session:
+                registry = session.get(SourceRegistry, _source_id(type_code))
+                if registry:
+                    scope = dict(registry.scope or {})
+                    scope.update({
+                        "last_success_at": datetime.now(timezone.utc).isoformat(),
+                        "new_records": counts["added"] + counts["attached_to_seed"],
+                        "updated_records": counts["refreshed"], "failed_records": 0,
+                    })
+                    registry.scope = scope
+                    session.commit()
             results.append(result)
         except Exception as exc:
             error = str(exc)[:300]
@@ -427,13 +438,19 @@ def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *,
                         id=_source_id(type_code), name=f"Senado Federal — catálogo {TYPE_LABELS[type_code]}",
                         adapter="senado_catalog", base_url=f"{SENATE_LIST_BASE}?tipo={type_code}",
                         evidence_url="https://legis.senado.leg.br/dadosabertos/v3/api-docs",
-                        scope={"normative_class": TYPE_LABELS[type_code], "senate_type_code": type_code},
+                        scope={"normative_class": TYPE_LABELS[type_code], "senate_type_code": type_code,
+                               "sync_failures": 1, "last_attempt_at": datetime.now(timezone.utc).isoformat()},
                         status="failed", last_error=error,
+                        last_checked_at=datetime.now(timezone.utc),
                     )
                     session.add(registry)
                 else:
                     registry.status = "stale"
                     registry.last_error = error
+                    registry.scope = {**(registry.scope or {}),
+                                      "sync_failures": int((registry.scope or {}).get("sync_failures", 0)) + 1,
+                                      "last_attempt_at": datetime.now(timezone.utc).isoformat()}
+                    registry.last_checked_at = datetime.now(timezone.utc)
                 session.commit()
     return {"synced": results, "skipped_fresh": skipped, "errors": errors,
             "listed": sum(item["listed"] for item in results),

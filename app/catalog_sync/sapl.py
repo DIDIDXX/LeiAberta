@@ -784,6 +784,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 registry.scope = {**(registry.scope or {}), "records_enumerated": enumerated,
                                   "records_by_federation_scope": dict(federation_counts),
                                   "last_page": len(page_checkpoints),
+                                  "sync_failures": int((registry.scope or {}).get("sync_failures", 0)) + 1,
                                   "last_attempt_at": datetime.now(timezone.utc).isoformat()}
                 registry.last_checked_at = datetime.now(timezone.utc)
                 session.commit()
@@ -802,6 +803,8 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                           "page_checkpoints": page_checkpoints,
                           "catalog_ids_sha256": final_digest,
                           "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1",
+                          "last_success_at": datetime.now(timezone.utc).isoformat(),
+                          "new_records": added, "updated_records": refreshed, "failed_records": 0,
                           "observed_at": datetime.now(timezone.utc).isoformat()}
         registry.last_checked_at = datetime.now(timezone.utc)
         registry.last_error = ""

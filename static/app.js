@@ -119,20 +119,21 @@ function catalogRow(law) {
 }
 
 async function renderHome() {
-  setMeta("LeiAberta — veja o que mudou", "Pesquise legislação brasileira e acompanhe o texto, as fontes oficiais e as alterações documentadas.");
+  setMeta("LeiAberta — entenda como uma lei chegou ao texto atual", "Pesquise legislação brasileira e siga alterações verificadas até suas fontes oficiais.");
   main.innerHTML = `<div class="home-shell">
     <section class="hero">
       <div><div class="eyebrow"><span class="eyebrow-line"></span> Legislação brasileira, em contexto</div>
-        <h1>Veja o que mudou.<br/><span>Quem mudou. E por quê.</span></h1>
-        <p class="hero-copy">Um acervo público para pesquisar normas, ler seus dispositivos e acompanhar alterações com links para as fontes oficiais.</p>
+        <h1>Entenda como uma lei<br/><span>chegou ao texto atual.</span></h1>
+        <p class="hero-copy">Pesquise uma lei, artigo, município ou assunto e siga as alterações até suas fontes oficiais.</p>
       </div>
       <aside class="hero-aside" aria-label="Sobre a plataforma"><span class="hero-aside-label">Um registro que se pode conferir</span><p><strong>Texto, histórico e origem</strong> reunidos em um só lugar — com cada informação ligada à sua fonte.</p><span class="hero-aside-rule"></span><span class="hero-aside-label">Fontes públicas · leitura aberta</span></aside>
     </section>
-    <div class="search-wrap"><label class="search-label" for="home-search">Encontre uma norma ou dispositivo</label>${searchBox({})}</div>
+    <div class="search-wrap"><label class="search-label" for="home-search">Encontre uma norma ou dispositivo</label>${searchBox({})}<div class="search-examples">Experimente: ${[["LGPD","LGPD"],["LGDP","LGDP"],["13709/18","13709/18"],["Art. 7º da LGPD","art 7 lgpd"],["Lei Maria da Penha","Lei Maria da Penha"]].map(([label,q])=>`<a href="/buscar?q=${encodeURIComponent(q)}">${label}</a>`).join(" · ")}</div></div>
+    <a class="hero-cta" href="/diff/3b1c3ba3-dc6e-4481-9aa0-3e197f2f8c10"><span><small>DEMO · LEI MARIA DA PENHA</small><strong>Veja por que este artigo mudou</strong><em>Art. 19, § 4º · Lei 14.550/2023</em></span><b>Ver alteração →</b></a>
     <section class="catalog-section" id="acervo">
       <div class="section-head"><div><div class="section-kicker">Ponto de partida</div><h2>Normas em destaque</h2></div><a class="section-action" href="/buscar?q=">Ver acervo ${externalIcon}</a></div>
       <div class="catalog-list" id="catalog-list"><div class="page-loading"><span class="spinner"></span> Carregando normas</div></div>
-      <div class="catalog-footer"><span id="catalog-count">Catálogo federal inicial</span><span>Os textos são consultados em <a href="https://www.planalto.gov.br/ccivil_03/" target="_blank" rel="noopener">fontes oficiais ${externalIcon}</a></span></div>
+    <div class="catalog-footer"><span id="catalog-count">Catálogo atual das fontes integradas</span><span>Catálogo não equivale à totalidade da legislação brasileira.</span></div>
     </section>
     <div class="home-lower">
       <section id="como-funciona"><div class="section-kicker">Como funciona</div><h2 class="lower-title">Do texto oficial ao artigo</h2><p class="lower-copy">O catálogo começa pelos dados essenciais. Quando você abre uma norma, o LeiAberta obtém o documento oficial, organiza os dispositivos e guarda uma cópia verificável.</p>
@@ -149,10 +150,10 @@ async function renderHome() {
   bindSearch(main);
   try {
     const [laws, stats] = await Promise.all([getJSON(`${API}/laws?limit=20`), getJSON(`${API}/stats`)]);
-    const featured = laws.items.sort((a, b) => FEATURED_ORDER.indexOf(a.slug) - FEATURED_ORDER.indexOf(b.slug));
+    const featured = laws.items.sort((a, b) => (FEATURED_ORDER.indexOf(a.slug) < 0 ? 999 : FEATURED_ORDER.indexOf(a.slug)) - (FEATURED_ORDER.indexOf(b.slug) < 0 ? 999 : FEATURED_ORDER.indexOf(b.slug)));
     document.querySelector("#catalog-list").innerHTML = featured.map(catalogRow).join("");
-    document.querySelector("#catalog-count").textContent = `${stats.indexed_laws} normas federais indexadas · cobertura em expansão`;
-    document.querySelector("#metric-strip").innerHTML = `<div class="metric"><strong>${stats.indexed_laws}</strong><span>normas no catálogo inicial</span></div><div class="metric"><strong>${stats.structured_articles}</strong><span>artigos estruturados</span></div>`;
+    document.querySelector("#catalog-count").textContent = `${Number(stats.indexed_laws).toLocaleString("pt-BR")} registros catalogados nas fontes integradas`;
+    document.querySelector("#metric-strip").innerHTML = `<div class="metric"><strong>${Number(stats.indexed_laws).toLocaleString("pt-BR")}</strong><span>registros catalogados</span></div><div class="metric"><strong>${Number(stats.materialized_laws).toLocaleString("pt-BR")}</strong><span>normas com texto</span></div><div class="metric"><strong>${Number(stats.enumerated_sources).toLocaleString("pt-BR")}</strong><span>fontes enumeradas</span></div><div class="metric"><strong>${Number(stats.documented_changes).toLocaleString("pt-BR")}</strong><span>alterações documentadas</span></div>`;
   } catch (error) {
     document.querySelector("#catalog-list").innerHTML = `<div class="empty-state">O catálogo está indisponível no momento. ${esc(error.message)}</div>`;
   }
@@ -170,6 +171,7 @@ function lawHeader(law, activeTab, crumbsList) {
   </header><div class="law-toolbar"><nav class="law-tabs" aria-label="Seções da norma">
     <a class="law-tab ${activeTab === "text" ? "active" : ""}" href="${lawPath(law)}">Texto</a>
     <a class="law-tab ${activeTab === "history" ? "active" : ""}" href="${lawPath(law)}/historico">Histórico</a>
+    <a class="law-tab ${activeTab === "blame" ? "active" : ""}" href="${lawPath(law)}/blame">Blame</a>
     <a class="law-tab ${activeTab === "proceedings" ? "active" : ""}" href="${lawPath(law)}/tramitacao">Tramitação</a>
   </nav><a class="source-link" href="${esc(law.source_url)}" target="_blank" rel="noopener">Fonte oficial ${externalIcon}</a></div>`;
 }
@@ -200,7 +202,7 @@ function progressPanel(job) {
   </div></div>`;
 }
 
-function articleHtml(nodes) {
+function articleHtml(nodes, slug) {
   const groups = [];
   let current;
   for (const node of nodes) {
@@ -213,13 +215,14 @@ function articleHtml(nodes) {
   return `<div class="article-list">${groups.map(group => {
     const number = group.article.id.replace(/^art:/, "");
     const title = group.article.label.endsWith("º") || group.article.label.endsWith(".") ? group.article.label : `${group.article.label}.`;
+    const provenanceHref = `${lawPath({ slug })}/blame?node=${encodeURIComponent(group.article.id)}`;
     const intro = group.article.text ? `<p class="article-lead">${esc(group.article.text)}</p>` : "";
     const clauses = group.clauses.map(node => {
       const kind = node.type === "item" ? " item" : node.type === "subitem" ? " subitem" : "";
       const label = node.type === "paragraph" ? `${node.label} ` : `${node.label} — `;
-      return `<p class="article-clause${kind}" id="${esc(node.id.replaceAll(":", "-"))}"><strong class="article-clause-label">${esc(label)}</strong>${esc(node.text)}</p>`;
+      return `<p class="article-clause${kind}" id="${esc(node.id.replaceAll(":", "-"))}"><strong class="article-clause-label">${esc(label)}</strong>${esc(node.text)} <a class="why-inline" href="${lawPath({ slug })}/blame?node=${encodeURIComponent(node.id)}">Por que este trecho?</a></p>`;
     }).join("");
-    return `<section class="law-article" id="article-${esc(number)}"><div class="article-index">${esc(number)}</div><div class="article-body"><h3>${esc(title)}</h3>${intro}${clauses}</div></section>`;
+    return `<section class="law-article" id="article-${esc(number)}"><div class="article-index">${esc(number)}</div><div class="article-body"><h3>${esc(title)}</h3>${intro}<a class="why-inline" href="${provenanceHref}">Por que este artigo está assim? →</a>${clauses}</div></section>`;
   }).join("")}</div>`;
 }
 
@@ -246,7 +249,7 @@ async function renderLaw(slug, targetArticle = "") {
     const recent = history.items?.[0];
     const auditNotice = law.materialization_status === "partial" ? `<div class="history-callout">Texto estruturado em conferência. Consulte o documento oficial enquanto verificamos anexos, segmentos e completude.</div>` : "";
     const article = targetArticle ? `<div class="law-intro">Abrindo o Art. ${esc(targetArticle)} · <a class="section-action" href="#article-${encodeURIComponent(targetArticle)}">Ir ao dispositivo ↓</a></div>` : `<p class="law-intro">${esc(law.description || "Texto consultado na fonte oficial.")} Esta versão foi estruturada a partir do documento público indicado abaixo.</p>`;
-    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content">${auditNotice}${article}${articleHtml(nodeData.items || [])}</div>${coverageCard(law, recent)}</div></div>`;
+    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content">${auditNotice}${article}${articleHtml(nodeData.items || [], slug)}</div>${coverageCard(law, recent)}</div></div>`;
     if (targetArticle) setTimeout(() => document.getElementById(`article-${CSS.escape(targetArticle)}`)?.scrollIntoView({ block: "start" }), 50);
   } catch (error) {
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="error-banner">${esc(error.message)}</div></div>`;
@@ -308,6 +311,64 @@ async function renderHistory(slug) {
   } catch (error) {
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "history", trail)}<div class="error-banner">${esc(error.message)}</div></div>`;
   }
+}
+
+async function renderBlame(slug) {
+  const selected = new URLSearchParams(location.search).get("node") || "";
+  const pageSize = 250;
+  const offset = Math.max(0, Number.parseInt(new URLSearchParams(location.search).get("offset") || "0", 10) || 0);
+  try {
+    const detail = await getJSON(`${API}/laws/${encodeURIComponent(slug)}`);
+    const law = detail.law;
+    const [blame, provenance] = await Promise.all([
+      getJSON(`${API}/laws/${encodeURIComponent(slug)}/blame?limit=${pageSize}&offset=${offset}${selected ? `&node_id=${encodeURIComponent(selected)}` : ""}`),
+      selected ? getJSON(`${API}/laws/${encodeURIComponent(slug)}/nodes/${encodeURIComponent(selected)}/provenance`) : Promise.resolve(null),
+    ]);
+    setMeta(`Blame jurídico — ${law.title} | LeiAberta`, `Atos modificadores verificados e lacunas de evidência para ${law.title}.`);
+    const trail = [{ label: "Início", href: "/" }, { label: law.title, href: lawPath(law) }, { label: "Blame" }];
+    const humanStatus = status => status === "verified" ? "Fonte confirmada" : status === "partial" ? "Evidência parcial" : status === "not_materialized" ? "Texto ainda não disponível" : "Ainda não identificado";
+    const selectedBlock = provenance ? `<section class="why-panel"><div class="evidence-badge ${esc(provenance.evidence?.level || "partial")}">${esc(provenance.evidence?.label || humanStatus(provenance.status))}</div><h2>${esc(provenance.node?.label || selected)}</h2><p class="why-current">${esc(provenance.current_text || "O texto atual ainda não está materializado.")}</p><p class="why-note">${provenance.status === "verified" ? "O ato abaixo tem comparação de texto registrada em fonte oficial. Isso identifica o ato responsável pela alteração, não a autoria individual de cada linha." : provenance.status === "partial" ? "Relação oficial localizada; texto histórico ainda não reconstruído." : "Ainda não conseguimos rastrear a origem deste trecho com segurança."}</p>${provenance.last_verified_change ? `<div class="why-change"><p><strong>Última alteração verificada</strong> · ${datePt(provenance.last_verified_change.changed_at)}</p><p>${esc(provenance.last_verified_change.source_law_label)}</p><a class="section-action" href="/diff/${encodeURIComponent(provenance.last_verified_change.id)}">Ver antes e depois →</a><p><a href="${safeHttpHref(provenance.last_verified_change.source_url)}" target="_blank" rel="noopener">Abrir norma modificadora oficial ${externalIcon}</a></p></div>` : ""}${provenance.relations?.length ? `<div class="relation-note"><strong>Relações oficiais encontradas</strong>${provenance.relations.map(item => `<p>${esc(item.label)} · ${esc(item.notice)} <a href="${safeHttpHref(item.source_url)}" target="_blank" rel="noopener">Fonte ${externalIcon}</a></p>`).join("")}</div>` : ""}</section>` : `<p class="history-intro">Blame jurídico mostra qual ato está ligado à última alteração verificada do dispositivo. Não atribui a redação a uma pessoa. Escolha um dispositivo para consultar as evidências.</p>`;
+    const rows = blame.items.map(item => `<a class="blame-row ${selected === item.node_id ? "selected" : ""}" href="${lawPath(law)}/blame?node=${encodeURIComponent(item.node_id)}"><span><strong>${esc(item.label)}</strong><small>${esc(item.node_id)}</small></span><span class="blame-origin">${item.responsible_act ? `<strong>${esc(item.responsible_act.label)}</strong><small>${datePt(item.responsible_act.changed_at)}</small>` : `<strong>Ainda não identificado</strong><small>Sem before/after verificado</small>`}</span><span class="evidence-badge ${item.evidence_level === "verified_primary" ? "verified_primary" : "partial"}">${item.responsible_act ? (item.evidence_level === "verified_primary" ? "Fonte confirmada" : "Evidência parcial") : "Não identificado"}</span></a>`).join("");
+    const pagination = blame.count > pageSize ? `<nav class="blame-pagination" aria-label="Páginas de dispositivos"><span>Dispositivos ${Number(blame.offset + 1).toLocaleString("pt-BR")}–${Number(blame.offset + blame.items.length).toLocaleString("pt-BR")} de ${Number(blame.count).toLocaleString("pt-BR")}</span><div>${offset > 0 ? `<a href="${lawPath(law)}/blame?offset=${Math.max(0, offset-pageSize)}">Anterior</a>` : ""}${blame.has_more ? `<a href="${lawPath(law)}/blame?offset=${offset+pageSize}">Próximos dispositivos →</a>` : ""}</div></nav>` : "";
+    main.innerHTML = `<div class="content-shell">${lawHeader(law, "blame", trail)}<section class="history-layout"><div class="blame-heading"><div><h2>Quem responde pelo texto?</h2><p>O ato modificador é mostrado quando há comparação verificável. Origem de autoria permanece sem atribuição individual.</p></div><span>${Number(blame.count).toLocaleString("pt-BR")} dispositivos</span></div>${selectedBlock}<div class="blame-list">${rows || `<div class="empty-state">${blame.status === "not_materialized" ? "O texto desta norma ainda está sendo preparado." : "Nenhum dispositivo estruturado foi localizado."}</div>`}</div>${pagination}<p class="source-note">O LeiAberta só trata uma alteração como confirmada quando existe evidência oficial suficiente para sustentar a relação apresentada.</p></section></div>`;
+  } catch (error) { renderNotFound(error.message); }
+}
+
+async function renderSources() {
+  setMeta("Fontes e atualizações | LeiAberta", "Veja quais catálogos oficiais estão integrados e quando foram consultados.");
+  main.innerHTML = `<div class="content-shell editorial-page"><div class="eyebrow"><span class="eyebrow-line"></span> Transparência</div><h1 class="diff-title">Fontes oficiais, estado por estado.</h1><p class="history-intro">O LeiAberta consulta periodicamente as fontes já integradas. Novas normas dessas fontes entram no catálogo sem necessidade de novo deploy. A cobertura varia por jurisdição e pela disponibilidade dos portais oficiais.</p><div id="source-list" class="source-list"><div class="page-loading"><span class="spinner"></span> Consultando estado das fontes</div></div></div>`;
+  try {
+    const data = await getJSON(`${API}/sources`);
+    document.querySelector("#source-list").innerHTML = `<p class="catalog-footer">${data.count} registros de fonte · consultado ${datePt(data.checked_at)}</p>${data.items.length ? data.items.map(source => `<article class="source-card"><div><span class="source-adapter">${esc(source.adapter)} · ${esc(source.freshness_status)}</span><h2>${esc(source.name)}</h2><p>${esc(source.jurisdiction_name)} · status ${esc(source.status)}</p></div><dl><div><dt>Freshness</dt><dd>${source.freshness_seconds ? `${Math.round(source.freshness_seconds / 86400)} dias` : "Sem política publicada"}</dd></div><div><dt>Limites do adapter</dt><dd>${esc(sourcePolicyLabel(source.request_policy))}</dd></div><div><dt>Última tentativa</dt><dd>${datePt(source.last_checked_at)}</dd></div><div><dt>Último sucesso registrado</dt><dd>${datePt(source.last_success_at)}</dd></div><div><dt>Catálogo · texto</dt><dd>${source.cataloged_laws == null ? "Não informado" : `${Number(source.cataloged_laws).toLocaleString("pt-BR")} · ${Number(source.with_text).toLocaleString("pt-BR")}`}</dd></div><div><dt>Novos · atualizados · falhas de sync</dt><dd>${source.new_records == null ? "Sem contagem registrada" : `${source.new_records} · ${source.updated_records} · ${source.failed_records ?? "n/d"} · ${source.sync_failures ?? 0}`}</dd></div></dl>${source.last_error ? `<p class="source-error">Aviso recente: ${esc(source.last_error.slice(0, 240))}</p>` : ""}<a href="${safeHttpHref(source.evidence_url || source.base_url)}" target="_blank" rel="noopener">Fonte oficial ${externalIcon}</a></article>`).join("") : `<div class="empty-state">Ainda não há registries de fontes carregados neste ambiente.</div>`}`;
+  } catch (error) { document.querySelector("#source-list").innerHTML = `<div class="error-banner">${esc(error.message)}</div>`; }
+}
+
+function sourcePolicyLabel(policy) {
+  if (!policy) return "Não há adapter de catálogo ativo";
+  const parts = [];
+  if (policy.page_size) parts.push(`${Number(policy.page_size).toLocaleString("pt-BR")} por página`);
+  if (policy.max_response_bytes) parts.push(`${Math.round(policy.max_response_bytes / 1_000_000)} MB máx.`);
+  if (policy.timeout_seconds) parts.push(`${policy.timeout_seconds} s timeout`);
+  if (policy.max_attempts) parts.push(`${policy.max_attempts} tentativas máx.`);
+  return parts.join(" · ") || "Política específica do adapter";
+}
+
+async function renderCoverage() {
+  setMeta("Cobertura legislativa | LeiAberta", "Cobertura e lacunas por jurisdição nas fontes integradas ao LeiAberta.");
+  main.innerHTML = `<div class="content-shell editorial-page"><div class="eyebrow"><span class="eyebrow-line"></span> Escopo e lacunas</div><h1 class="diff-title">Cobertura que mostra as lacunas.</h1><p class="history-intro">Catálogo, texto, histórico e tramitação são estágios diferentes. Uma fonte configurada não significa que toda a sua legislação esteja coberta.</p><div id="coverage-content"><div class="page-loading"><span class="spinner"></span> Calculando métricas públicas</div></div></div>`;
+  try {
+    const [stats, sources] = await Promise.all([getJSON(`${API}/stats`), getJSON(`${API}/sources`)]);
+    const categoryName = id => !id || id.startsWith("federal:") ? "Federal" : id.startsWith("state:DF") ? "Distrito Federal" : id.startsWith("state:") ? "Estados" : id.startsWith("municipality:") ? "Municípios" : "Diretórios e descoberta";
+    const groups = new Map();
+    for (const source of sources.items) { const key = categoryName(source.jurisdiction_id); groups.set(key, [...(groups.get(key) || []), source]); }
+    const categories = ["Federal", "Estados", "Distrito Federal", "Municípios", "Diretórios e descoberta"];
+    document.querySelector("#coverage-content").innerHTML = `<div class="coverage-metrics"><div><strong>${Number(stats.indexed_laws).toLocaleString("pt-BR")}</strong><span>registros catalogados</span></div><div><strong>${Number(stats.materialized_laws).toLocaleString("pt-BR")}</strong><span>normas com texto</span></div><div><strong>${Number(stats.enumerated_sources).toLocaleString("pt-BR")}</strong><span>fontes enumeradas</span></div></div><p class="source-note">Registros catalogados são metadados enumerados em fontes oficiais integradas. Isso não equivale à totalidade da legislação brasileira. A configuração de uma fonte não representa cobertura integral da jurisdição.</p><div class="coverage-grid">${categories.map(category => { const rows=groups.get(category)||[]; const integrated=rows.filter(s=>s.status==="enumerated").length; return `<section class="coverage-jurisdiction"><h2>${category}</h2><p><strong>${integrated} fontes enumeradas de ${rows.length} registradas</strong><span>Normas com texto e histórico variam por fonte. Consulte a lista detalhada e os estados observados em <a href="/fontes">Fontes</a>.</span></p>${rows.filter(s=>s.status!=="enumerated").slice(0,3).map(s=>`<p><strong>${esc(s.name)}</strong><span>${esc(s.status)} · freshness ${esc(s.freshness_status)}</span></p>`).join("")}</section>`; }).join("")}</div><div class="contribute-callout"><h2>Sua cidade ainda não aparece?</h2><p>Ajude a conectar a fonte oficial e a documentar suas lacunas.</p><a class="section-action" href="https://github.com/DIDIDXX/LeiAberta/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener">Como contribuir ${externalIcon}</a></div>`;
+  } catch (error) { document.querySelector("#coverage-content").innerHTML = `<div class="error-banner">${esc(error.message)}</div>`; }
+}
+
+function renderAbout() {
+  setMeta("Sobre o LeiAberta", "Como o LeiAberta conecta fontes públicas oficiais, textos e alterações verificáveis.");
+  main.innerHTML = `<div class="content-shell editorial-page"><div class="eyebrow"><span class="eyebrow-line"></span> Sobre o projeto</div><h1 class="diff-title">A fonte vem primeiro.</h1><div class="about-columns"><section><h2>O problema</h2><p>O Brasil não tem uma API única com todas as normas, versões, alterações e processos.</p><h2>O que fazemos</h2><p>Conectamos fontes oficiais, mantemos catálogos, estruturamos textos e ligamos alterações verificáveis às suas evidências.</p><div class="pipeline">Fontes oficiais → catálogo → texto → estrutura → histórico → evidência</div></section><section><h2>O que não fazemos</h2><ul><li>Não substituímos a publicação oficial.</li><li>Não inventamos autoria nem completude.</li><li>Uma relação legislativa não vira diff sem texto comparável.</li><li>Data de captura não é data de vigência.</li></ul><h2>Como atualiza</h2><p>O worker consulta fontes integradas conforme a política de freshness de cada adapter. Uma norma pode entrar no catálogo antes de o texto ou histórico estarem disponíveis.</p></section></div><div class="contribute-callout"><h2>Open source · MIT</h2><p>Ajude a mapear a legislação brasileira, com fixtures e evidência oficial.</p><a class="section-action" href="https://github.com/DIDIDXX/LeiAberta" target="_blank" rel="noopener">Abrir repositório ${externalIcon}</a></div></div>`;
 }
 
 async function pollHistory(slug, jobId) {
@@ -418,12 +479,13 @@ async function renderDiff(changeId) {
   setMeta(`${change.summary} — ${law.title} | LeiAberta`, `Texto anterior e posterior de uma alteração documentada em ${change.source_law_label}.`);
   const nodeName = change.node_id.replaceAll(":", " · ");
   const before = change.before_text || "Este dispositivo ainda não existia no texto anterior consultado.";
+  const evidence = change.evidence || { label: "Evidência parcial", level: "partial" };
   main.innerHTML = `<div class="content-shell">${crumbs([{ label: "Início", href: "/" }, { label: law.title, href: lawPath(law) }, { label: "Histórico", href: `${lawPath(law)}/historico` }, { label: "Alteração" }])}
-    <section class="diff-layout"><div class="law-eyebrow"><span class="eyebrow-line"></span> Alteração documentada</div><h1 class="diff-title">${esc(change.summary)}</h1><p class="diff-subtitle">${esc(law.title)} · ${esc(nodeName)}</p>
+    <section class="diff-layout"><div class="law-eyebrow"><span class="eyebrow-line"></span> Alteração documentada</div><div class="evidence-badge ${esc(evidence.level)}">${esc(evidence.label)}</div><h1 class="diff-title">${esc(change.summary)}</h1><p class="diff-subtitle">${esc(law.title)} · ${esc(nodeName)}</p>
     <div class="diff-meta"><span>${datePt(change.changed_at)}</span><span>Origem: <a href="${esc(change.source_url)}" target="_blank" rel="noopener">${esc(change.source_law_label)} ${externalIcon}</a></span><span>Tipo: ${esc(change.change_type === "ADD" ? "Dispositivo incluído" : change.change_type)}</span></div>
     <div class="diff-panes"><section class="diff-pane before"><div class="diff-pane-head"><span>Antes</span><span>Texto anterior</span></div><p class="diff-text ${change.before_text ? "" : "diff-empty"}">${esc(before)}</p></section>
       <section class="diff-pane after"><div class="diff-pane-head"><span>Depois</span><span>${esc(nodeName)}</span></div><p class="diff-text">${esc(change.after_text)}</p></section></div>
-    <div class="diff-source-note"><strong>Origem do vínculo.</strong> O texto consolidado da norma identifica esta inclusão pela ${esc(change.source_law_label)}. O texto do dispositivo foi conferido no documento oficial da norma modificadora e na versão consolidada. <a class="source-link" href="${esc(change.law_source_url)}" target="_blank" rel="noopener">Fonte do texto consolidado ${externalIcon}</a></div>
+    <div class="diff-source-note"><strong>Por que este trecho está assim?</strong> O dispositivo traz uma marca de inclusão pela ${esc(change.source_law_label)}. A comparação disponível sustenta a alteração; não identifica a pessoa que redigiu cada linha. <a class="source-link" href="${safeHttpHref(change.source_url)}" target="_blank" rel="noopener">Fonte oficial da norma modificadora ${externalIcon}</a> · <a class="source-link" href="${safeHttpHref(change.law_source_url)}" target="_blank" rel="noopener">Texto consolidado consultado ${externalIcon}</a> · <a class="source-link" href="${lawPath(law)}/blame?node=${encodeURIComponent(change.node_id)}">Ver evidências deste dispositivo →</a></div>
     </section></div>`;
 }
 
@@ -459,10 +521,14 @@ function route() {
   const path = decodeURIComponent(location.pathname);
   const diff = path.match(/^\/diff\/([^/]+)/);
   if (diff) return renderDiff(diff[1]);
-  const law = path.match(/^\/lei\/([^/]+)(?:\/(historico|tramitacao|artigo\/([^/]+)))?/);
+  if (path === "/fontes") return renderSources();
+  if (path === "/cobertura") return renderCoverage();
+  if (path === "/sobre") return renderAbout();
+  const law = path.match(/^\/lei\/([^/]+)(?:\/(historico|tramitacao|blame|artigo\/([^/]+)))?/);
   if (law) {
     if (law[2] === "historico") return renderHistory(law[1]);
     if (law[2] === "tramitacao") return renderProceedings(law[1]);
+    if (law[2] === "blame") return renderBlame(law[1]);
     if (law[3]) return renderLaw(law[1], law[3]);
     return renderLaw(law[1]);
   }
