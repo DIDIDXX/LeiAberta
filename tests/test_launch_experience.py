@@ -90,15 +90,19 @@ def test_blame_and_node_provenance_distinguish_verified_partial_and_unknown(db_s
     client = _client_for(db_session)
     try:
         blame_response = client.get(f"/api/laws/{law.slug}/blame?limit=10")
+        page_two_response = client.get(f"/api/laws/{law.slug}/blame?limit=1&offset=1")
         verified_response = client.get(f"/api/laws/{law.slug}/nodes/art%3A1/provenance")
         unknown_response = client.get(f"/api/laws/{law.slug}/nodes/art%3A2/provenance")
         assert blame_response.status_code == 200, blame_response.text
+        assert page_two_response.status_code == 200, page_two_response.text
         assert verified_response.status_code == 200, verified_response.text
         assert unknown_response.status_code == 200, unknown_response.text
-        blame, verified, unknown = blame_response.json(), verified_response.json(), unknown_response.json()
+        blame, page_two, verified, unknown = (blame_response.json(), page_two_response.json(),
+                                               verified_response.json(), unknown_response.json())
     finally:
         app.dependency_overrides.clear()
     assert len(blame["items"]) == 2
+    assert page_two["items"][0]["node_id"] == "art:2"
     assert blame["items"][0]["responsible_act"]["label"] == "Lei nº 14.550/2023"
     assert blame["items"][1]["origin_status"] == "not_identified"
     assert verified["status"] == "verified"
