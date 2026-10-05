@@ -1,4 +1,4 @@
-"""Reclaim only the verified, stale production laws-table lock from 2026-10-05."""
+"""Reclaim only the verified, stale production laws-table locks from 2026-10-05."""
 from __future__ import annotations
 
 import os
@@ -7,17 +7,40 @@ import sys
 from sqlalchemy import create_engine, text
 
 
-# This identity came from pg_stat_activity after repeated migration failures.
-# Every field is matched so a future process reusing this PID is left alone.
-STALE_BACKEND = {
-    "pid": 11882,
-    "client_address": "fd12:7e41:f1ed:1:3000:da:da17:e997",
-    "client_port": 38720,
-    "backend_start": "2026-10-05 04:03:57.372617+00:00",
-    "query_start": "2026-10-05 04:04:03.826390+00:00",
-    "state_change": "2026-10-05 04:04:03.826407+00:00",
-    "xact_start": "2026-10-05 04:04:02.859806+00:00",
-}
+# These identities came from pg_stat_activity after repeated migration failures.
+# Match every field so a future process reusing any PID is left alone.
+STALE_BACKENDS = (
+    {
+        "pid": 11882,
+        "client_address": "fd12:7e41:f1ed:1:3000:da:da17:e997",
+        "client_port": 38720,
+        "backend_start": "2026-10-05 04:03:57.372617+00:00",
+        "query_start": "2026-10-05 04:04:03.826390+00:00",
+        "state_change": "2026-10-05 04:04:03.826407+00:00",
+        "xact_start": "2026-10-05 04:04:02.859806+00:00",
+        "lock_mode": "RowShareLock",
+    },
+    {
+        "pid": 15737,
+        "client_address": "fd12:7e41:f1ed:1:3000:aa:cb96:a46a",
+        "client_port": 36692,
+        "backend_start": "2026-10-05 07:02:08.047261+00:00",
+        "query_start": "2026-10-05 07:05:09.274436+00:00",
+        "state_change": "2026-10-05 07:05:09.274437+00:00",
+        "xact_start": "2026-10-05 07:05:08.096592+00:00",
+        "lock_mode": "RowExclusiveLock",
+    },
+    {
+        "pid": 17037,
+        "client_address": "fd12:7e41:f1ed:1:3000:c4:e6de:3f1d",
+        "client_port": 33758,
+        "backend_start": "2026-10-05 07:27:10.509645+00:00",
+        "query_start": "2026-10-05 07:31:11.371661+00:00",
+        "state_change": "2026-10-05 07:31:11.371661+00:00",
+        "xact_start": "2026-10-05 07:31:09.904427+00:00",
+        "lock_mode": "RowExclusiveLock",
+    },
+)
 
 
 def normalize_database_url(value: str) -> str:
@@ -48,7 +71,7 @@ MATCH_STALE_BACKEND = text("""
       AND a.wait_event = 'ClientRead'
       AND n.nspname = 'public'
       AND c.relname = 'laws'
-      AND l.mode = 'RowShareLock'
+      AND l.mode = :lock_mode
       AND l.granted
       AND a.pid <> pg_backend_pid()
     LIMIT 1
@@ -63,20 +86,22 @@ def main() -> None:
     engine = create_engine(normalize_database_url(database_url), pool_pre_ping=True)
     try:
         with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
-            pid = connection.execute(MATCH_STALE_BACKEND, STALE_BACKEND).scalar_one_or_none()
-            if pid is None:
-                print("No exact match for the previously identified stale laws-table lock")
-                return
-
-            terminated = connection.execute(
-                text("SELECT pg_terminate_backend(:pid)"),
-                {"pid": pid},
-            ).scalar_one()
-            if not terminated:
-                print(f"Could not terminate verified stale PostgreSQL backend pid={pid}", file=sys.stderr)
-                raise SystemExit(1)
-
-            print(f"Terminated verified stale laws-table lock backend pid={pid}")
+            matched = 0
+            for stale_backend in STALE_BACKENDS:
+                pid = connection.execute(MATCH_STALE_BACKEND, stale_backend).scalar_one_or_none()
+                if pid is None:
+                    continue
+                matched += 1
+                terminated = connection.execute(
+                    text("SELECT pg_terminate_backend(:pid)"),
+                    {"pid": pid},
+                ).scalar_one()
+                if not terminated:
+                    print(f"Could not terminate verified stale PostgreSQL backend pid={pid}", file=sys.stderr)
+                    raise SystemExit(1)
+                print(f"Terminated verified stale laws-table lock backend pid={pid}")
+            if matched == 0:
+                print("No exact match for the previously identified stale laws-table locks")
     finally:
         engine.dispose()
 
