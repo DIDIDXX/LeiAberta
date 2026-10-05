@@ -93,3 +93,9 @@ Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
 - Próxima ação técnica recomendada: obter via ambiente autenticado consulta SQL read-only + billing, verificar forwarded IP no app/proxy Railway e implementar limiter apropriado; expandir fontes oficiais em catálogo por jurisdição. Única ação de conta imediata: aceitar remoção staged do diagnóstico com 2FA no Dashboard.
 
 - Revisão final do fetcher: URLs Planalto agora forçam HTTPS, domínio `*.planalto.gov.br`, porta 443 e validação prévia de cada redirect; limite 25 MB permanece. Retry limitado (3 tentativas) apenas para HTTP 429/5xx e falhas de transporte, sempre na mesma URL HTTPS. 142 Python tests passaram. E2E local teve 2 falhas por Planalto responder 503 após repetidas hidratações; não houve novo retry do teste local, para não pressionar a fonte. PR #66 precisa CI E2E (runner externo) antes do merge.
+
+## Rate limiting global (2026-10-05 UTC)
+
+- Adicionados budgets Redis globais sem confiar em forwarded IP: busca 600/min, detalhe/nodes 240/min, preparação explícita 60/min; 429 traz `Retry-After` e `Cache-Control: no-store`.
+- Redis já faz parte da arquitetura; não adicionei dependência/serviço. Se o rate-store estiver indisponível, middleware falha aberto e jobs ainda têm dedupe/backpressure. Limiter por cliente depende de comprovar a identidade encaminhada pelo proxy.
+- `pytest -q`: 144 passed, uma advertência upstream; `git diff --check` passou. E2E e imagem Docker precisam CI após PR.

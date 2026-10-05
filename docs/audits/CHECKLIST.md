@@ -28,7 +28,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 1. Veracidade jurídica: catálogo, texto, estrutura, auditoria, histórico, diff, provenance, vigência, autoria e cobertura revisados; limitações relatadas.
 - [x] 2. Custo Railway: rate proxy e cenários 0, 1k, 10k, 100k req/dia e 10/100/1.000 hidratações/dia documentados; invoice/billing unavailable.
 - [x] 3. Redis/worker versus fila PG e worker sob demanda avaliados; preservar arquitetura com outbox/Redis por evidência disponível.
-- [x] 4. GET público, enqueue, dedupe/backpressure revisados; rate limit permanece open finding sem client-IP trust.
+- [x] 4. GET público, enqueue, dedupe/backpressure revisados; orçamento global Redis adicionado; client-IP fairness aguarda verificação do proxy.
 - [x] 5. Startup revisado: migration e hot seed leves; full sync já está fora do startup.
 - [x] 6. Corrida de migrations/schema gate/retry revisados; limites em technical audit.
 - [x] 7. Backup/restore e policy revisados; runbook produzido; restore report anterior conferido.
@@ -41,7 +41,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [!] 14. Pool: configuração default encontrada; dimensionamento requer `max_connections`/`pg_stat_activity` indisponíveis.
 - [x] 15. Fontes revisadas por famílias; Planalto agora rejeita corpos acima de 25 MB; limites Senado permanecem pendentes.
 - [x] 16. Planalto: HTTPS/host allowlist, redirect handler e cap 25 MB adicionados/testados; contrato uniforme dos outros adapters permanece.
-- [~] 17. Rate limit/abuso: dedupe/backpressure existentes; client rate limiter pendente IP confiável/edge support.
+- [x] 17. Rate limit/abuso: budgets globais Redis (search/detail/job prepare) testados; fairness por IP não usa header não confiável.
 - [x] 18. Headers e CSP same-origin aplicados com teste; raw query logging permanece sob revisão; nenhuma credencial exportada.
 - [x] 19. Docker non-root, `.dockerignore`, build e container smoke executados.
 - [~] 20. package-lock presente, Dependabot criado; Python requirements ainda não travados.
@@ -56,7 +56,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 29. Legalize docs/SPEC v0.4 pesquisados; compatibilidade é aditiva/roadmap, sem alegar conformidade.
 - [x] 30. Leis.org tratado como benchmark; acesso direto 403, sem scraping/cópia.
 - [x] 31. Provenance relacional revisada; não adicionar graph DB sem necessidade medida.
-- [~] 32. Limites de query/docs revisados; API versioning/paginação/rate-limit faltam.
+- [~] 32. Limites de query/docs revisados; API versioning/paginação e fairness por cliente permanecem no roadmap; budgets globais ativos.
 - [~] 33. Queue observability não exposta pela integração; recomendações/limiares documentados.
 - [~] 34. `/ready` confirma DB + Alembic heads em teste e produção; worker heartbeat separado permanece ausente.
 - [x] 35. Startup sem sync longo; worker cuida de atualização em background.
