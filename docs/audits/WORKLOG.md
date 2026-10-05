@@ -99,3 +99,9 @@ Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
 - Adicionados budgets Redis globais sem confiar em forwarded IP: busca 600/min, detalhe/nodes 240/min, preparação explícita 60/min; 429 traz `Retry-After` e `Cache-Control: no-store`.
 - Redis já faz parte da arquitetura; não adicionei dependência/serviço. Se o rate-store estiver indisponível, middleware falha aberto e jobs ainda têm dedupe/backpressure. Limiter por cliente depende de comprovar a identidade encaminhada pelo proxy.
 - `pytest -q`: 144 passed, uma advertência upstream; `git diff --check` passou. E2E e imagem Docker precisam CI após PR.
+
+
+## Worker heartbeat (2026-10-05 UTC)
+
+- Worker publica `leiaberta:worker:heartbeat` no Redis a cada 30s com TTL 90s; log contém timestamp, concurrency e consumer id (sem dados jurídicos/secrets). Endpoint `/worker-health` confirma heartbeat fresco e retorna 503 se ausente/obsoleto. `/ready` segue limitado a DB/schema para não acoplar leitura web à disponibilidade do worker.
+- `pytest -q`: 146 passed, um warning upstream; `git diff --check` passou. E2E/Docker aguardam CI.
