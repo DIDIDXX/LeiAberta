@@ -99,9 +99,104 @@ def test_planalto_fetch_rejects_oversized_response(monkeypatch):
         def geturl(self):
             return "https://www.planalto.gov.br/ccivil_03/leis/l13709.htm"
 
-    monkeypatch.setattr(planalto.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            return Response()
+
+    monkeypatch.setattr(planalto.urllib.request, "build_opener", lambda *_args: Opener())
     with pytest.raises(ValueError, match="excede o limite"):
         planalto.fetch_official_html("https://www.planalto.gov.br/ccivil_03/leis/l13709.htm")
+
+
+def test_planalto_fetch_rejects_untrusted_url_without_network(monkeypatch):
+    from app.sources import planalto
+
+    def network_must_not_run(*_args, **_kwargs):
+        raise AssertionError("unexpected network request")
+
+    monkeypatch.setattr(planalto.urllib.request, "build_opener", network_must_not_run)
+    with pytest.raises(ValueError, match="domínio HTTPS oficial"):
+        planalto.fetch_official_html("https://example.org/law")
+
+
+def test_planalto_redirect_handler_blocks_external_and_downgrade_redirects():
+    from app.sources.planalto import _PlanAltoRedirectHandler
+    from urllib.request import Request
+
+    handler = _PlanAltoRedirectHandler()
+    req = Request("https://www.planalto.gov.br/lei")
+    for destination in ["https://example.org/", "http://www.planalto.gov.br/lei"]:
+        with pytest.raises(ValueError, match="redirecionar"):
+            handler.redirect_request(req, object(), 302, "Found", {}, destination)
+
+
+def test_planalto_fetch_upgrades_http_url_to_official_https(monkeypatch):
+    from app.sources import planalto
+
+    class Response:
+        status = 200
+        headers = {"Content-Type": "text/html"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size):
+            return b"<html><body>Official</body></html>"
+
+        def geturl(self):
+            return "https://www.planalto.gov.br/lei"
+
+    class Opener:
+        def open(self, req, timeout):
+            assert req.full_url == "https://www.planalto.gov.br/lei"
+            assert timeout == 25
+            return Response()
+
+    monkeypatch.setattr(planalto.urllib.request, "build_opener", lambda *_args: Opener())
+    body, final_url = planalto.fetch_official_html("http://www.planalto.gov.br/lei")
+    assert body.startswith(b"<html>")
+    assert final_url == "https://www.planalto.gov.br/lei"
+
+
+def test_planalto_fetch_retries_transient_https_503(monkeypatch):
+    from app.sources import planalto
+    from urllib.error import HTTPError
+
+    class Response:
+        status = 200
+        headers = {"Content-Type": "text/html"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size):
+            return b"<html><body>Official</body></html>"
+
+        def geturl(self):
+            return "https://www.planalto.gov.br/lei"
+
+    class Opener:
+        calls = 0
+
+        def open(self, _request, timeout):
+            self.calls += 1
+            assert timeout == 25
+            if self.calls == 1:
+                raise HTTPError("https://www.planalto.gov.br/lei", 503, "Unavailable", {"Retry-After": "0"}, None)
+            return Response()
+
+    opener = Opener()
+    monkeypatch.setattr(planalto.urllib.request, "build_opener", lambda *_args: opener)
+    monkeypatch.setattr(planalto.time, "sleep", lambda _delay: None)
+    body, _ = planalto.fetch_official_html("https://www.planalto.gov.br/lei")
+    assert body.startswith(b"<html>")
+    assert opener.calls == 2
 
 
 def test_sitemap_uses_configured_public_url(db_session, add_law, monkeypatch):

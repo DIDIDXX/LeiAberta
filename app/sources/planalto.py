@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import re
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 import codecs
+import time
+import urllib.error
 from dataclasses import dataclass
 
 from bs4 import BeautifulSoup
@@ -32,31 +35,78 @@ class ParsedNode:
     order_index: int
 
 
+def _is_allowed_planalto_url(url: str) -> bool:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme.lower() == "https"
+        and (host == "planalto.gov.br" or host.endswith(".planalto.gov.br"))
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
+    )
+
+
+class _PlanAltoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not _is_allowed_planalto_url(newurl):
+            raise ValueError("A fonte oficial tentou redirecionar para um host não permitido.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def fetch_official_html(url: str) -> tuple[bytes, str]:
-    candidates = [url]
-    if url.startswith("http://"):
-        candidates.insert(0, "https://" + url[len("http://"):])
-    last_error: Exception | None = None
-    for candidate in candidates:
-        request = urllib.request.Request(
-            candidate,
-            headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html,application/xhtml+xml"},
-        )
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() == "http":
+        url = urlunsplit(("https", parsed.netloc, parsed.path, parsed.query, parsed.fragment))
+    if not _is_allowed_planalto_url(url):
+        raise ValueError("A URL precisa pertencer ao domínio HTTPS oficial do Planalto.")
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Mozilla/5.0",
+                 "Accept": "text/html,application/xhtml+xml"},
+    )
+    opener = urllib.request.build_opener(_PlanAltoRedirectHandler())
+    response = None
+    last_error = None
+    for attempt in range(3):
         try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                body = response.read(MAX_SOURCE_BYTES + 1)
-                if len(body) > MAX_SOURCE_BYTES:
-                    raise ValueError("A fonte oficial excede o limite de tamanho permitido.")
-                content_type = response.headers.get("Content-Type", "")
-                markup_probe = body.lower().replace(b"\x00", b"")[:4096]
-                if response.status != 200 or b"<html" not in markup_probe:
-                    raise ValueError("A fonte oficial não retornou um documento HTML válido.")
-                if "text/html" not in content_type.lower() and b"<html" not in markup_probe:
-                    raise ValueError("Formato de fonte oficial não reconhecido.")
-                return body, response.geturl()
-        except Exception as exc:
+            response = opener.open(request, timeout=25)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {429, 500, 502, 503, 504} or attempt == 2:
+                raise
+            retry_after = exc.headers.get("Retry-After", "")
+            try:
+                delay = min(5.0, max(0.0, float(retry_after))) if retry_after else 0.5 * (2 ** attempt)
+            except ValueError:
+                delay = 0.5 * (2 ** attempt)
+            time.sleep(delay)
             last_error = exc
-    raise last_error or ValueError("Fonte oficial indisponível.")
+        except (urllib.error.URLError, TimeoutError) as exc:
+            if attempt == 2:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
+            last_error = exc
+    if response is None:
+        raise last_error or ValueError("Fonte oficial indisponível.")
+    with response:
+        body = response.read(MAX_SOURCE_BYTES + 1)
+        if len(body) > MAX_SOURCE_BYTES:
+            raise ValueError("A fonte oficial excede o limite de tamanho permitido.")
+        resolved_url = response.geturl()
+        if not _is_allowed_planalto_url(resolved_url):
+            raise ValueError("A resposta final não pertence ao domínio oficial do Planalto.")
+        content_type = response.headers.get("Content-Type", "")
+        markup_probe = body.lower().replace(b"\x00", b"")[:4096]
+        if response.status != 200 or b"<html" not in markup_probe:
+            raise ValueError("A fonte oficial não retornou um documento HTML válido.")
+        if "text/html" not in content_type.lower() and b"<html" not in markup_probe:
+            raise ValueError("Formato de fonte oficial não reconhecido.")
+        return body, resolved_url
 
 
 def detect_raw_format(body: bytes) -> str:

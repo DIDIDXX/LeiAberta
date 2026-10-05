@@ -40,7 +40,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [!] 13. Postgres storage: volume medido; relation size/bloat/connections indisponíveis via connector.
 - [!] 14. Pool: configuração default encontrada; dimensionamento requer `max_connections`/`pg_stat_activity` indisponíveis.
 - [x] 15. Fontes revisadas por famílias; Planalto agora rejeita corpos acima de 25 MB; limites Senado permanecem pendentes.
-- [~] 16. SSRF: Planalto agora tem limite de 25 MB testado; validação host/scheme da URL final ainda pendente.
+- [x] 16. Planalto: HTTPS/host allowlist, redirect handler e cap 25 MB adicionados/testados; contrato uniforme dos outros adapters permanece.
 - [~] 17. Rate limit/abuso: dedupe/backpressure existentes; client rate limiter pendente IP confiável/edge support.
 - [x] 18. Headers e CSP same-origin aplicados com teste; raw query logging permanece sob revisão; nenhuma credencial exportada.
 - [x] 19. Docker non-root, `.dockerignore`, build e container smoke executados.
