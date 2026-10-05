@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from app.catalog_sync.sapl import SAPL_API, SAPL_HOST
 from app.sources.attachments import docx_to_html, pdf_to_html
 from app.sources.history import OfficialRelation
+from app.sources.network import open_with_retry
 from app.sources.normas import SourceDocumentUnavailable
 
 MAX_BYTES = 25_000_000
@@ -43,7 +44,7 @@ def _fetch(url: str, *, accept: str, timeout: int) -> tuple[bytes, str, str]:
         "Accept": accept, "User-Agent": "LeiAberta/1.0 (+fontes oficiais)",
     })
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_with_retry(request, timeout=timeout) as response:
             body = response.read(MAX_BYTES + 1)
             if response.status != 200 or len(body) > MAX_BYTES:
                 raise SourceDocumentUnavailable("A resposta oficial SAPL falhou ou excedeu o limite permitido.")

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Jurisdiction, Law, SourceRegistry
+from app.sources.network import open_with_retry
 
 
 SAPL_HOST = "https://sapl.cmm.am.gov.br"
@@ -46,7 +47,7 @@ def _get_json(url: str, *, timeout: int = 45) -> tuple[dict, str]:
         "Accept": "application/json", "User-Agent": "LeiAberta/1.0 (+fontes oficiais)",
     })
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_with_retry(request, timeout=timeout) as response:
             body = response.read(MAX_BYTES + 1)
             final_url = response.geturl()
             status = response.status

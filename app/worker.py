@@ -107,6 +107,7 @@ def run() -> None:
                                 result.get("refreshed", 0), result.get("skipped_fresh", False))
                 except Exception:
                     logger.exception("alesp_catalog_sync_failed")
+                    next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 alesp_sync_future = None
             if sinj_sync_future is not None and sinj_sync_future.done():
                 try:
@@ -116,6 +117,7 @@ def run() -> None:
                                 result.get("refreshed", 0), result.get("skipped_fresh", False))
                 except Exception:
                     logger.exception("sinj_df_catalog_sync_failed")
+                    next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 sinj_sync_future = None
             if sapl_sync_future is not None and sapl_sync_future.done():
                 try:
@@ -125,6 +127,7 @@ def run() -> None:
                                 result.get("refreshed", 0), result.get("skipped_fresh", False))
                 except Exception:
                     logger.exception("sapl_manaus_catalog_sync_failed")
+                    next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 sapl_sync_future = None
             if time.monotonic() >= next_senado_batch:
                 next_senado_batch = time.monotonic() + senado_batch_seconds
