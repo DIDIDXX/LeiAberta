@@ -2,31 +2,41 @@
 
 Estados: `[ ]` pendente, `[~]` em andamento, `[x]` concluído, `[!]` bloqueio técnico/externo demonstrado.
 
-## Inspeção e nova norma
-- [x] SHA/serviços/health e dados de produção revalidados.
+## Inspeção e novas normas
+- [x] SHA, serviços, health e dados de produção revalidados.
 - [x] Políticas de refresh e freshness por adapter mapeadas.
-- [x] Teste adapter real com fixture: novo registro, upsert repetido, falha preservando dados, retry, busca e hidratação elegível.
-- [x] Cobertura não integrada não é apresentada como automática.
+- [x] Fixture cobre descoberta, upsert repetido, falha preservando dados, retry, busca e hidratação elegível.
+- [x] Fontes sem adapter ficam fora da promessa de atualização automática.
 
-## Produto
-- [x] Home em 10 segundos, busca, exemplos e CTA para case real.
-- [x] Explain/Blame por dispositivo, partial e não identificado.
-- [x] Diff legível, before/after, ato e fonte.
+## Produto e demo
+- [x] Home explica valor em 10 segundos e aponta para alteração real.
+- [x] Hero: Código Civil, art. 389, com texto anterior e posterior existentes.
+- [x] A página identifica Normas.leg.br como transcrição não oficial e não chama a data de vigência.
+- [x] Explicação/Blame por dispositivo com evidência parcial e desconhecida explícitas.
 - [x] `/fontes`, `/cobertura`, `/sobre`; freshness e lacunas sem implicar cobertura integral.
-- [x] URL profunda por artigo com canonical e OpenGraph server-side.
-- [ ] Smoke e browser matrix no deploy final.
+- [x] Deep link de artigo com canonical e OpenGraph server-side.
+- [x] Busca `LGDP` encontra a LGPD.
 
-## OSS/kit
+## Produção e engenharia
+- [x] E2E local: 2 passaram, incluindo antes/depois e home mobile com métricas grandes.
+- [x] Suíte Python: 150 passaram.
+- [x] CI GitHub (python, image, e2e) verde.
+- [x] Railway web, worker e backup `SUCCESS`; PostgreSQL e Redis online no SHA `c66c0138f03b1a83310c07089c265654785706ae`.
+- [x] `/health`, `/ready`, `/worker-health` respondem 200.
+- [x] Browser matrix: 36 combinações (9 páginas × 4 larguras: 390/430/768/1440 px), sem overflow, erro JS/console, falha de rede ou imagem quebrada.
+- [x] Limites, CSP, headers, sitemap e heartbeat preservados.
+- [x] Sem migrations nem serviço pago novo.
+
+## OSS e kit
 - [x] README, API, quickstart, inglês, contribuição e diagrama.
-- [x] Fact sheet, case study, hero case, roteiros, posts não publicados e manual actions.
-- [x] Playwright local fixtureado e E2E hero/typo/mobile.
-- [ ] Screenshots e PNG OG finais.
-- [ ] PR, CI, merge, deploy e release decision.
+- [x] Fact sheet, case study, hero case, roteiros, posts não publicados e ações manuais.
+- [x] 9 screenshots reais do deploy, OG PNG e demo WebM em `docs/assets/launch/`.
+- [x] Cinco issues úteis com rótulos `good first issue` e outros rótulos existentes.
+- [~] Release/tag v0.1.0: criar depois de integrar o kit final.
+- [!] Descrição/homepage/topics: GitHub retornou 403 `Resource not accessible by integration`; exige mantenedor com permissão administrativa.
 
-## Segurança/produção
-- [x] Nenhuma migration; rate limits de leitura/job existentes mantidos.
-- [x] CSP, headers, allowlists, worker heartbeat e sitemap mantidos.
-- [x] Heartbeat emitido fora do loop de jobs; teste impede falsa staleness durante processamento longo.
-- [ ] Railway web/worker `SUCCESS` no SHA final e smoke pós-deploy.
-- [!] Build de Docker no executor local falha porque o proxy TLS interceptado não é confiado pelo container; gate de imagem segue no CI remoto.
-- [!] Um patch destrutivo pré-existente (remoção `pg-diagnostic`) está staged em Railway produção; não foi aceito com o deploy do app.
+## Ações externas separadas
+- [!] Railway tem um patch destrutivo staged, anterior a esta rodada, que remove `pg-diagnostic`. Não foi aplicado junto com o deploy do app.
+- [ ] Domínio próprio opcional; produção atual no domínio Railway funciona.
+- [ ] Conferir fatura/custo; billing não estava acessível nesta sessão.
+- [ ] Publicar posts apenas quando o mantenedor decidir; os textos estão preparados.
