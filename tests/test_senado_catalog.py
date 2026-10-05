@@ -30,6 +30,19 @@ def test_senado_list_parser_preserves_official_identity_and_signature_date():
     assert record.law_type == "Lei"
 
 
+def test_senado_catalog_deduplicates_exact_duplicate_rows_but_rejects_conflicts():
+    import pytest
+
+    record = _senado_list_record()
+    body = b"<Lista><documentos>" + record.split(b"<documentos>", 1)[1].rsplit(b"</documentos>", 1)[0] * 2 + b"</documentos></Lista>"
+    parsed = parse_law_catalog(body, type_code="DEC-sn", minimum_records=2)
+    assert len(parsed) == 1
+
+    conflict = body.replace(b"Norma oficial de teste.", b"Norma oficial conflitante.", 1)
+    with pytest.raises(ValueError, match="metadados conflitantes"):
+        parse_law_catalog(conflict, type_code="DEC-sn", minimum_records=2)
+
+
 def test_senado_catalog_parses_other_normative_types_and_measure_sequences():
     lcp = parse_law_catalog((FIXTURES / "senado-list-lcp237-2026.xml").read_bytes(),
                             type_code="LCP", minimum_records=1)[0]

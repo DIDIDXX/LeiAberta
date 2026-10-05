@@ -15,6 +15,7 @@ from xml.sax.saxutils import escape
 from app.db import get_session
 from app.audit import audit_archived_document
 from app.jobs import queue_history, queue_hydration
+from app.catalog_sync.sapl import SAPL_SOURCE_NAMES
 from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SourceRegistry, SourceSnapshot
 from app.search import search_laws
 
@@ -27,7 +28,7 @@ TEXT_SOURCE_NAMES = {
     "Assembleia Legislativa do Estado de São Paulo — ALESP",
     "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
     "Câmara Municipal de Manaus — SAPL",
-}
+} | set(SAPL_SOURCE_NAMES)
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
@@ -118,6 +119,21 @@ def stats(session: Session = Depends(get_session)):
         )) or 0
         subnational_catalogs[source_id] = {
             "source_name": source_name, "catalog_laws": total, "with_text": with_text,
+            "unavailable": unavailable, "pending": max(0, total - with_text - unavailable),
+        }
+    known_catalog_ids = set(subnational_catalogs)
+    for registry in session.scalars(select(SourceRegistry).where(SourceRegistry.adapter == "sapl_catalog")):
+        if registry.id in known_catalog_ids:
+            continue
+        total = session.scalar(select(func.count()).select_from(Law).where(Law.source_name == registry.name)) or 0
+        with_text = session.scalar(select(func.count()).select_from(Law).where(
+            Law.source_name == registry.name, Law.current_version_id.is_not(None),
+        )) or 0
+        unavailable = session.scalar(select(func.count()).select_from(Law).where(
+            Law.source_name == registry.name, Law.materialization_status == "unavailable",
+        )) or 0
+        subnational_catalogs[registry.id] = {
+            "source_name": registry.name, "catalog_laws": total, "with_text": with_text,
             "unavailable": unavailable, "pending": max(0, total - with_text - unavailable),
         }
     return {
@@ -273,7 +289,7 @@ def prepare_history(slug: str, session: Session = Depends(get_session)):
         "Assembleia Legislativa do Estado de São Paulo — ALESP",
         "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
         "Câmara Municipal de Manaus — SAPL",
-    }
+    } | set(SAPL_SOURCE_NAMES)
     if law.source_name not in supported_sources:
         raise HTTPException(status_code=409, detail="Esta fonte ainda não fornece relações oficiais para reconstruir o histórico.")
     try:

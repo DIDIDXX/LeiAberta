@@ -161,20 +161,27 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
 
 
 def queue_subnational_text_batch(*, limit: int = 100) -> dict:
-    """Backfill every source-published SP, DF and Manaus text at a bounded pace."""
+    """Backfill source-published texts from each connected subnational catalog."""
     if not 1 <= limit <= 500:
         raise ValueError("O lote de textos subnacionais deve conter de 1 a 500 normas.")
-    source_names = (
+    from app.catalog_sync.sapl import SAPL_INSTANCES
+
+    supported_source_names = (
         "Assembleia Legislativa do Estado de São Paulo — ALESP",
         "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
-        "Câmara Municipal de Manaus — SAPL",
+        *(instance.source_name for instance in SAPL_INSTANCES),
     )
     session = SessionLocal()
     jobs: list[dict] = []
-    queued_by_source = {name: 0 for name in source_names}
+    queued_by_source: dict[str, int] = {}
     try:
+        available_sources = set(session.scalars(
+            select(Law.source_name).where(Law.source_name.in_(supported_source_names)).distinct()
+        ))
+        source_names = tuple(name for name in supported_source_names if name in available_sources)
+        queued_counts = {name: 0 for name in source_names}
         now = datetime.now(timezone.utc)
-        quota = max(1, limit // len(source_names))
+        quota = max(1, limit // len(source_names)) if source_names else 0
         remaining = limit
         for source_index, source_name in enumerate(source_names):
             source_quota = min(remaining, quota + (1 if source_index < limit % len(source_names) else 0))
@@ -231,8 +238,9 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
                 session.add(job)
                 session.add(JobOutbox(job_id=job.id, created_at=now, available_at=now))
                 jobs.append({"slug": law.slug, "job_id": job.id, "source": source_name})
-                queued_by_source[source_name] += 1
+                queued_counts[source_name] += 1
                 remaining -= 1
+        queued_by_source = {name: count for name, count in queued_counts.items() if count}
         session.commit()
     except Exception:
         session.rollback()
@@ -406,16 +414,17 @@ def _process_history_job(job_id: str) -> None:
                                    "text/html; charset=utf-8", snapshot.body, law.current_version_id)
             relations = snapshot.relations
             provider = "sinj_df"
-        elif law.source_name == "Câmara Municipal de Manaus — SAPL":
+        elif law.source_name.endswith(" — SAPL"):
             from app.sources.sapl import fetch_sapl_history
 
-            _update_job(session, job, stage=1, message="Consultando relações oficiais do SAPL de Manaus")
+            municipality = (law.coverage or {}).get("municipality_ibge_code", "")
+            _update_job(session, job, stage=1, message="Consultando relações oficiais do SAPL municipal")
             snapshot = fetch_sapl_history(law.source_url, law.law_type, law.number, law.year)
             session.commit()
             archive_source_document(law.slug, snapshot.source_url, hashlib.sha256(snapshot.body).hexdigest(),
                                    "application/json; charset=utf-8", snapshot.body, law.current_version_id)
             relations = snapshot.relations
-            provider = "sapl_manaus"
+            provider = f"sapl:{municipality}" if municipality else "sapl_municipal"
         else:
             raise SourceDocumentUnavailable(f"A fonte {law.source_name} não oferece adapter de histórico.")
         current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
@@ -757,7 +766,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
             document = fetch_sinj_df_document(law.source_url, law.law_type, law.number, law.year)
             body, fetched_url = document.body, document.source_url
             source_metadata = document
-        elif law.source_name == "Câmara Municipal de Manaus — SAPL":
+        elif law.source_name.endswith(" — SAPL"):
             from app.sources.sapl import fetch_sapl_document
 
             document = fetch_sapl_document(law.source_url, law.law_type, law.number, law.year)
@@ -808,7 +817,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                         source_metadata.representation
                         if (source_metadata.source_url.startswith("https://www.al.sp.gov.br/repositorio/legislacao/")
                             or source_metadata.source_url.startswith("https://www.sinj.df.gov.br/sinj/Norma/")
-                            or source_metadata.source_url.startswith("https://sapl.cmm.am.gov.br/media/sapl/public/normajuridica/")) else
+                            or law.source_name.endswith(" — SAPL")) else
                         "compilação atual do Normas.leg.br"
                         if source_metadata.version == "Current" else
                         "transcrição da publicação original"

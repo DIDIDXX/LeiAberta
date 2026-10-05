@@ -372,6 +372,25 @@
       "production_state": "release 7 deployed SUCCESS; DF catalog 125478 complete; ALESP catalog 120000 of 181172 at last check; SAPL/Manaus release pending"
     }
   },
+  "sapl_extension_verified_2026-10-05": {
+    "method": "Read-only GETs to official chamber homepages, each linked SAPL host, API type list and first paginated norm page; PDFs were fetched and identity-checked locally for the three newly added municipalities.",
+    "observed_at": "2026-10-05",
+    "instances": [
+      {"municipality": "Manaus", "ibge": "1302603", "state": "AM", "official_home": "https://www.cmm.am.gov.br/", "sapl_api": "https://sapl.cmm.am.gov.br/api/norma/normajuridica/", "records": 9846, "pages": 99, "types": 12},
+      {"municipality": "Anápolis", "ibge": "5201108", "state": "GO", "official_home": "https://anapolis.go.leg.br/", "sapl_api": "https://sapl.anapolis.go.leg.br/api/norma/normajuridica/", "records": 8173, "pages": 82, "types": 10},
+      {"municipality": "Campina Grande", "ibge": "2504009", "state": "PB", "official_home": "https://www.camaracg.pb.gov.br/", "sapl_api": "https://sapl.campinagrande.pb.leg.br/api/norma/normajuridica/", "records": 11235, "pages": 113, "types": 9},
+      {"municipality": "Unaí", "ibge": "3170404", "state": "MG", "official_home": "https://www.unai.mg.leg.br/", "sapl_api": "https://sapl.unai.mg.leg.br/api/norma/normajuridica/", "records": 11338, "pages": 114, "types": 13, "official_link_evidence": "Homepage links to SAPL and its municipal legislation pages."},
+      {"municipality": "São João da Boa Vista", "ibge": "3549102", "state": "SP", "official_home": "https://www.saojoaodaboavista.sp.leg.br/", "sapl_api": "https://sapl.saojoaodaboavista.sp.leg.br/api/norma/normajuridica/", "records": 12086, "pages": 121, "types": 9, "official_link_evidence": "Official homepage links to SAPL and its municipal legislation consultation."},
+      {"municipality": "Natal", "ibge": "2408102", "state": "RN", "official_home": "https://www.cmnat.rn.gov.br/", "sapl_api": "https://sapl.natal.rn.leg.br/api/norma/normajuridica/", "records": 9353, "pages": 94, "types": 9, "official_link_evidence": "Official homepage links to the SAPL portal."}
+    ],
+    "sum_of_api_totals": 62031,
+    "validation": {
+      "json_and_pagination": "All six APIs returned HTTP 200 JSON, stable page totals, typed records and same-host source URLs on page 1.",
+      "document_fetch": "One source-published PDF from each of Unaí, São João da Boa Vista and Natal was fetched and its stated type, number and year were identity-checked.",
+      "limits": "The five new catalogs were not yet fully enumerated in Railway at this research snapshot. Source API totals are not a national completeness denominator; sync completion must be read from production SourceRegistry and /api/stats.",
+      "local_ocr": "This workspace lacks Portuguese Tesseract traineddata; Railway Docker installs por traineddata. Text-level OCR validation for scanned PDFs therefore belongs to the deployed worker."
+    }
+  },
   "limitations": [
     "Local source totals are isolated-database validations; production counts must be obtained after deploy.",
     "The Brazilian national set has no demonstrated single official endpoint enumerating all federal, state, DF and municipal laws.",
@@ -379,6 +398,6 @@
     "SINJ-DF records without a declared text attachment require investigation in official gazettes or other official repositories.",
     "Source relations do not guarantee prior/current full wording or legal-effective date for each provision.",
     "The Normas.leg.br classification remains non-official where the provider says so; parser success is not a legal completeness certificate.",
-    "No single national official endpoint has been demonstrated for all jurisdictions; verified local catalogs beyond SAPL/Manaus still need per-source integrations."
+    "No single national official endpoint has been demonstrated for all jurisdictions; the six verified SAPL municipalities cover only a small fraction of local legislatures, and each new source family still requires confirmation and integration."
   ]
 }

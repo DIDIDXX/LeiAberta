@@ -141,7 +141,7 @@ def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
     if len(entries) < minimum_records:
         raise ValueError(f"A lista integral do Senado veio vazia ou truncada: {len(entries)} documentos.")
     results = []
-    seen = set()
+    seen: dict[str, SenadoCatalogLaw] = {}
     for entry in entries:
         remote_id = (entry.get("id") or "").strip()
         year_text = (entry.findtext("anoassinatura") or "").strip()
@@ -152,17 +152,21 @@ def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
             raise ValueError(f"O catálogo Senado contém um registro sem identidade mínima: id={remote_id!r} ano={year_text!r}")
         if expected_year is not None and year != expected_year:
             raise ValueError(f"A partição Senado de {expected_year} contém registro de {year} (id={remote_id}).")
-        if remote_id in seen:
-            raise ValueError(f"Identificador Senado duplicado no catálogo: {remote_id}")
-        seen.add(remote_id)
         source_urn = (entry.findtext("norma") or "").strip()
-        results.append(SenadoCatalogLaw(
+        record = SenadoCatalogLaw(
             remote_id=remote_id, type_code=type_code, law_type=TYPE_LABELS[type_code],
             number=_official_number(number, title), year=year,
             signed_at=_date(entry.findtext("dataassinatura") or ""),
             title=title[:300], description=(entry.findtext("ementa") or "").strip(),
             source_url=f"{base_url.rstrip('/')}/legislacao/{remote_id}", source_urn=source_urn,
-        ))
+        )
+        duplicate = seen.get(remote_id)
+        if duplicate is not None:
+            if duplicate != record:
+                raise ValueError(f"Identificador Senado duplicado com metadados conflitantes: {remote_id}")
+            continue
+        seen[remote_id] = record
+        results.append(record)
     if not results and not allow_empty:
         raise ValueError("Nenhuma lei do Senado tinha identidade mínima válida.")
     return results
@@ -376,12 +380,22 @@ def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *,
         except Exception as exc:
             error = str(exc)[:300]
             errors.append({"type_code": type_code, "error": error})
+            logger.exception("senado_catalog_type_sync_failed type_code=%s", type_code)
             with SessionLocal() as session:
                 registry = session.get(SourceRegistry, _source_id(type_code))
-                if registry:
+                if registry is None:
+                    registry = SourceRegistry(
+                        id=_source_id(type_code), name=f"Senado Federal — catálogo {TYPE_LABELS[type_code]}",
+                        adapter="senado_catalog", base_url=f"{SENATE_LIST_BASE}?tipo={type_code}",
+                        evidence_url="https://legis.senado.leg.br/dadosabertos/v3/api-docs",
+                        scope={"normative_class": TYPE_LABELS[type_code], "senate_type_code": type_code},
+                        status="failed", last_error=error,
+                    )
+                    session.add(registry)
+                else:
                     registry.status = "stale"
                     registry.last_error = error
-                    session.commit()
+                session.commit()
     return {"synced": results, "skipped_fresh": skipped, "errors": errors,
             "listed": sum(item["listed"] for item in results),
             "added": sum(item["added"] for item in results),

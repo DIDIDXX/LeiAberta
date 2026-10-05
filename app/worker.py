@@ -9,7 +9,7 @@ from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
-MAX_HYDRATION_CONCURRENCY = 16
+MAX_HYDRATION_CONCURRENCY = 24
 
 
 def hydration_concurrency() -> int:
@@ -151,9 +151,11 @@ def run() -> None:
             if sapl_sync_future is not None and sapl_sync_future.done():
                 try:
                     result = sapl_sync_future.result()
-                    logger.info("sapl_manaus_catalog_sync_finished records=%s added=%s refreshed=%s skipped_fresh=%s",
-                                result.get("records", 0), result.get("added", 0),
-                                result.get("refreshed", 0), result.get("skipped_fresh", False))
+                    logger.info("sapl_catalog_sync_finished records=%s sources=%s errors=%s skipped_fresh=%s",
+                                result.get("records", 0), len(result.get("synced", [])),
+                                len(result.get("errors", [])), result.get("skipped_fresh", 0))
+                    if result.get("errors"):
+                        next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 except Exception:
                     logger.exception("sapl_manaus_catalog_sync_failed")
                     next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
@@ -214,9 +216,9 @@ def run() -> None:
                         logger.exception("sinj_df_catalog_refresh_start_failed")
                 if sapl_sync_future is None:
                     try:
-                        from app.catalog_sync.sapl import sync_sapl_manaus_catalog
+                        from app.catalog_sync.sapl import sync_all_sapl_catalogs
 
-                        sapl_sync_future = catalog_executor.submit(sync_sapl_manaus_catalog)
+                        sapl_sync_future = catalog_executor.submit(sync_all_sapl_catalogs)
                     except Exception:
                         logger.exception("sapl_manaus_catalog_refresh_start_failed")
             priority_job_ids = queued_interactive_job_ids(limit=concurrency)
