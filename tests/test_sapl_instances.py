@@ -146,6 +146,44 @@ def test_sapl_history_uses_the_matching_municipal_api_host(monkeypatch):
 
 ALAGOAS = next(item for item in SAPL_INSTANCES if item.source_id == "state:AL:sapl")
 
+MUNICIPAL_SAPL_EXPECTED = {
+    "2301000": ("Aquiraz", "CE", "sapl.aquiraz.ce.leg.br"),
+    "2302800": ("Canindé", "CE", "sapl.caninde.ce.leg.br"),
+    "2304285": ("Eusébio", "CE", "sapl.eusebio.ce.leg.br"),
+    "2307650": ("Maracanaú", "CE", "sapl.maracanau.ce.leg.br"),
+    "2507507": ("João Pessoa", "PB", "sapl.joaopessoa.pb.leg.br"),
+    "2304400": ("Fortaleza", "CE", "sapl.fortaleza.ce.leg.br"),
+    "3303906": ("Petrópolis", "RJ", "sapl.petropolis.rj.leg.br"),
+    "4314407": ("Pelotas", "RS", "sapl.pelotas.rs.leg.br"),
+    "4104204": ("Campo Largo", "PR", "sapl.campolargo.pr.leg.br"),
+    "1506807": ("Santarém", "PA", "sapl.santarem.pa.leg.br"),
+    "1500602": ("Altamira", "PA", "sapl.altamira.pa.leg.br"),
+    "1505536": ("Parauapebas", "PA", "sapl.parauapebas.pa.leg.br"),
+    "3143302": ("Montes Claros", "MG", "sapl.montesclaros.mg.leg.br"),
+    "3170701": ("Varginha", "MG", "sapl.varginha.mg.leg.br"),
+    "3122306": ("Divinópolis", "MG", "sapl.divinopolis.mg.leg.br"),
+    "1721000": ("Palmas", "TO", "sapl.palmas.to.leg.br"),
+    "1100122": ("Ji-Paraná", "RO", "sapl.jiparana.ro.leg.br"),
+}
+
+
+def test_verified_municipal_sapl_installations_keep_ibge_identity():
+    municipalities = {
+        item.ibge_code: item
+        for item in SAPL_INSTANCES
+        if item.scope_kind == "municipality" and item.ibge_code in MUNICIPAL_SAPL_EXPECTED
+    }
+    assert municipalities.keys() == MUNICIPAL_SAPL_EXPECTED.keys()
+    for ibge_code, (name, uf, host) in MUNICIPAL_SAPL_EXPECTED.items():
+        item = municipalities[ibge_code]
+        assert (item.municipality, item.state_code, item.host) == (
+            name, uf, f"https://{host}",
+        )
+        assert item.source_id == f"municipality:{ibge_code}:sapl"
+        assert item.jurisdiction_id == f"municipality:{ibge_code}"
+        assert item.federation_scope_filter is None
+
+
 STATE_SAPL_EXPECTED = {
     "AC": ("sapl.al.ac.leg.br", "https://www.al.ac.leg.br/"),
     "AL": ("sapl.al.al.leg.br", "https://www.al.al.leg.br/"),
