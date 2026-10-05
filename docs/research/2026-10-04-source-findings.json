@@ -387,6 +387,8 @@
     "validation": {
       "json_and_pagination": "All six APIs returned HTTP 200 JSON, stable page totals, typed records and same-host source URLs on page 1.",
       "document_fetch": "One source-published PDF from each of Unaí, São João da Boa Vista and Natal was fetched and its stated type, number and year were identity-checked.",
+      "federation_scope": "SAPL exposes M (municipal), E (state), F (federal) and older blank values. The adapter preserves declared scope and counts records by scope; blank scope uses the verified municipal source as the jurisdiction basis.",
+      "full_parse_anapolis": {"records": 8173, "pages": 82, "municipal": 8152, "state": 2, "federal": 0, "scope_not_declared": 19},
       "limits": "The five new catalogs were not yet fully enumerated in Railway at this research snapshot. Source API totals are not a national completeness denominator; sync completion must be read from production SourceRegistry and /api/stats.",
       "local_ocr": "This workspace lacks Portuguese Tesseract traineddata; Railway Docker installs por traineddata. Text-level OCR validation for scanned PDFs therefore belongs to the deployed worker."
     }

@@ -120,6 +120,7 @@ def sapl_instance_for_url(url: str) -> SaplInstance:
 @dataclass(frozen=True)
 class SaplCatalogNorm:
     remote_id: str
+    federation_scope: str
     law_type: str
     number: str
     year: int
@@ -271,12 +272,17 @@ def parse_catalog_page(payload: dict, type_names: dict[str, str], *,
         # SAPL's ``ano`` is part of the norm's official designation and does not
         # always equal its signature date year (e.g. Emenda à Loman 6/1994,
         # signed on 1995-02-21). Preserve both official fields independently.
+        federation_scope = str(item.get("esfera_federacao") or "").strip().upper()
+        # SAPL municipal installations can also publish state/federal norms,
+        # and older local records may omit this optional field. Keep the
+        # source-declared scope when present; infer local scope only when blank.
         if (not remote_id.isdigit() or len(remote_id) > 24 or not law_type or signed_at is None
-                or item.get("esfera_federacao") != "M" or len(number) > 96):
-            raise ValueError(f"Registro SAPL sem identidade municipal verificável: id={remote_id!r}.")
+                or federation_scope not in {"", "M", "E", "F"} or len(number) > 96):
+            raise ValueError(f"Registro SAPL sem identidade ou abrangência verificável: id={remote_id!r}.")
         title = str(item.get("__str__") or f"{law_type} {number}/{year}").strip()
         records.append(SaplCatalogNorm(
-            remote_id=remote_id, law_type=law_type, number=number, year=year, signed_at=signed_at,
+            remote_id=remote_id, federation_scope=federation_scope,
+            law_type=law_type, number=number, year=year, signed_at=signed_at,
             published_at=_date(item.get("data_publicacao")), title=title[:300],
             description=str(item.get("ementa") or "").strip(),
             source_url=f"{instance.norms_url}{remote_id}/",
@@ -299,36 +305,66 @@ def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, obser
     for item in records:
         external_id = f"sapl:{instance.external_namespace}:{item.remote_id}"
         law = by_external.get(external_id)
+        jurisdiction = {"M": "municipality", "E": "state", "F": "federal"}.get(
+            item.federation_scope, "municipality",
+        )
+        state_code = instance.state_code if jurisdiction == "state" else (
+            instance.state_code if jurisdiction == "municipality" else None
+        )
+        municipality = instance.municipality if jurisdiction == "municipality" else None
+        coverage = {
+            "official_source": "sapl_municipal",
+            "sapl_source_ibge_code": instance.ibge_code,
+            "sapl_federation_scope": item.federation_scope or "not_declared",
+            "jurisdiction_basis": "sapl_esfera_federacao" if item.federation_scope else "official_sapl_instance",
+            "source_id": item.remote_id,
+            "text_url_in_catalog": bool(item.text_url),
+            "structured_text": "not_materialized", "history": "not_requested",
+            "catalog_observed_at": observed_at.isoformat(),
+        }
+        if jurisdiction == "municipality":
+            coverage["municipality_ibge_code"] = instance.ibge_code
         if law is None:
             law = Law(
-                slug=f"{instance.slug_prefix}-{item.remote_id}", jurisdiction="municipality",
-                state_code=instance.state_code, municipality=instance.municipality,
+                slug=f"{instance.slug_prefix}-{item.remote_id}", jurisdiction=jurisdiction,
+                state_code=state_code, municipality=municipality,
                 law_type=item.law_type, number=item.number, year=item.year,
                 external_source_id=external_id, signed_at=item.signed_at, title=item.title,
                 description=item.description, status="Não verificado", published_at=item.published_at,
                 aliases=[external_id], source_name=instance.source_name, source_url=item.source_url,
                 fetch_url=item.text_url or item.source_url, hot=False, materialization_status="catalog",
-                current_version_id=None,
-                coverage={"official_source": "sapl_municipal", "municipality_ibge_code": instance.ibge_code,
-                          "source_id": item.remote_id, "text_url_in_catalog": bool(item.text_url),
-                          "structured_text": "not_materialized", "history": "not_requested",
-                          "catalog_observed_at": observed_at.isoformat()},
+                current_version_id=None, coverage=coverage,
             )
             session.add(law)
             by_external[external_id] = law
             added += 1
         else:
-            if (law.source_name != instance.source_name or law.jurisdiction != "municipality"
-                    or law.state_code != instance.state_code or law.municipality != instance.municipality):
-                raise ValueError(f"Identificador SAPL {item.remote_id} já pertence a outro escopo.")
+            if law.source_name != instance.source_name:
+                raise ValueError(f"Identificador SAPL {item.remote_id} já pertence a outra fonte.")
+            law.jurisdiction = jurisdiction
+            law.state_code = state_code
+            law.municipality = municipality
             law.law_type, law.number, law.year = item.law_type, item.number, item.year
             law.signed_at, law.published_at = item.signed_at, item.published_at
             law.title, law.description = item.title, item.description
             law.source_url, law.fetch_url = item.source_url, item.text_url or item.source_url
-            coverage = dict(law.coverage or {})
-            has_text_url = bool(item.text_url)
-            if coverage.get("text_url_in_catalog") != has_text_url:
-                coverage["text_url_in_catalog"] = has_text_url
+            previous_coverage = dict(law.coverage or {})
+            coverage.update(previous_coverage)
+            coverage.update({
+                "sapl_source_ibge_code": instance.ibge_code,
+                "sapl_federation_scope": item.federation_scope or "not_declared",
+                "jurisdiction_basis": "sapl_esfera_federacao" if item.federation_scope else "official_sapl_instance",
+                "source_id": item.remote_id,
+                "text_url_in_catalog": bool(item.text_url),
+            })
+            if jurisdiction == "municipality":
+                coverage["municipality_ibge_code"] = instance.ibge_code
+            else:
+                coverage.pop("municipality_ibge_code", None)
+            # Keep catalog_observed_at on new records only. SourceRegistry
+            # tracks refresh time; rewriting unrelated coverage can conflict
+            # with a hydration job updating the same row.
+            if coverage != previous_coverage:
                 law.coverage = coverage
             # Keep catalog_observed_at on new records only. SourceRegistry
             # tracks refresh time; rewriting each law's shared coverage JSON
@@ -370,7 +406,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         raise ValueError("O catálogo SAPL retornou universo ou paginação inválida.")
     logger.info("sapl_catalog_sync_started municipality=%s source_id=%s expected_records=%s expected_pages=%s",
                 instance.municipality, instance.source_id, total, pages)
-    scope = {"universe": f"API oficial normajuridica da {instance.source_name}; atos municipais cadastrados no SAPL.",
+    scope = {"universe": f"Registros normajuridica publicados na instalação SAPL oficial da {instance.source_name}; a esfera declarada por registro é preservada.",
              "records_expected": total, "pages_expected": pages, "page_size": PAGE_SIZE,
              "type_count": len(types), "municipality_ibge_code": instance.ibge_code,
              "records_enumerated": 0, "started_at": observed_at.isoformat()}
@@ -390,6 +426,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
     seen: set[str] = set()
     digest = hashlib.sha256()
     added = refreshed = enumerated = 0
+    federation_counts = {"M": 0, "E": 0, "F": 0, "not_declared": 0}
     try:
         for page in range(1, pages + 1):
             logger.info("sapl_catalog_page_fetch_started page=%s total_pages=%s", page, pages)
@@ -406,6 +443,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                     raise ValueError(f"Identificador SAPL repetido entre páginas: {item.remote_id}.")
                 seen.add(item.remote_id)
                 digest.update(item.remote_id.encode() + b"\n")
+                federation_counts[item.federation_scope or "not_declared"] += 1
             with SessionLocal() as session:
                 # Bound waits so one stalled write cannot strand the source
                 # registry in "syncing" indefinitely.
@@ -421,6 +459,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 enumerated += len(records)
                 registry = session.get(SourceRegistry, instance.source_id)
                 registry.scope = {**scope, "records_enumerated": enumerated, "last_page": page,
+                                  "records_by_federation_scope": dict(federation_counts),
                                   "catalog_ids_sha256_partial": digest.hexdigest()}
                 registry.last_checked_at = observed_at
                 logger.info("sapl_catalog_page_commit_started page=%s enumerated=%s", page, enumerated)
@@ -432,6 +471,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
             if registry:
                 registry.status, registry.last_error = "failed", str(exc)[:1000]
                 registry.scope = {**(registry.scope or {}), "records_enumerated": enumerated,
+                                  "records_by_federation_scope": dict(federation_counts),
                                   "last_page": max(0, len(seen) // PAGE_SIZE),
                                   "last_attempt_at": datetime.now(timezone.utc).isoformat()}
                 registry.last_checked_at = datetime.now(timezone.utc)
@@ -445,6 +485,7 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         registry = session.get(SourceRegistry, instance.source_id)
         registry.status = "enumerated"
         registry.scope = {**scope, "records_enumerated": enumerated, "records_in_database": db_total,
+                          "records_by_federation_scope": dict(federation_counts),
                           "last_page": pages, "catalog_ids_sha256": digest.hexdigest(),
                           "observed_at": datetime.now(timezone.utc).isoformat()}
         registry.last_checked_at = datetime.now(timezone.utc)

@@ -715,7 +715,7 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 - Descobrir portais reais de Campinas/Piracicaba; integrar suas famílias adequadas.
 - Incluir instalações SAPL oficiais variadas, não assumir campos/permissões iguais.
 - Saída: enumeração completa das fontes piloto e resolver municipal funcionando.
-- Execução 05/10/2026: adapter reutilizável validado em Manaus, Anápolis, Campina Grande, Unaí, São João da Boa Vista e Natal. As seis APIs informaram 62.031 registros agregados na consulta; páginas, tipos, identificadores, anexos PDF e endereços oficiais foram conferidos. A sincronização total dos cinco novos municípios ainda depende do worker Railway após o deploy desta revisão.
+- Execução 05/10/2026: adapter reutilizável validado em Manaus, Anápolis, Campina Grande, Unaí, São João da Boa Vista e Natal. As seis APIs informaram 62.031 registros agregados na consulta; páginas, tipos, identificadores, anexos PDF e endereços oficiais foram conferidos. O campo SAPL de esfera pode declarar Município/Estado/Federal ou ficar vazio; cada lei mantém essa evidência e a jurisdição é atribuída segundo o campo, inferindo a localidade do portal apenas quando ele está vazio. A sincronização total dos cinco novos municípios ainda depende do worker Railway após o deploy desta revisão.
 
 **T15 — Expansão dos 26 estados e localidades.** Depende T11/T13/T14.
 
