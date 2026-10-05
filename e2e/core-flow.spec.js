@@ -30,9 +30,12 @@ test("LGDP resolves to LGPD, shows article 7 and links the official source", asy
 test("the history flow opens an official before-and-after diff", async ({ page, request }) => {
   await page.goto("/lei/11340-2006/historico");
   const prepare = page.getByRole("button", { name: /Buscar histórico oficial|Tentar atualizar o histórico/ });
-  if (await prepare.isVisible()) await prepare.click();
-
-  const queued = await request.post("/api/laws/11340-2006/history/prepare");
+  const queuedResponse = page.waitForResponse(response =>
+    response.url().endsWith("/api/laws/11340-2006/history/prepare") && response.request().method() === "POST"
+  );
+  await expect(prepare).toBeVisible();
+  await prepare.click();
+  const queued = await queuedResponse;
   expect(queued.status()).toBe(202);
   const historyJob = await queued.json();
   await expect.poll(async () => {
