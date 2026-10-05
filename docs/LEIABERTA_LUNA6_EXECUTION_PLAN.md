@@ -695,6 +695,7 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 - Normalizar campos, deduplicar com evidência e preservar situação literal.
 - Planalto enriquece texto; Câmara originais; Senado relações/publicações.
 - Saída: catálogo federal fora das 14 sementes, manifestos de partições e normas recentes/antigas/revogadas encontráveis.
+- Implementação em curso: o catálogo do Senado usa 24 classes normativas validadas, partições anuais para DEC-n e deduplicação somente quando linhas repetidas têm metadados idênticos. A Câmara continua fora da enumeração integrada; as fontes locais não provam totalidade federal.
 
 **T12 — LexML complementar.** Depende T10; não bloqueia T11/T13.
 
@@ -714,6 +715,7 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 - Descobrir portais reais de Campinas/Piracicaba; integrar suas famílias adequadas.
 - Incluir instalações SAPL oficiais variadas, não assumir campos/permissões iguais.
 - Saída: enumeração completa das fontes piloto e resolver municipal funcionando.
+- Execução 05/10/2026: adapter reutilizável validado em Manaus, Anápolis, Campina Grande, Unaí, São João da Boa Vista e Natal. As seis APIs informaram 62.031 registros agregados na consulta; páginas, tipos, identificadores, anexos PDF e endereços oficiais foram conferidos. A sincronização total dos cinco novos municípios ainda depende do worker Railway após o deploy desta revisão.
 
 **T15 — Expansão dos 26 estados e localidades.** Depende T11/T13/T14.
 
