@@ -40,8 +40,15 @@ def _libpq_url(database_url: str) -> str:
 def _run_postgres(args: list[str], *, timeout: int, database_url: str | None = None) -> subprocess.CompletedProcess:
     try:
         result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        raise RuntimeError(f"{Path(args[0]).name} timed out after {timeout} seconds") from None
+    except subprocess.TimeoutExpired as exc:
+        detail = exc.stderr or exc.stdout or ""
+        if isinstance(detail, bytes):
+            detail = detail.decode("utf-8", errors="replace")
+        detail = str(detail).strip()
+        if database_url:
+            detail = detail.replace(database_url, "[DATABASE_URL]")
+        suffix = f": {detail[:1000]}" if detail else ""
+        raise RuntimeError(f"{Path(args[0]).name} timed out after {timeout} seconds{suffix}") from None
     if result.returncode:
         detail = result.stderr.strip()
         if database_url:
@@ -92,6 +99,7 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
         raise RuntimeError("PostgreSQL server tools are required for restore verification")
     temp_root = Path(tempfile.mkdtemp(prefix="leiaberta-restore-check-"))
     data_dir = temp_root / "data"
+    server_log = temp_root / "postgres-restore.log"
     port = _available_port()
     server_started = False
     try:
@@ -102,8 +110,9 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
         )
         _run_postgres(
             [pg_ctl, "--pgdata", str(data_dir), "--options",
-             f"-h 127.0.0.1 -p {port} -F -c shared_buffers=32MB -c max_connections=20", "--wait", "start"],
-            timeout=120,
+             f"-h 127.0.0.1 -p {port} -F -c shared_buffers=32MB -c max_connections=20",
+             "--log", str(server_log), "--timeout", "120", "--wait", "start"],
+            timeout=180,
         )
         server_started = True
         local_url = f"postgresql://postgres@127.0.0.1:{port}/postgres"
@@ -120,8 +129,13 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
         if restored["alembic_versions"] != expected["alembic_versions"]:
             raise RuntimeError("Restore validation failed: database migration versions differ")
         return restored
+    except Exception as exc:
+        detail = server_log.read_text(encoding="utf-8", errors="replace")[-4000:] if server_log.exists() else ""
+        if detail:
+            raise RuntimeError(f"{exc}; local PostgreSQL startup log: {detail}") from exc
+        raise
     finally:
-        if server_started:
+        if server_started or (data_dir / "postmaster.pid").exists():
             subprocess.run([pg_ctl, "--pgdata", str(data_dir), "--mode=fast", "--wait", "stop"],
                            check=False, capture_output=True, text=True, timeout=30)
         shutil.rmtree(temp_root, ignore_errors=True)
