@@ -147,21 +147,29 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     else:
         laws = []
     terms = parsed["terms"]
+    transposed_terms = _adjacent_transpositions(terms) if len(terms.split()) == 1 else set()
+    if not laws and transposed_terms:
+        alias_conditions = [
+            cast(Law.aliases, String).ilike(f"%{variant}%")
+            for variant in transposed_terms
+        ]
+        laws = list(session.scalars(candidate_query.where(
+            Law.hot.is_(True), or_(*alias_conditions),
+        ).limit(100)))
+        description_loaded = bool(laws)
     if not laws and terms:
         needle = f"%{terms}%"
-        transposed_terms = _adjacent_transpositions(terms) if len(terms.split()) == 1 else set()
-        search_patterns = [needle, *(f"%{variant}%" for variant in transposed_terms)]
         token_conditions = []
         for token in terms.split():
             if len(token) >= 4:
                 token_needle = f"%{token}%"
                 token_conditions.extend((Law.title.ilike(token_needle), Law.description.ilike(token_needle),
                                          cast(Law.aliases, String).ilike(token_needle)))
-        candidate_conditions = [condition for pattern in search_patterns for condition in (
-            Law.title.ilike(pattern), Law.description.ilike(pattern),
-            cast(Law.aliases, String).ilike(pattern),
-        )]
-        candidates = candidate_query.where(or_(*candidate_conditions, *token_conditions)).limit(1000)
+        candidates = candidate_query.where(or_(
+            Law.title.ilike(needle), Law.description.ilike(needle),
+            cast(Law.aliases, String).ilike(needle),
+            *token_conditions,
+        )).limit(1000)
         laws = list(session.scalars(candidates))
         description_loaded = bool(laws)
     if not laws and terms.split():
@@ -203,7 +211,7 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             score = max(score, 900)
             exact = True
         terms = parsed["terms"]
-        if any(normalize_query(alias) in _adjacent_transpositions(terms) for alias in aliases):
+        if any(normalize_query(alias) in transposed_terms for alias in aliases):
             score = max(score, 840)
         if terms:
             if terms in normalized_aliases:
