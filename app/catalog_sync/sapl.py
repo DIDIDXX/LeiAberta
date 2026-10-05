@@ -1,4 +1,4 @@
-"""Paginated catalog synchronization for verified municipal SAPL installations."""
+"""Paginated catalog synchronization for verified state and municipal SAPL installations."""
 from __future__ import annotations
 
 import hashlib
@@ -35,6 +35,8 @@ class SaplInstance:
     source_id: str
     source_name: str
     authority_url: str
+    scope_kind: str = "municipality"
+    federation_scope_filter: str | None = None
 
     @property
     def api(self) -> str:
@@ -50,16 +52,26 @@ class SaplInstance:
 
     @property
     def jurisdiction_id(self) -> str:
+        if self.scope_kind == "state":
+            return f"state:{self.state_code}"
         return f"municipality:{self.ibge_code}"
 
     @property
     def external_namespace(self) -> str:
         # Preserve the identifiers already assigned to the production Manaus corpus.
-        return "manaus" if self.ibge_code == "1302603" else self.ibge_code
+        if self.ibge_code == "1302603":
+            return "manaus"
+        if self.scope_kind == "state":
+            return f"state-{self.state_code.lower()}"
+        return self.ibge_code
 
     @property
     def slug_prefix(self) -> str:
-        return "manaus-sapl" if self.ibge_code == "1302603" else f"sapl-{self.ibge_code}"
+        if self.ibge_code == "1302603":
+            return "manaus-sapl"
+        if self.scope_kind == "state":
+            return f"sapl-state-{self.state_code.lower()}"
+        return f"sapl-{self.ibge_code}"
 
 
 SAPL_INSTANCES = (
@@ -94,6 +106,12 @@ SAPL_INSTANCES = (
         host="https://sapl.natal.rn.leg.br", source_id="municipality:2408102:sapl",
         source_name="Câmara Municipal de Natal — SAPL", authority_url="https://www.cmnat.rn.gov.br/",
     ),
+    SaplInstance(
+        ibge_code="22", municipality="", state_code="PI",
+        host="https://sapl.al.pi.leg.br", source_id="state:PI:sapl",
+        source_name="Assembleia Legislativa do Estado do Piauí — SAPL",
+        authority_url="https://www.al.pi.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
 )
 SAPL_INSTANCES_BY_SOURCE = {item.source_id: item for item in SAPL_INSTANCES}
 SAPL_INSTANCES_BY_HOST = {urllib.parse.urlparse(item.host).hostname: item for item in SAPL_INSTANCES}
@@ -113,7 +131,7 @@ def sapl_instance_for_url(url: str) -> SaplInstance:
     parsed = urllib.parse.urlparse(url)
     instance = SAPL_INSTANCES_BY_HOST.get(parsed.hostname or "")
     if parsed.scheme != "https" or instance is None:
-        raise ValueError("A URL não corresponde a uma instalação SAPL municipal verificada.")
+        raise ValueError("A URL não corresponde a uma instalação SAPL verificada.")
     return instance
 
 
@@ -156,28 +174,28 @@ def _get_json(url: str, *, timeout: int = 45,
             parsed = urllib.parse.urlparse(final_url)
             if (status != 200 or len(body) > MAX_BYTES or parsed.scheme != "https"
                     or parsed.hostname != urllib.parse.urlparse(instance.host).hostname):
-                raise ValueError(f"A API SAPL de {instance.municipality} falhou, excedeu o limite ou redirecionou para domínio desconhecido.")
+                raise ValueError(f"A API SAPL de {instance.source_name} falhou, excedeu o limite ou redirecionou para domínio desconhecido.")
             try:
                 payload = json.loads(body)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 if attempt == 2:
-                    raise ValueError(f"O SAPL de {instance.municipality} não retornou JSON válido após três tentativas.") from exc
+                    raise ValueError(f"O SAPL de {instance.source_name} não retornou JSON válido após três tentativas.") from exc
                 time.sleep(0.5 * (2 ** attempt))
                 continue
             if not isinstance(payload, dict):
-                raise ValueError("A API SAPL de Manaus retornou objeto inesperado.")
+                raise ValueError(f"A API SAPL de {instance.source_name} retornou objeto inesperado.")
             return payload, final_url
         except HTTPError as exc:
             if exc.code in RETRYABLE_HTTP_CODES and attempt < 2:
                 time.sleep(0.5 * (2 ** attempt))
                 continue
-            raise ValueError(f"O SAPL de {instance.municipality} respondeu HTTP {exc.code}.") from exc
+            raise ValueError(f"O SAPL de {instance.source_name} respondeu HTTP {exc.code}.") from exc
         except (URLError, TimeoutError, ConnectionError, OSError, http.client.HTTPException) as exc:
             if attempt < 2:
                 time.sleep(0.5 * (2 ** attempt))
                 continue
-            raise ValueError(f"Falha de rede/leitura na API SAPL de {instance.municipality} após três tentativas: {str(exc)[:240]}") from exc
-    raise ValueError(f"A API SAPL de {instance.municipality} não respondeu após três tentativas.")
+            raise ValueError(f"Falha de rede/leitura na API SAPL de {instance.source_name} após três tentativas: {str(exc)[:240]}") from exc
+    raise ValueError(f"A API SAPL de {instance.source_name} não respondeu após três tentativas.")
 
 
 def _date(value: object) -> date | None:
@@ -237,7 +255,10 @@ def fetch_catalog_page(page: int, *, page_size: int = PAGE_SIZE, timeout: int = 
                        instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> tuple[dict, str]:
     if page < 1 or not 1 <= page_size <= PAGE_SIZE:
         raise ValueError("Página ou tamanho inválido para o catálogo SAPL.")
-    url = instance.norms_url + "?" + urllib.parse.urlencode({"page_size": page_size, "page": page})
+    params = {"page_size": page_size, "page": page}
+    if instance.federation_scope_filter:
+        params["esfera_federacao"] = instance.federation_scope_filter
+    url = instance.norms_url + "?" + urllib.parse.urlencode(params)
     payload, final_url = _get_json(url, timeout=timeout, instance=instance)
     parsed = urllib.parse.urlparse(final_url)
     if parsed.path != "/api/norma/normajuridica/":
@@ -273,11 +294,12 @@ def parse_catalog_page(payload: dict, type_names: dict[str, str], *,
         # always equal its signature date year (e.g. Emenda à Loman 6/1994,
         # signed on 1995-02-21). Preserve both official fields independently.
         federation_scope = str(item.get("esfera_federacao") or "").strip().upper()
-        # SAPL municipal installations can also publish state/federal norms,
-        # and older local records may omit this optional field. Keep the
-        # source-declared scope when present; infer local scope only when blank.
+        # Municipal SAPL installations can publish other spheres, while state
+        # installations can expose municipal records without municipality
+        # identity. Keep only records matching a configured API scope filter.
         if (not remote_id.isdigit() or len(remote_id) > 24 or not law_type or signed_at is None
-                or federation_scope not in {"", "M", "E", "F"} or len(number) > 96):
+                or federation_scope not in {"", "M", "E", "F"} or len(number) > 96
+                or (instance.federation_scope_filter and federation_scope != instance.federation_scope_filter)):
             raise ValueError(f"Registro SAPL sem identidade ou abrangência verificável: id={remote_id!r}.")
         title = str(item.get("__str__") or f"{law_type} {number}/{year}").strip()
         records.append(SaplCatalogNorm(
@@ -306,15 +328,14 @@ def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, obser
         external_id = f"sapl:{instance.external_namespace}:{item.remote_id}"
         law = by_external.get(external_id)
         jurisdiction = {"M": "municipality", "E": "state", "F": "federal"}.get(
-            item.federation_scope, "municipality",
+            item.federation_scope, instance.scope_kind,
         )
-        state_code = instance.state_code if jurisdiction == "state" else (
-            instance.state_code if jurisdiction == "municipality" else None
-        )
+        state_code = instance.state_code if jurisdiction in {"state", "municipality"} else None
         municipality = instance.municipality if jurisdiction == "municipality" else None
         coverage = {
-            "official_source": "sapl_municipal",
+            "official_source": f"sapl_{instance.scope_kind}",
             "sapl_source_ibge_code": instance.ibge_code,
+            "sapl_source_scope_kind": instance.scope_kind,
             "sapl_federation_scope": item.federation_scope or "not_declared",
             "jurisdiction_basis": "sapl_esfera_federacao" if item.federation_scope else "official_sapl_instance",
             "source_id": item.remote_id,
@@ -352,6 +373,7 @@ def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, obser
             coverage.update(previous_coverage)
             coverage.update({
                 "sapl_source_ibge_code": instance.ibge_code,
+                "sapl_source_scope_kind": instance.scope_kind,
                 "sapl_federation_scope": item.federation_scope or "not_declared",
                 "jurisdiction_basis": "sapl_esfera_federacao" if item.federation_scope else "official_sapl_instance",
                 "source_id": item.remote_id,
@@ -404,12 +426,16 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
     total, pages = pagination["total_entries"], pagination["total_pages"]
     if total < 1 or pages < 1 or pages > total:
         raise ValueError("O catálogo SAPL retornou universo ou paginação inválida.")
-    logger.info("sapl_catalog_sync_started municipality=%s source_id=%s expected_records=%s expected_pages=%s",
-                instance.municipality, instance.source_id, total, pages)
+    logger.info("sapl_catalog_sync_started source=%s source_id=%s expected_records=%s expected_pages=%s",
+                instance.source_name, instance.source_id, total, pages)
     scope = {"universe": f"Registros normajuridica publicados na instalação SAPL oficial da {instance.source_name}; a esfera declarada por registro é preservada.",
              "records_expected": total, "pages_expected": pages, "page_size": PAGE_SIZE,
-             "type_count": len(types), "municipality_ibge_code": instance.ibge_code,
+             "type_count": len(types), "federation_scope_filter": instance.federation_scope_filter,
              "records_enumerated": 0, "started_at": observed_at.isoformat()}
+    if instance.scope_kind == "municipality":
+        scope["municipality_ibge_code"] = instance.ibge_code
+    else:
+        scope["state_ibge_code"] = instance.ibge_code
     with SessionLocal() as session:
         registry = session.get(SourceRegistry, instance.source_id)
         if registry is None:
@@ -509,8 +535,8 @@ def sync_all_sapl_catalogs(*, force: bool = False) -> dict:
         except Exception as exc:
             error = str(exc)[:500]
             errors.append({"source_id": instance.source_id, "error": error})
-            logger.exception("sapl_catalog_sync_failed source_id=%s municipality=%s",
-                             instance.source_id, instance.municipality)
+            logger.exception("sapl_catalog_sync_failed source_id=%s source=%s",
+                             instance.source_id, instance.source_name)
     return {"synced": results, "errors": errors,
             "records": sum(row.get("records", 0) for row in results),
             "skipped_fresh": sum(bool(row.get("skipped_fresh")) for row in results)}
