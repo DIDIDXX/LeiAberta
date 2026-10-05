@@ -32,7 +32,7 @@ Estados: `[ ]` pendente, `[~]` em andamento, `[x]` concluído, `[!]` bloqueio t�
 - [x] Fact sheet, case study, hero case, roteiros, posts não publicados e ações manuais.
 - [x] 9 screenshots reais do deploy, OG PNG e demo WebM em `docs/assets/launch/`.
 - [x] Cinco issues úteis com rótulos `good first issue` e outros rótulos existentes.
-- [~] Release/tag v0.1.0: criar depois de integrar o kit final.
+- [x] Release/tag [v0.1.0](https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0), apontada ao commit de produção com o kit integrado.
 - [!] Descrição/homepage/topics: GitHub retornou 403 `Resource not accessible by integration`; exige mantenedor com permissão administrativa.
 
 ## Ações externas separadas
