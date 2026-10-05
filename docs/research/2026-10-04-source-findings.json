@@ -228,6 +228,20 @@
       ]
     },
     {
+      "name": "SAPL Câmara Municipal de Manaus",
+      "url": "https://sapl.cmm.am.gov.br/api/norma/normajuridica/",
+      "observed_on": "2026-10-04",
+      "status": "api_identity_and_attachment_verified; root-site_crosslink_unconfirmed",
+      "findings": [
+        "O portal SAPL se identifica como Câmara Municipal de Manaus no domínio cmm.am.gov.br; link cruzado a partir da página raiz institucional não foi verificado nesta coleta.",
+        "API paginada com 9.846 normas, page_size=100 funcional, 99 páginas e 12 tipos normativos.",
+        "Registros confirmam esfera_federacao=M e publicam texto_integral em /media/sapl/public/normajuridica/.",
+        "Lei Ordinária 115/1949: API detalhada e PDF de 439.668 bytes; extração local resultou em 2.161 bytes de texto legível.",
+        "Rotas normarelacionada aceitam filtros norma_principal e norma_relacionada; tipo_vinculo fornece o tipo de relação oficial.",
+        "Adapter de catálogo, identity check, PDF/OCR, histórico relacional e backfill por lote implementados nesta branch; produção aguarda release."
+      ]
+    },
+    {
       "name": "Host SAPL Campinas candidato",
       "url": "https://sapl.campinas.sp.leg.br/",
       "observed_on": "2026-10-04",
@@ -351,10 +365,11 @@
         "exact identity checked text adapters",
         "ALESP annotation history",
         "SINJ-DF official relations",
+        "SAPL/Manaus catalog, official PDF text and relation adapter",
         "PDF extraction and Portuguese OCR",
         "DOCX extraction"
       ],
-      "production_state": "release merge, Railway deploy and production database count verification pending"
+      "production_state": "release 7 deployed SUCCESS; DF catalog 125478 complete; ALESP catalog 120000 of 181172 at last check; SAPL/Manaus release pending"
     }
   },
   "limitations": [
@@ -364,6 +379,6 @@
     "SINJ-DF records without a declared text attachment require investigation in official gazettes or other official repositories.",
     "Source relations do not guarantee prior/current full wording or legal-effective date for each provision.",
     "The Normas.leg.br classification remains non-official where the provider says so; parser success is not a legal completeness certificate.",
-    "SAPL municipal integration and the remaining 25 state assembly catalogs are unimplemented work, not proven technical impossibilities."
+    "No single national official endpoint has been demonstrated for all jurisdictions; verified local catalogs beyond SAPL/Manaus still need per-source integrations."
   ]
 }

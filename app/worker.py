@@ -84,14 +84,19 @@ def run() -> None:
     logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
+    # Keep catalog work bounded while the large state and district catalogs sync.
     catalog_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="catalog-sync")
     alesp_sync_future = None
     sinj_sync_future = None
+    sapl_sync_future = None
     refresh_check_seconds = max(300, int(os.getenv("CATALOG_REFRESH_CHECK_SECONDS", "3600")))
     next_refresh_check = time.monotonic()
     senado_batch_seconds = max(300, int(os.getenv("SENADO_TEXT_BATCH_SECONDS", "300")))
     senado_batch_size = min(500, max(1, int(os.getenv("SENADO_TEXT_BATCH_SIZE", "100"))))
     next_senado_batch = time.monotonic()
+    subnational_batch_seconds = max(300, int(os.getenv("SUBNATIONAL_TEXT_BATCH_SECONDS", "300")))
+    subnational_batch_size = min(200, max(1, int(os.getenv("SUBNATIONAL_TEXT_BATCH_SIZE", "100"))))
+    next_subnational_batch = time.monotonic()
     while True:
         try:
             if alesp_sync_future is not None and alesp_sync_future.done():
@@ -112,6 +117,15 @@ def run() -> None:
                 except Exception:
                     logger.exception("sinj_df_catalog_sync_failed")
                 sinj_sync_future = None
+            if sapl_sync_future is not None and sapl_sync_future.done():
+                try:
+                    result = sapl_sync_future.result()
+                    logger.info("sapl_manaus_catalog_sync_finished records=%s added=%s refreshed=%s skipped_fresh=%s",
+                                result.get("records", 0), result.get("added", 0),
+                                result.get("refreshed", 0), result.get("skipped_fresh", False))
+                except Exception:
+                    logger.exception("sapl_manaus_catalog_sync_failed")
+                sapl_sync_future = None
             if time.monotonic() >= next_senado_batch:
                 next_senado_batch = time.monotonic() + senado_batch_seconds
                 try:
@@ -123,6 +137,17 @@ def run() -> None:
                                     result["queued_count"], senado_batch_size)
                 except Exception:
                     logger.exception("senado_text_backfill_enqueue_failed")
+            if time.monotonic() >= next_subnational_batch:
+                next_subnational_batch = time.monotonic() + subnational_batch_seconds
+                try:
+                    from app.jobs import queue_subnational_text_batch
+
+                    result = queue_subnational_text_batch(limit=subnational_batch_size)
+                    if result["queued_count"]:
+                        logger.info("subnational_text_backfill_enqueued count=%s by_source=%s",
+                                    result["queued_count"], result["queued_by_source"])
+                except Exception:
+                    logger.exception("subnational_text_backfill_enqueue_failed")
             if time.monotonic() >= next_refresh_check:
                 next_refresh_check = time.monotonic() + refresh_check_seconds
                 try:
@@ -156,6 +181,13 @@ def run() -> None:
                         sinj_sync_future = catalog_executor.submit(sync_sinj_df_catalog)
                     except Exception:
                         logger.exception("sinj_df_catalog_refresh_start_failed")
+                if sapl_sync_future is None:
+                    try:
+                        from app.catalog_sync.sapl import sync_sapl_manaus_catalog
+
+                        sapl_sync_future = catalog_executor.submit(sync_sapl_manaus_catalog)
+                    except Exception:
+                        logger.exception("sapl_manaus_catalog_refresh_start_failed")
             dispatch_outbox()
             claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
                                        start_id="0-0", count=concurrency)

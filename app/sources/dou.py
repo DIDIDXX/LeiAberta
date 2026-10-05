@@ -11,6 +11,7 @@ from datetime import datetime
 from urllib.error import HTTPError
 
 from bs4 import BeautifulSoup
+from app.sources.network import open_with_retry
 
 
 DOU_HOST = "www.in.gov.br"
@@ -28,7 +29,7 @@ def _fetch(url: str, *, accept: str, timeout: int) -> tuple[bytes, str, str]:
         headers={"Accept": accept, "User-Agent": "LeiAberta/0.3 (+fontes oficiais)"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_with_retry(request, timeout=timeout) as response:
             body = response.read(MAX_DOU_BYTES + 1)
             if response.status != 200:
                 raise ValueError(f"O DOU respondeu HTTP {response.status}.")

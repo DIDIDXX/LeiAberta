@@ -9,27 +9,27 @@ Leia:
 3. [Relatório atualizado por tarefa](reports/execution-status.md)
 4. [Pesquisa e limites de fontes](research/2026-10-04-source-findings.json)
 
-## Código e validação desta revisão
+## Código e validação
 
-Base do GitHub: `main` em `5c0a80454838772588b340b401372524f57e19ab`. A implementação local integra ALESP/SP (181.172 registros) e SINJ-DF (125.478), adapters de texto/histórico, PDF/DOCX/OCR, migration para identificadores longos e contadores de cobertura. Os números estaduais/distritais foram conferidos em bancos isolados e não devem ser descritos como produção antes do deploy.
+`main` está no release #7 (`21e5fda147508dd20882ae475b9ad50ab6c9d066`), já implantado no Railway. A branch desta revisão acrescenta o adapter SAPL/Manaus, backfill gradual de textos oficiais e retry transitório para o Senado/DOU. A API SAPL declarou 9.846 normas; a Lei 115/1949 foi baixada como PDF e extraída localmente.
 
-Validação local após reconciliar o código com o `main`: **71 testes passaram**, **4 E2E passaram**, `compileall` e `git diff --check` passaram. Um PDF oficial SINJ de 214.701 bytes foi extraído para texto legível; páginas digitalizadas seguem o caminho Tesseract português no container Docker.
+Validação local: **80 testes passaram**, **4 E2E passaram**, `compileall` e `git diff --check` passaram. A migration `0008` está aplicada em produção. A Lei SAPL 115/1949 e um PDF SINJ-DF foram extraídos; páginas digitalizadas seguem o caminho Tesseract português no container Docker.
 
-## Próxima ação imediata
+## Publicação em curso
 
-Criar PR contra o SHA atual de `main`, mesclar após conferir arquivos/manifestos, aguardar os deploys web e worker do Railway, verificar migration e `/health`, `/api/stats`, busca SP/DF, hidratação PDF e histórico ALESP/SINJ. Registrar os IDs e contagens de produção em `reports/execution-status.md`.
+Publicar a branch SAPL no `main`, aguardar web/worker Railway em `SUCCESS` e conferir `/health`, `/api/stats`, sincronização de 9.846 normas, hidratação PDF, relações do SAPL e backfill ALESP/SINJ. Acompanhar também ALESP em produção, que estava em 120 mil de 181.172 registros na última verificação.
 
 ## Estado de cobertura
 
-O Senado enumerou 47.327 entradas em seis categorias; ALESP enumerou 181.172 registros e SINJ-DF 125.478. O portal SINJ variou metadados entre snapshots; no segundo, 5.184 registros não declaravam anexo textual. A sincronização de catálogos não pré-processa todo o conteúdo: captura de texto é sob demanda e o worker alimenta lotes federais com backpressure.
+Produção enumera 47.316 registros do Senado e 125.478 do SINJ-DF; ALESP continua importando (181.172 esperados). A sync completa isolada da ALESP confirmou 181.172. SAPL/Manaus é o novo adapter preparado para enumerar 9.846 normas. O worker enfileira textos em lotes com limites e continua após reinícios; `with_text` cresce durante o backfill.
 
-Esses três acervos não correspondem a todas as leis do Brasil. Integração dos outros 25 estados, Câmara dos Deputados, municípios/SAPL e fontes oficiais alternativas continua aberta. Não classificar esse trabalho como impossibilidade técnica antes de verificar os portais de cada jurisdição.
+Esses acervos não correspondem a todas as leis do Brasil. Não existe um endpoint nacional oficial demonstrado que liste os acervos de todas as jurisdições; cada assembleia, Câmara municipal e repositório exige identificação e reconciliação próprios. O adapter SAPL prova a integração de Manaus, sem declarar os demais municípios atendidos.
 
 ## Limitações externas verificadas
 
 - Railway Hobby informa `maxBackupsCount=0`. O conjunto de conectores desta sessão não oferece shell, `pg_dump` ou duplicação/restauração de ambiente; backup restaurável/staging não foi demonstrado.
 - O probe da rota LexML SRU recebeu página de desafio anti-automação em vez de registros. Requer uma rota autorizada acessível ou mudança no acesso do portal.
-- Relações de alteração nem sempre incluem redações anteriores/atuais por dispositivo ou data de vigência. Essas entradas continuam relações pendentes, sem texto fabricado.
+- Relações de alteração nem sempre incluem redações anteriores/atuais por dispositivo ou data de vigência. Essas entradas aparecem como relação oficial sem diff inventado.
 - O SINJ-DF não anunciava anexo textual para 5.184 registros do snapshot observado; buscar diários/repositórios oficiais alternativos é trabalho pendente.
 - Normas.leg.br declara valor jurídico não oficial para muitas transcrições e compilações. O produto conserva o rótulo da fonte.
 

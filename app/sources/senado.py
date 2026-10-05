@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 import re
 from dataclasses import dataclass
 from datetime import date
+from app.sources.network import open_with_retry
 
 BASE_URL = "https://legis.senado.leg.br/dadosabertos"
 TYPE_CODES = {
@@ -59,7 +60,7 @@ def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) 
     headers = {"User-Agent": "LeiAberta/0.2 (+fontes oficiais)", "Accept": "application/xml"}
     list_url = f"{BASE_URL}/legislacao/lista?" + urllib.parse.urlencode({"tipo": type_code, "numero": normalized_number, "ano": year})
     request = urllib.request.Request(list_url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with open_with_retry(request, timeout=timeout) as response:
         listing = response.read()
         if response.status != 200 or len(listing) > 20_000_000:
             raise ValueError("Resposta inválida da lista legislativa do Senado.")
@@ -86,7 +87,7 @@ def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) 
         raise ValueError("A lista do Senado retornou identidade sem código numérico.")
     detail_url = f"{BASE_URL}/legislacao/{source_id}"
     request = urllib.request.Request(detail_url, headers=headers)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with open_with_retry(request, timeout=timeout) as response:
         body = response.read()
         if response.status != 200 or len(body) > 20_000_000:
             raise ValueError("Resposta inválida do detalhe legislativo do Senado.")
