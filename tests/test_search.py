@@ -56,6 +56,23 @@ def test_fuzzy_candidates_prioritize_recent_hot_laws_over_alphabetical_catalog(d
     assert result["suggestion"] is True
 
 
+def test_transposed_alias_wins_over_literal_false_positive(db_session, add_law):
+    distractor = Law(
+        slug="false-lgdp-match", jurisdiction="federal", law_type="Lei", number="1", year=2000,
+        title="LGDP reference without the LGPD alias", description="", status="Não verificado",
+        aliases=[], source_name="Senado", source_url="https://senado.example",
+        fetch_url="https://senado.example", hot=False, materialization_status="catalog", coverage={},
+    )
+    target = add_law(aliases=["LGPD"])
+    db_session.add_all([distractor, target])
+    db_session.commit()
+
+    result = search_laws(db_session, "LGDP")
+
+    assert result["results"][0]["slug"] == "13709-2018"
+    assert result["suggestion"] is True
+
+
 def test_hyphenated_official_number_resolves_the_exact_measure_sequence(db_session):
     from app.models import Law
 
