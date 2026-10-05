@@ -16,6 +16,17 @@ test("real evidence demo: home to amendment, before/after, official source and d
 
 test("LGDP typo search and mobile home stay usable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.route("**/api/stats", async route => {
+    const response = await route.fetch();
+    const stats = await response.json();
+    await route.fulfill({ response, json: {
+      ...stats,
+      indexed_laws: 1_356_548,
+      materialized_laws: 26_228,
+      enumerated_sources: 383,
+      documented_changes: 537,
+    }});
+  });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
   const search = page.getByRole("searchbox", { name: "Pesquisar legislação" });
