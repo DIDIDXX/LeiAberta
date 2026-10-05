@@ -228,8 +228,13 @@ def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, obser
             law.title, law.description = item.title, item.description
             law.source_url, law.fetch_url = item.source_url, item.text_url or item.source_url
             coverage = dict(law.coverage or {})
-            coverage.update({"text_url_in_catalog": bool(item.text_url), "catalog_observed_at": observed_at.isoformat()})
-            law.coverage = coverage
+            has_text_url = bool(item.text_url)
+            if coverage.get("text_url_in_catalog") != has_text_url:
+                coverage["text_url_in_catalog"] = has_text_url
+                law.coverage = coverage
+            # Keep catalog_observed_at on new records only. SourceRegistry
+            # tracks refresh time; rewriting each law's shared coverage JSON
+            # collides with hydration jobs updating that same row.
             refreshed += 1
     return {"added": added, "refreshed": refreshed}
 

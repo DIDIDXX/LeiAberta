@@ -1,4 +1,5 @@
-from datetime import date, datetime, timezone
+from dataclasses import replace
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -118,15 +119,28 @@ def test_sapl_catalog_page_sync_is_idempotent_and_scoped_to_manaus(db_session):
     ])
     db_session.commit()
     [item] = parse_catalog_page(_catalog_payload(), {"2": "Lei Ordinária"})
-    first = sync_catalog_page(db_session, [item], observed_at=datetime.now(timezone.utc))
+    first_observed = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    first = sync_catalog_page(db_session, [item], observed_at=first_observed)
     db_session.commit()
-    second = sync_catalog_page(db_session, [item], observed_at=datetime.now(timezone.utc))
+    first_coverage = dict(db_session.get(Law, "manaus-sapl-1").coverage)
+    second = sync_catalog_page(db_session, [item], observed_at=first_observed + timedelta(days=1))
+    db_session.commit()
     law = db_session.get(Law, "manaus-sapl-1")
     assert first == {"added": 1, "refreshed": 0}
     assert second == {"added": 0, "refreshed": 1}
     assert (law.jurisdiction, law.state_code, law.municipality) == ("municipality", "AM", "Manaus")
     assert law.external_source_id == "sapl:manaus:1"
     assert law.materialization_status == "catalog"
+    assert law.coverage == first_coverage
+
+    without_attachment = sync_catalog_page(
+        db_session, [replace(item, text_url=None)], observed_at=first_observed + timedelta(days=2),
+    )
+    db_session.commit()
+    law = db_session.get(Law, "manaus-sapl-1")
+    assert without_attachment == {"added": 0, "refreshed": 1}
+    assert law.coverage["text_url_in_catalog"] is False
+    assert law.coverage["catalog_observed_at"] == first_coverage["catalog_observed_at"]
 
 
 def test_sapl_document_archives_pdf_and_materializes_identity_checked_text(monkeypatch):
