@@ -418,14 +418,22 @@ def _process_history_job(job_id: str) -> None:
         elif law.source_name.endswith(" — SAPL"):
             from app.sources.sapl import fetch_sapl_history
 
-            municipality = (law.coverage or {}).get("municipality_ibge_code", "")
-            _update_job(session, job, stage=1, message="Consultando relações oficiais do SAPL municipal")
+            coverage_source = law.coverage or {}
+            municipality = coverage_source.get("municipality_ibge_code", "")
+            scope_kind = coverage_source.get("sapl_source_scope_kind", "municipality")
+            scope_name = "estadual" if scope_kind == "state" else "municipal"
+            _update_job(session, job, stage=1, message=f"Consultando relações oficiais do SAPL {scope_name}")
             snapshot = fetch_sapl_history(law.source_url, law.law_type, law.number, law.year)
             session.commit()
             archive_source_document(law.slug, snapshot.source_url, hashlib.sha256(snapshot.body).hexdigest(),
                                    "application/json; charset=utf-8", snapshot.body, law.current_version_id)
             relations = snapshot.relations
-            provider = f"sapl:{municipality}" if municipality else "sapl_municipal"
+            if scope_kind == "state":
+                provider = f"sapl:state:{law.state_code or coverage_source.get('sapl_source_ibge_code', '')}"
+            elif municipality:
+                provider = f"sapl:municipality:{municipality}"
+            else:
+                provider = "sapl_municipal"
         else:
             raise SourceDocumentUnavailable(f"A fonte {law.source_name} não oferece adapter de histórico.")
         current_version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
