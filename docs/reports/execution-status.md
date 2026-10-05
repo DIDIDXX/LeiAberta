@@ -1,71 +1,76 @@
 # Execução do plano LeiAberta — Luna 6
 
-Atualizado em 05/10/2026. O release #7 está no `main` (`21e5fda147508dd20882ae475b9ad50ab6c9d066`) e em produção Railway. Os serviços web e worker chegaram a `SUCCESS`; o health endpoint responde 200 e a migration `0008` está aplicada. A branch desta revisão acrescenta SAPL/Manaus, backfill gradual de textos subnacionais e retry para falhas transitórias do Senado/DOU; esse incremento ainda aguarda publicação.
+Atualizado em 05/10/2026 às 02:16 UTC. Código de produção: main 953b10f10e7e9daca53cab215e72e8b728308a4c. Railway web e worker em SUCCESS; /api/health responde 200. Deploys web 552576e2-b37b-41eb-a53a-573f0a3dae33 e worker 77a4d645-b3f1-4422-ab0a-1742df97f863.
 
-## Trabalho concluído nesta revisão
+## Estado de produção
 
-O release #7 integrou ALESP e SINJ-DF em produção. Esta revisão acrescenta SAPL/Manaus, conecta o texto PDF oficial e relações do SAPL, agenda backfill limitado dos anexos textuais declarados e repete falhas temporárias de rede com atraso curto.
+| Fonte | Escopo verificado | Com texto na coleta | Estado |
+|---|---:|---:|---|
+| Senado Federal | 47.316 registros em 6 tipos: LEI, LCP, EMC, MPV, DLG e RSF | 4.053 | Enumeração concluída nesses tipos; outras classes federais e atos da Câmara ainda não integrados. |
+| ALESP — SP | 181.172 | 154 | Todas as 37 páginas da consulta oficial gravadas; hidratação ativa. |
+| SINJ-DF | 125.478 | 175 | Todas as 26 páginas do snapshot gravadas; hidratação ativa. |
+| SAPL — Manaus | 9.846 | 3 | 99/99 páginas, 9.846 no banco; hidratação ativa. |
 
-| Acervo oficial | Registros enumerados | Paginação | Verificação | Texto e histórico |
-|---|---:|---:|---|---|
-| Senado Federal | 47.316 em produção; validação local anterior encontrou 47.327 | 6 categorias oficiais | Catálogo listado em produção | Planalto, Normas.leg.br e fallback exato do DOU para RSF; relações e comparações quando os textos anterior/posterior existem. A produção está fazendo backfill; última leitura: 2.831 com texto, 397 jobs ativos. |
-| ALESP — SP | API declara 181.172; 120.000 em produção na última leitura | 37 páginas de até 5.000 | Sync de produção ainda em curso; validação isolada completa igualou o total, IDs sem repetição, checksum `06002b97a80ffcc82e91e2d033e35a690419c85a1f1c36bf97723c284f097035` | Texto oficial por identidade exata; anotações de alteração, revogação e metadados legislativos ligados ao histórico. Backfill automático entra no próximo release. |
-| SINJ-DF | 125.478 em produção e na validação isolada | 26 páginas de até 5.000 | Total e IDs completos; checksum `c1d7ad6d4a1ed0b3c05ef0a0a1d5b2a2ea96559988c15271b2ac994610293af0` | HTML, PDF, PDF digitalizado com OCR português e DOCX; relações oficiais ligadas ao histórico. Backfill automático entra no próximo release. |
-| SAPL — Câmara Municipal de Manaus | API declara 9.846 | 99 páginas de 100 | API, identidade municipal, 12 tipos e PDF da Lei 115/1949 validados ao vivo; sincronização de produção ainda não iniciada | Adapter local implementado para catálogo, PDF/OCR, relações e job persistido; publicação e sync seguem nesta revisão. |
+Na mesma medição: 363.826 registros indexados, 4.397 com texto estruturado, 29.902 dispositivos, 57 alterações documentadas e 5.205 jobs ativos. Estes contadores mudam com o worker. “Pendente” descreve o estado naquela coleta e não prova que a fonte publique anexo para cada registro.
 
-As contagens ALESP/SINJ acima vêm de produção e de validação isolada, com diferenças de snapshot já identificadas. O SINJ varia seus metadados entre consultas; no segundo snapshot completo, 120.294 de 125.478 registros declaravam ao menos um anexo, 1.242 incluíam PDF (139 também tinham HTML), três incluíam DOCX e 5.184 não declaravam arquivo textual. O suporte PDF/DOCX/OCR obtém texto dos formatos publicados e preserva o arquivo bruto. O parser mantém cobertura parcial até a auditoria documental passar.
+A sincronização SAPL completou em 05/10 às 02:08:30 UTC: 9.846 listados, 1.846 inseridos, 8.000 atualizados, checksum de IDs 2fbbeace09e072fa1e75dc69e5a508d6eac0f557dfed18bc56ae5ced2fc2d3ae. O bloqueio da página 34 foi identificado como conflito de linha entre a atualização periódica de laws.coverage e jobs de hidratação. A sincronização agora evita regravar timestamps por norma quando nada mudou; a enumeração terminou sem novo lock. Depois, o worker foi ampliado para 16 tarefas concorrentes com prioridade preservada para pedidos interativos. Nos primeiros 88 segundos de execução com o limite novo, 80 jobs de hidratação terminaram.
 
-Uma norma judicial SINJ-DF com PDF oficial atualizado foi buscada ao vivo. O download de 214.701 bytes foi preservado e extraído em 33.031 bytes de HTML de leitura. Também passaram testes de PDF textual, caminho OCR para página digitalizada e extração de parágrafos/tabelas DOCX. O container Railway instala Tesseract com idioma português para esse caminho.
+## Busca, texto e histórico
 
-O histórico agora usa adapters por fonte. ALESP publica 33 anotações de alteração para a Lei estadual 10.261/1968, além de uma proposição e autoria. SINJ-DF publica 103 relações incidentes no Decreto 36.222/2014. Esses dados são links e relações oficiais; não são apresentados como diff por dispositivo quando a fonte não fornece as duas redações.
+- A API pública está saudável e a busca cobre os registros armazenados nas fontes conectadas.
+- O histórico da Lei 11.340/2006 retorna 65 itens: 3 comparações textuais comprovadas e 62 relações oficiais sem texto suficiente para comparar. O estado é partial, sem job ativo; a interface informa a lacuna em vez de manter “preparando”.
+- O leitor DOU foi corrigido para publicações senatoriais que aparecem como “Resolução” sob a hierarquia oficial “Atos do Senado Federal”. RSF 24/2024, 25/2024 e 27/2024 foram baixadas e processadas ao vivo; os respectivos jobs concluíram com 27, 27 e 25 dispositivos.
+- A Lei SAPL 115/1949, publicada em 05/01/1949, foi hidratada em produção. A versão tem 6 nós, 4 artigos extraídos e 1.165 caracteres estruturados. A auditoria registra 241.460 caracteres extraíveis da fonte e marca a estrutura review_required; não certifica que a transcrição contenha todo o PDF. A fonte original segue ligada.
+- O histórico da Lei 115/1949 foi consultado com job succeeded. O SAPL não retornou relações oficiais para essa norma. A interface mostra que ausência de relação não comprova que nunca houve alteração.
 
-O release #7 também incluiu: migration para números longos do catálogo SINJ; fila e catálogo independentes para SP/DF no worker; contadores de cobertura em `/api/stats`; proteção contra o IBGE apagar estados de cobertura; fontes e fixtures oficiais versionadas. A branch atual acrescenta o registro municipal de Manaus e backfill federado/subnacional em lotes limitados.
+## Validação executada
 
-## Estado do plano por tarefa
+- Suíte Python completa: 88 testes passaram, com 3 avisos de depreciação.
+- Playwright local: 4 E2E passaram — busca LGDP/LGPD, diff oficial no histórico, hidratação sob demanda e ambiguidade na busca por artigo.
+- O teste E2E usou banco SQLite descartável separado; o arquivo .e2e.db existente foi preservado.
+- Railway web e worker estão em SUCCESS e /api/health retorna 200.
 
-| Tarefas | Estado nesta revisão | Evidência / lacuna |
+## Estado por tarefa do plano
+
+| Tarefas | Estado | Evidência e lacuna atual |
 |---|---|---|
-| T00 linha de base | concluído | GitHub, produção Railway, serviços, migrações, fonte e estatísticas foram identificados sem exportar segredos. |
-| T01 backup restaurável e staging | bloqueio de infraestrutura da conta | O Railway Hobby informa `maxBackupsCount=0`; o conector desta sessão não fornece shell/execução SQL/`pg_dump` nem duplicação restaurável. Não foi criado um backup nem feita migração não aditiva sem restore demonstrado. |
-| T02 estados de job/cobertura | implementado | Busca, hidratação e histórico têm estados distintos; erros e ausência de texto não são mascarados por “preparando”. |
-| T03 fila e recuperação | implementado | Outbox, Redis Streams, deduplicação, retomada e worker concorrente. |
-| T04 arquivo bruto | implementado no código | Captura e checksum são gravados antes de parsear; migration `0006`. Deploy e produção precisam ser confirmados nesta revisão. |
-| T05 identidade/parser | implementado nos formatos cobertos | Números, reedições, artigos, variantes e namespaces CF/ADCT; o parser continua conservador fora dos modelos cobertos. |
-| T06 PDF, tabelas e anexos | PDF/OCR/DOCX implementado para SINJ-DF | PDF bruto é arquivado; texto extraído/OCR alimenta a leitura. Anexos sem link nos metadados oficiais continuam sem caminho automático. |
-| T07 auditoria de completude | parcial | Auditoria estrutural existe, mas não certifica que um HTML/PDF contenha todos os anexos, notas ou texto juridicamente válido. |
-| T08 leitor progressivo | parcial | Busca, dispositivo e progresso de job funcionam. Leitura de anexos em todos os formatos/famílias ainda depende de adapters adicionais. |
-| T09 jurisdições e fontes | parcial | Diretório IBGE cobre 27 UFs e 5.571 localidades; catálogo normativo não está conectado a cada jurisdição. Registry de fontes mantém escopo e estado sem o IBGE sobrescrevê-los. |
-| T10 sync retomável | implementado para Senado, ALESP, SINJ-DF e SAPL/Manaus | Páginas, checkpoints, totais, IDs, dedupe e janela de frescor. A sync ALESP de produção está em 120 mil/181.172. |
-| T11 catálogo federal | parcial | Senado enumerou seis categorias; Câmara documenta tramitação, autoria e votação, mas falta catálogo federal reconciliado completo por Casa. |
-| T12 LexML | bloqueio de acesso externo observado | A rota SRU respondeu desafio HTML anti-automação HTTP 200 no probe executado. Não há chave/rota autenticada nesta sessão. As integrações diretas continuam independentes. |
-| T13 ALESP/SINJ-DF | release #7 implantado; sync ALESP em curso | DF completo em produção com 125.478. ALESP registrava 120.000/181.172 na última leitura; validação isolada já completou os 181.172. |
-| T14 SAPL/municípios | adapter Manaus validado localmente; produção aguarda release #8 | API SAPL oficial da Câmara Municipal de Manaus enumera 9.846 normas, 12 tipos e publica texto PDF. Campinas continua não comprovada; não foi tratada como fonte. |
-| T15 26 UFs e municípios | em andamento, incompleto | Somente ALESP/SP e SINJ-DF foram integrados entre as jurisdições subnacionais. Ainda não há denominador oficial nacional de leis por fonte/jurisdição. |
-| T16 busca | implementado sobre catálogo armazenado | Após deploy e sync, verificar pesquisas reais em SP/DF e produção. A busca só pode encontrar registros presentes no corpus conectado. |
-| T17 relações/histórico | implementado em adapters, cobertura parcial | Senado + Normas, ALESP, SINJ-DF e SAPL/Manaus expõem relações. Ausência de redação anterior/posterior mantém o evento como referência oficial sem diff. Retry curto foi adicionado após 503/queda transitória no Senado/DOU. |
-| T18/T19 semântica temporal e reconstrução | parcial | Datas são preservadas por campo; nenhuma vigência por dispositivo é inventada quando as fontes não a demonstram. |
-| T20 timeline/diff | implementado para evidência disponível | Comparação textual é exibida somente quando ambos os textos foram verificados. |
-| T21 autoria/blame | parcial | Metadados ALESP incluem proposição/autoria, mas autoria de cada dispositivo e relações políticas completas não são inferidas. |
-| T22 backfill histórico nacional | backfill de texto automático em release #8; histórico de relações continua sob demanda | A produção atual tem 2.831 dos 47.316 textos federais materializados e ainda não iniciou os textos subnacionais. O próximo release enfileira anexos que as fontes publicam, com limite de 100 a cada 5 minutos; o ritmo de conclusão depende das fontes e da fila. Relações/histórico são coletados quando solicitados para evitar chamadas sem limite. |
-| T23/T24 processo e votos | não concluído | APIs Câmara/Senado existem; vínculo confiável entre cada mudança normativa, proposição, emenda, autores e votos exige resolução adicional. |
-| T25 scheduler/freshness | implementado parcialmente | Worker agenda catálogos IBGE, Senado, ALESP, SINJ-DF e SAPL/Manaus, além de lotes federais. Faltam alertas/SLAs por jurisdição. |
-| T26 release Railway | release #7 confirmado; release #8 aguardando publicação | Web e worker do release #7 chegaram a `SUCCESS`; `/health` 200 e migration `0008` aplicada. O próximo deploy será verificado após merge do adapter Manaus e backfill. |
-| T27 documentação | esta revisão atualiza evidências e lacunas | Este estado distingue medições isoladas de produção e não declara cobertura nacional completa. |
+| T00 — linha de base | concluído | Repositório, serviços Railway, migrations, fontes e APIs auditados. |
+| T01 — backup restaurável e staging | bloqueado por plano/acesso | Railway Hobby informa maxBackupsCount=0; o conector não oferece shell/execução SQL/pg_dump/restore. Não há backup restaurável demonstrado. |
+| T02 — estados de job e cobertura | implementado | Busca, hidratação e histórico têm estados próprios; falha ou texto ausente não fica mascarado como job em andamento. |
+| T03 — fila durável e recuperação | implementado | Outbox, Redis Streams, ACK após processamento e recuperação de mensagens. Pedidos interativos têm prioridade sobre o backfill. |
+| T04 — arquivo bruto e proveniência | implementado para fontes conectadas | Captura, checksums e referência à publicação original são preservados; reprocessamento não substitui silenciosamente a origem. |
+| T05 — identidade e parser | implementado nos formatos cobertos | Identidade oficial é verificada; o parser não inventa número, vigência ou origem. DOU e SAPL têm casos de exceção testados. |
+| T06 — PDF, tabelas, anexos e OCR | parcial por fonte | PDF/OCR/DOCX estão cobertos em algumas integrações; documentos sem anexo precisam de outra fonte oficial. |
+| T07 — auditoria de completude | parcial | Auditoria detecta divergências, mas não certifica sozinha a validade jurídica. A Lei 115/1949 ficou review_required. |
+| T08 — leitor progressivo | parcial | Busca, navegação por dispositivo e estados de hidratação funcionam; faltam modelos e anexos de fontes não integradas. |
+| T09 — inventário territorial | parcial | IBGE fornece 27 UFs e 5.571 localidades, mas isso não equivale a catálogo legislativo dessas jurisdições. |
+| T10 — sincronização retomável | implementado nas quatro fontes conectadas | Senado, ALESP, SINJ-DF e SAPL/Manaus registram escopo, paginação, checkpoints e status. |
+| T11 — catálogo federal | parcial | Senado enumera seis tipos; falta reconciliar outros atos federais e integrar a Câmara dos Deputados. |
+| T12 — LexML | bloqueio de acesso observado | O probe SRU recebeu HTML de desafio anti-automação, sem resultados utilizáveis nesta sessão. |
+| T13 — ALESP e SINJ-DF | enumeração concluída | SP: 181.172; DF: 125.478 no snapshot gravado. O backfill de texto continua. |
+| T14 — SAPL/municípios | Manaus enumerada por completo | 9.846 registros da API oficial no banco; outros municípios não são cobertos pelo adapter Manaus. |
+| T15 — demais estados e municípios | não concluído; trabalho executável | Não existe denominador nacional oficial demonstrado nem adapters validados para as demais UFs e milhares de Câmaras. A falta de integração não é impossibilidade técnica comprovada. |
+| T16 — busca | implementada sobre os dados armazenados | A busca opera sobre o catálogo conectado; não encontra registros fora dele. |
+| T17 — relações e histórico | implementado para Planalto, Senado, ALESP, SINJ-DF e SAPL; conteúdo parcial | Só gera diff quando os dois textos e a identidade do dispositivo foram verificados. |
+| T18/T19 — vigência e reconstrução temporal | parcial | Vigência por dispositivo e redações para intervalos históricos não são inferidas sem prova oficial. |
+| T20 — timeline e diff | parcial, baseado em evidência | Diff é exposto quando existe comparação textual verificada; outras relações aparecem como referência. |
+| T21 — autoria e atribuição | parcial | Alguns metadados de autoria existem; autoria por dispositivo e cadeia política completa não são inferidas. |
+| T22 — backfill nacional | ativo, incompleto | Há 5.205 jobs ativos na medição e dezenas de milhares de textos pendentes. O worker agora aceita 16 jobs concorrentes; o processo segue em lotes e depende das fontes. |
+| T23/T24 — proposições, emendas e votos | não concluído | Falta ligar com confiança cada alteração a proposição, relatoria, autoria e votos individuais. |
+| T25 — atualização e frescor | parcial | Catálogos conectados atualizam periodicamente; faltam alertas e SLAs por jurisdição/fonte. |
+| T26 — Railway | publicado e saudável | Deploy web/worker SUCCESS; API health 200. |
+| T27 — documentação | atualizado nesta revisão | Este relatório registra evidências, limites comprovados e trabalho ainda executável. |
 
-## Validação local e produção
+## Limitações externas comprovadas
 
-Após integrar o último `main`, `.venv/bin/pytest -q` passou com **80 testes**; `npm run test:e2e` passou com **4 casos**; `compileall` e `git diff --check` passaram. O E2E primeiro capturou HTTP 503 temporário do Senado e o job permaneceu `queued`; após retry curto, a mesma jornada terminou e exibiu o diff oficial com 62 relações. A API SAPL foi consultada ao vivo; a Lei 115/1949 (PDF de 439.668 bytes) foi baixada e extraída em 2.161 bytes de texto. Release #8 ainda requer merge e verificação no Railway.
+1. **Backup e restore:** o plano Railway Hobby não disponibiliza backups gerenciados (maxBackupsCount=0). As ferramentas conectadas também não oferecem uma sessão SQL/container para executar e validar pg_dump/restore. Por isso não foi possível demonstrar recuperação nem staging a partir de backup nesta sessão.
+2. **LexML SRU:** a rota consultada respondeu um desafio HTML anti-automação em HTTP 200, em vez de registros. Não havia credencial ou rota alternativa autenticada disponível pelo conector.
+3. **Anexos SINJ-DF:** 5.184 registros do snapshot anterior não declaravam arquivo textual. A busca de acervos oficiais alternativos ainda é necessária para esses casos.
+4. **Redações históricas:** relação de alteração sem redações anterior/posterior ou vigência por dispositivo não permite produzir um diff jurídico confiável. A interface mostra essa relação sem inventar o texto.
+5. **Classificação jurídica da fonte:** Normas.leg.br identifica algumas transcrições/compilações como não oficiais; LeiAberta mantém essa classificação.
 
-A migração `0008` amplia `Law.number` de 24 para 96 caracteres. O downgrade recusa truncar valores longos. Aplicar a migration e testar health, busca, hidratação e histórico na produção são passos pós-merge obrigatórios.
+## Trabalho que não deve ser chamado de impossibilidade técnica
 
-## Limites técnicos comprovados e trabalho restante
+O Brasil não tem um único endpoint oficial nacional demonstrado com todas as normas de todas as Casas Legislativas. Isso torna a integração federada extensa: cada fonte precisa ser descoberta, ligada ao domínio oficial, paginada, reconciliada e validada. Não prova que os adapters ausentes sejam impossíveis. As demais UFs, os outros municípios, tipos federais adicionais, proposições/votos e a auditoria completa continuam fora da cobertura e exigem trabalho de integração.
 
-1. **Backup/restore Railway:** Hobby informa `maxBackupsCount=0`, e as ferramentas conectadas não permitem criar/validar backup restaurável nem executar `pg_dump`/restore. As migrations aplicadas são aditivas; produção não foi copiada para staging.
-2. **Cobertura nacional:** os portais brasileiros publicam seus próprios catálogos, sem um endpoint nacional oficial que enumere todas as leis e redações das 27 UFs e 5.571 municípios. Os acervos fora dos conectados ainda exigem adapters específicos, portanto o corpus não pode ser declarado nacionalmente completo.
-3. **Textos não anexados no SINJ:** 5.184 registros observados não anunciavam anexo. O adapter só obtém os arquivos publicados no registro; falta provar e implementar fontes oficiais alternativas para cada item.
-4. **Histórico sem redações/datas:** relações registradas por Senado, ALESP, SINJ ou SAPL não garantem texto antes/depois por dispositivo nem vigência. A UI apresenta a relação sem inventar um diff.
-5. **Acesso intermitente a fontes públicas:** o leitor do DOU encerrou conexões em jobs de produção e o E2E observou HTTP 503 do Senado. Há retry curto; quando o próprio host não responde, o texto/histórico daquele documento não pode ser obtido até a fonte voltar.
-6. **LexML SRU:** a rota probe respondeu HTML de desafio anti-automação, sem registros. Essa interface fica bloqueada até haver acesso não desafiante ou documentação/autorização de integração.
-7. **Classificação jurídica:** Normas.leg.br classifica algumas compilações/transcrições como valor jurídico não oficial. O LeiAberta conserva a classificação da fonte e não pode atribuir valor jurídico que ela não declara.
-
-Nenhum desses itens deve ser confundido com entrega nacional concluída. Também não se classificam como “impossibilidade técnica” os adapters ainda não construídos: eles seguem no backlog executável.
+Também não terminou o backfill de texto: 4.397 de 363.826 registros estavam materializados na medição. O worker continua ativo; o saldo depende de resposta dos portais, existência de anexos, qualidade do OCR e validação documental.
