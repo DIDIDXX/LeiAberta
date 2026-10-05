@@ -142,7 +142,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .law-article { display: grid; grid-template-columns: 48px minmax(0,1fr); gap: 13px; padding: 20px 0 23px; border-bottom: 1px solid var(--line); scroll-margin-top: 100px; }
 .article-index { padding-top: 2px; color: #9aa49d; font: 400 15px var(--serif); }
 .article-body h3 { margin: 0 0 8px; color: #26332d; font-size: 12px; font-weight: 700; letter-spacing: .025em; }
-.article-lead, .node-text { margin: 0 0 8px; color: #404c45; font-family: var(--serif); font-size: 17px; line-height: 1.65; }
+.article-lead, .node-text { margin: 0 0 8px; color: #404c45; font-family: var(--serif); font-size: 17px; line-height: 1.65; overflow-wrap: anywhere; }
 .article-clause { position: relative; margin: 8px 0 0 10px; padding-left: 13px; border-left: 1px solid #e4e8e3; color: #46534b; font-family: var(--serif); font-size: 15px; line-height: 1.67; }
 .article-clause-label { margin-right: 7px; color: #52665a; font: 600 11px var(--sans); }
 .article-clause.item { margin-left: 23px; font-size: 14px; }

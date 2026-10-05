@@ -7,6 +7,8 @@ test("the home and search flow fit a mobile viewport", async ({ browser }) => {
   const search = page.getByRole("searchbox", { name: "Pesquisar legislação" });
   await search.fill("LGDP");
   await expect(page.getByRole("link", { name: /Lei Geral de Proteção de Dados Pessoais/ }).first()).toBeVisible();
+  await page.goto("/lei/13709-2018/artigo/7");
+  await expect(page.getByRole("heading", { name: "Art. 7º" })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await page.close();
 });
