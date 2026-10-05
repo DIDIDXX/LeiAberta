@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from functools import lru_cache
 from html import escape as html_escape
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,6 +11,9 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from anyio import to_thread
+from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import case, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -34,6 +39,41 @@ TEXT_SOURCE_NAMES = {
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
+_RATE_LIMIT_SCRIPT = """
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return count
+"""
+
+
+@lru_cache(maxsize=1)
+def _rate_limit_redis(url: str) -> Redis:
+    return Redis.from_url(url, decode_responses=True, socket_connect_timeout=1, socket_timeout=1)
+
+
+def _rate_limit_policy(method: str, path: str) -> tuple[str, int, int] | None:
+    if method == "GET" and path == "/api/search":
+        return "search", 600, 60
+    parts = path.strip("/").split("/")
+    if method == "GET" and len(parts) >= 3 and parts[:2] == ["api", "laws"]:
+        if len(parts) == 3 or parts[-1] == "nodes":
+            return "law-detail", 240, 60
+    if method == "POST" and len(parts) == 5 and parts[:2] == ["api", "laws"]:
+        if parts[3:] in (["history", "prepare"], ["proceedings", "prepare"]):
+            return "job-prepare", 60, 60
+    if method == "POST" and len(parts) == 4 and parts[:2] == ["api", "laws"] and parts[3] == "hydrate":
+        return "job-prepare", 60, 60
+    return None
+
+
+def _consume_rate_budget(scope: str, limit: int, window_seconds: int, now: int | None = None) -> tuple[int, int]:
+    current = int(time.time()) if now is None else now
+    bucket = current // window_seconds
+    retry_after = window_seconds - (current % window_seconds)
+    key = f"leiaberta:rate-limit:{scope}:{bucket}"
+    count = int(_rate_limit_redis(os.environ["REDIS_URL"]).eval(_RATE_LIMIT_SCRIPT, 1, key, retry_after + 2))
+    return count, retry_after
+
 
 def _public_base_url(request: Request) -> str:
     configured = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
@@ -42,6 +82,29 @@ def _public_base_url(request: Request) -> str:
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
     host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
     return f"{scheme}://{host}"
+
+
+@app.middleware("http")
+async def public_rate_limit(request: Request, call_next):
+    policy = _rate_limit_policy(request.method, request.url.path)
+    redis_url = os.getenv("REDIS_URL")
+    if policy and redis_url:
+        scope, limit, window_seconds = policy
+        try:
+            count, retry_after = await to_thread.run_sync(
+                _consume_rate_budget, scope, limit, window_seconds,
+            )
+            if count > limit:
+                return JSONResponse(
+                    {"detail": "Limite temporário de solicitações atingido."},
+                    status_code=429,
+                    headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+                )
+        except RedisError:
+            # Reads and job endpoints remain available during Redis outages;
+            # queue dedupe/backpressure are the independent fallback.
+            logger.warning("rate_limit_store_unavailable scope=%s", scope)
+    return await call_next(request)
 
 
 @app.middleware("http")
