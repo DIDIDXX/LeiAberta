@@ -8,13 +8,49 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from app import jobs
-from app.models import HydrationJob, JobOutbox, Law, LawVersion, LegalNode, SourceSnapshot
+from app.models import HydrationJob, JobOutbox, Law, LawVersion, LegalNode, SenateProceeding, SourceSnapshot
 from app.sources.planalto import ParsedNode
 from app.sources.senado import SenateRelation
 from app.sources.normas import NormasHistorySnapshot, NormasTextChange
 from app.sources.history import OfficialRelation
 from app.sources.alesp import AlespHistorySnapshot
 from app.sources.sinj_df import SinjDFHistorySnapshot
+
+
+def test_senate_provenance_job_archives_sources_and_persists_dossier(db_session, add_law, monkeypatch):
+    law = add_law(slug="14550-2023", number="14.550", year=2023)
+    law.source_name = "Senado Federal — Dados Abertos Legislativos"
+    db_session.add(law)
+    job = HydrationJob(id="senate-provenance-job", law_slug=law.slug, job_type="provenance", status="queued",
+                       stage=0, stage_name="queued", message="Aguardando worker", attempts=0, error="",
+                       created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    db_session.add(job)
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    from app.sources.senado_proceedings import OfficialJsonDocument
+    document = OfficialJsonDocument("https://legis.senado.leg.br/dadosabertos/processo?tipoNorma=LEI",
+                                   b'{"id":8272922}', {"id": 8272922})
+    payload = {"status": "complete", "matching_processes_found": 1, "processes_loaded": 1,
+               "processes": [{"process": {"identificacao": "PL 1604/2022"}, "amendments": [{"id": 1}],
+                              "committee_votes": [{"votes": [{"NomeParlamentar": "Simone Tebet"}]}],
+                              "plenary_votes": [], "source_urls": [document.url]}]}
+
+    def fake_fetch(_law_type, _number, _year, *, on_document=None):
+        on_document(document)
+        return payload, [document]
+
+    monkeypatch.setattr("app.sources.senado_proceedings.fetch_senate_proceedings", fake_fetch)
+    assert jobs.process_hydration_job(job.id) is True
+
+    db_session.expire_all()
+    persisted_job = db_session.get(HydrationJob, job.id)
+    dossier = db_session.get(SenateProceeding, law.slug)
+    snapshot = db_session.query(SourceSnapshot).filter_by(law_slug=law.slug).one()
+    assert persisted_job.status == "succeeded"
+    assert dossier.status == "complete"
+    assert dossier.data["processes"][0]["process"]["identificacao"] == "PL 1604/2022"
+    assert law.coverage["senate_provenance"] == "complete"
+    assert snapshot.raw_body == document.body
 
 
 def test_interactive_queue_selection_skips_bulk_and_delayed_retry_jobs(db_session, add_law, monkeypatch):

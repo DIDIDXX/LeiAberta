@@ -2,6 +2,7 @@ const main = document.querySelector("#main");
 const API = "/api";
 const FEATURED_ORDER = ["constituicao-1988", "5452-1943", "10406-2002", "2848-1940", "8078-1990", "8069-1990", "12965-2014", "13709-2018", "11340-2006", "14133-2021", "5172-1966"];
 const esc = (value = "") => String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const safeHttpHref = value => { try { const url = new URL(String(value)); return ["http:", "https:"].includes(url.protocol) ? esc(url.href) : "#"; } catch { return "#"; } };
 const datePt = value => value ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(value)) : "Data não informada";
 const lawPath = law => `/lei/${encodeURIComponent(law.slug)}`;
 const externalIcon = '<svg class="external-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M21 3l-10 10"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
@@ -169,6 +170,7 @@ function lawHeader(law, activeTab, crumbsList) {
   </header><div class="law-toolbar"><nav class="law-tabs" aria-label="Seções da norma">
     <a class="law-tab ${activeTab === "text" ? "active" : ""}" href="${lawPath(law)}">Texto</a>
     <a class="law-tab ${activeTab === "history" ? "active" : ""}" href="${lawPath(law)}/historico">Histórico</a>
+    <a class="law-tab ${activeTab === "proceedings" ? "active" : ""}" href="${lawPath(law)}/tramitacao">Tramitação</a>
   </nav><a class="source-link" href="${esc(law.source_url)}" target="_blank" rel="noopener">Fonte oficial ${externalIcon}</a></div>`;
 }
 
@@ -317,6 +319,97 @@ async function pollHistory(slug, jobId) {
   if (location.pathname.endsWith("/historico")) renderHistory(slug);
 }
 
+async function renderProceedings(slug) {
+  let detail;
+  try { detail = await getJSON(`${API}/laws/${encodeURIComponent(slug)}`); }
+  catch (error) { renderNotFound(error.message); return; }
+  const law = detail.law;
+  setMeta(`Tramitação: ${law.title} | LeiAberta`, `Processos, emendas e votações oficiais ligados a ${law.title}.`);
+  const trail = [{ label: "Início", href: "/" }, { label: law.title, href: lawPath(law) }, { label: "Tramitação" }];
+  try {
+    const dossier = await getJSON(`${API}/laws/${encodeURIComponent(slug)}/proceedings`);
+    const active = ["queued", "running"].includes(dossier.status);
+    const statusCopy = {
+      not_requested: "A tramitação ainda não foi consultada. Buscaremos processos que o Senado relaciona exatamente a esta norma.",
+      queued: "A consulta oficial está registrada e aguarda o worker.",
+      running: dossier.job?.message || "Consultando processos, emendas e votações no Senado.",
+      complete: `${dossier.matching_processes_found || dossier.processes.length} processo(s) compatível(is) localizado(s) em dados abertos do Senado.`,
+      partial: "A consulta encontrou uma lacuna ou excedeu um limite seguro em referências, tramitações ou votações; parte do dossiê pode estar incompleta.",
+      no_process: "A consulta exata ao Senado não listou processo gerador para esta norma. Isso não consulta a Câmara nem prova que a norma não teve tramitação.",
+      failed: dossier.error || "A última consulta falhou. Você pode tentar novamente."
+    }[dossier.status] || "O estado da consulta não está verificado.";
+    const visibleStatusCopy = dossier.error && !active && dossier.status !== "failed"
+      ? statusCopy + " A atualização falhou; os dados salvos anteriormente continuam disponíveis. " + dossier.error
+      : statusCopy;
+    const authorLine = process => {
+      const authors = process.documento?.autoria || [];
+      const names = authors.map(item => [item.cargo, item.autor, item.siglaPartido && `(${item.siglaPartido}${item.uf ? `/${item.uf}` : ""})`].filter(Boolean).join(" "));
+      return names.length ? names.join("; ") : process.documento?.resumoAutoria || "Autoria não informada no registro consultado";
+    };
+    const voteLabel = value => ({ S: "Sim", N: "Não", A: "Abstenção", P: "Presente" }[String(value || "").toUpperCase()] || String(value || "Voto sem classificação"));
+    const processCards = dossier.processes.map(item => {
+      const process = item.process || {};
+      const doc = process.documento || {};
+      const amendmentCards = (item.amendments || []).map(amendment => "<li><strong>" + esc(amendment.identificacao || amendment.descricaoDocumentoEmenda || "Emenda") + "</strong>" + (amendment.autoria ? "<span>" + esc(amendment.autoria) + "</span>" : "") + (amendment.dataApresentacao ? "<span>Apresentada em " + datePt(amendment.dataApresentacao) + "</span>" : "") + (amendment.urlDocumentoEmenda ? "<a href='" + safeHttpHref(amendment.urlDocumentoEmenda) + "' target='_blank' rel='noopener'>Documento da emenda " + externalIcon + "</a>" : "") + "</li>").join("");
+      const voteCards = (item.committee_votes || []).map(session => {
+        const rollCall = (session.votes || []).map(vote => "<li>" + esc(vote.NomeParlamentar || "Parlamentar") + ": " + esc(voteLabel(vote.QualidadeVoto)) + (vote.SiglaPartidoParlamentar ? " (" + esc(vote.SiglaPartidoParlamentar) + ")" : "") + "</li>").join("");
+        return "<li><strong>" + esc(session.committee || "Votação em comissão") + "</strong><span>" + esc(session.date ? datePt(session.date) : "Data não informada") + (session.description ? " · " + esc(session.description) : "") + "</span>" + (rollCall ? "<ul class='proceeding-rollcall'>" + rollCall + "</ul>" : "<span>A fonte não publicou voto nominal nesta sessão.</span>") + "</li>";
+      }).join("");
+      const sourceUrls = (item.source_urls || []).filter(Boolean);
+      const sourceLinks = sourceUrls.map((url, index) => "<a href='" + safeHttpHref(url) + "' target='_blank' rel='noopener'>Fonte oficial do Senado " + (index + 1) + " " + externalIcon + "</a>").join("");
+      const plenary = item.plenary_votes?.length ? "<h3>Votações em plenário</h3><pre class='proceeding-raw'>" + esc(JSON.stringify(item.plenary_votes, null, 2)) + "</pre>" : "<p>A API de votação em plenário não retornou registros para este processo.</p>";
+      const senateMovements = (process.autuacoes || []).flatMap(row => row.situacoes || []).map(event => "<li><strong>" + esc(event.descricao || "Situação legislativa") + "</strong><span>" + esc(event.inicio ? datePt(event.inicio) : "Data não informada") + (event.colegiado?.nome ? " · " + esc(event.colegiado.nome) : "") + "</span></li>").join("");
+      const chamberCards = (item.chamber_processes || []).map(chamber => {
+        if (chamber.status !== "complete" && chamber.status !== "partial") return "<p>Referência cruzada oficial da Câmara: " + esc(chamber.status) + " para " + esc(chamber.reference?.sigla + " " + chamber.reference?.numero + "/" + chamber.reference?.ano) + ".</p>";
+        const proposal = chamber.proposal || {};
+        const chamberAuthors = (chamber.authors || []).map(author => "<li>" + esc(author.nome || author.tipo || "Autor") + "</li>").join("");
+        const chamberMovements = (chamber.proceedings || []).map(movement => "<li><strong>" + esc(movement.descricaoTramitacao || "Tramitação") + "</strong><span>" + esc(movement.dataHora ? datePt(movement.dataHora) : "Data não informada") + (movement.siglaOrgao ? " · " + esc(movement.siglaOrgao) : "") + (movement.despacho ? " — " + esc(movement.despacho) : "") + "</span>" + (movement.url ? "<a href='" + safeHttpHref(movement.url) + "' target='_blank' rel='noopener'>Documento deste andamento " + externalIcon + "</a>" : "") + "</li>").join("");
+        const related = (chamber.related_proposals || []).map(row => "<li><a href='" + safeHttpHref(row.uri) + "' target='_blank' rel='noopener'><strong>" + esc(row.siglaTipo + " " + row.numero + "/" + row.ano) + "</strong> " + externalIcon + "</a><span>" + esc(row.ementa || "Ementa não informada") + "</span></li>").join("");
+        const chamberVotes = (chamber.votes || []).map(row => {
+          const vote = row.vote || {};
+          const ballots = (row.nominal_votes || []).map(ballot => {
+            const deputy = ballot.deputado_ || {};
+            return "<li>" + esc(deputy.nome || "Parlamentar") + ": " + esc(ballot.tipoVoto || "Voto não informado") + (deputy.siglaPartido ? " (" + esc(deputy.siglaPartido) + (deputy.siglaUf ? "/" + esc(deputy.siglaUf) : "") + ")" : "") + "</li>";
+          }).join("");
+          return "<details><summary>" + esc(vote.data ? datePt(vote.data) : "Data não informada") + " · " + esc(vote.descricao || "Votação") + " · " + (row.nominal_votes || []).length + " voto(s) nominal(is)</summary>" + (ballots ? "<ul class='proceeding-rollcall'>" + ballots + "</ul>" : "<p>Esta votação não publicou votos nominais.</p>") + (row.source_url ? "<a href='" + safeHttpHref(row.source_url) + "' target='_blank' rel='noopener'>Votos oficiais " + externalIcon + "</a>" : "") + "</details>";
+        }).join("");
+        const chamberSource = proposal.uri ? "<a href='" + safeHttpHref(proposal.uri) + "' target='_blank' rel='noopener'>Registro da proposição na Câmara " + externalIcon + "</a>" : "";
+        const rapporteur = chamber.last_rapporteur;
+        const rapporteurName = rapporteur?.name || "Parlamentar";
+        const rapporteurLabel = rapporteur ? rapporteurName + (rapporteur.party ? " (" + rapporteur.party + (rapporteur.state ? "/" + rapporteur.state : "") + ")" : "") : "Relator mais recente não informado na API";
+        const rapporteurLine = rapporteur ? (rapporteur.uri ? "<a href='" + safeHttpHref(rapporteur.uri) + "' target='_blank' rel='noopener'>" + esc(rapporteurLabel) + " " + externalIcon + "</a>" : esc(rapporteurLabel)) : rapporteurLabel;
+        return "<section class='chamber-dossier'><h3>Câmara dos Deputados · " + esc(proposal.siglaTipo + " " + proposal.numero + "/" + proposal.ano) + "</h3><p>Vínculo confirmado pela referência cruzada do processo do Senado. Situação: " + esc(proposal.statusProposicao?.descricaoSituacao || "não informada") + ".</p><dl class='proceeding-facts'><div><dt>Autoria</dt><dd>" + (chamberAuthors ? "<ul class='proceeding-list'>" + chamberAuthors + "</ul>" : "Não informada") + "</dd></div><div><dt>Relator mais recente</dt><dd>" + rapporteurLine + "</dd></div><div><dt>Ementa</dt><dd>" + esc(proposal.ementa || "Não informada") + "</dd></div></dl>" + chamberSource + (chamberVotes ? "<details class='proceeding-section' open><summary>Votações da Câmara (" + chamber.votes.length + ")</summary>" + chamberVotes + "</details>" : "<p>A API não listou votações para esta proposição.</p>") + (chamberMovements ? "<details class='proceeding-section'><summary>Tramitações da Câmara (" + chamber.proceedings.length + ")</summary><ul class='proceeding-list'>" + chamberMovements + "</ul></details>" : "") + (related ? "<details class='proceeding-section'><summary>Proposições relacionadas (" + chamber.related_proposals.length + ")</summary><ul class='proceeding-list'>" + related + "</ul></details>" : "") + "</section>";
+      }).join("");
+      const senateTimeline = senateMovements ? "<details class='proceeding-section'><summary>Situações registradas no Senado (" + process.autuacoes.flatMap(row => row.situacoes || []).length + ")</summary><ul class='proceeding-list'>" + senateMovements + "</ul></details>" : "";
+      return "<article class='timeline-card proceeding-card'><span class='timeline-source'>" + esc(process.sigla || "Processo legislativo") + " · " + esc(process.casaIdentificadora || "Senado Federal") + "</span><h2>" + esc(process.identificacao || "Processo sem identificação") + "</h2><p>" + esc(process.situacaoAtual || "Situação não informada") + (process.dataSituacaoAtual ? " · atualizada em " + datePt(process.dataSituacaoAtual) : "") + "</p><dl class='proceeding-facts'><div><dt>Autoria</dt><dd>" + esc(authorLine(process)) + "</dd></div><div><dt>Apresentação</dt><dd>" + esc(doc.dataApresentacao ? datePt(doc.dataApresentacao) : "Data não informada") + "</dd></div><div><dt>Ementa</dt><dd>" + esc(process.conteudo?.ementa || "Não informada") + "</dd></div></dl>" + (amendmentCards ? "<h3>Emendas do Senado (" + item.amendments.length + ")</h3><ul class='proceeding-list'>" + amendmentCards + "</ul>" : "<p>Esta consulta não listou emendas para o processo do Senado.</p>") + (voteCards ? "<h3>Votações nominais do Senado em comissão</h3><ul class='proceeding-list'>" + voteCards + "</ul>" : "<p>Esta consulta não retornou votação nominal de comissão do Senado.</p>") + plenary + senateTimeline + chamberCards + "<details class='proceeding-section'><summary>Respostas oficiais consultadas no Senado (" + sourceUrls.length + ")</summary><div class='proceeding-sources'>" + sourceLinks + "</div></details></article>";
+    }).join("");
+    const noProcess = dossier.status === "no_process" ? "<div class='empty-state'><h2>Nenhum processo listado pelo Senado</h2><p>A consulta foi feita por tipo, número e ano da norma. A Câmara e registros externos não fazem parte deste resultado.</p><a class='section-action' href='" + safeHttpHref(law.source_url) + "' target='_blank' rel='noopener'>Consultar a fonte da norma " + externalIcon + "</a></div>" : "";
+    main.innerHTML = "<div class='content-shell'>" + lawHeader(law, "proceedings", trail) + "<section class='history-layout'><p class='history-intro'>Dados oficiais de tramitação consultados no Senado: proposição geradora, autoria, emendas, documentos e votos nominais publicados. Cada bloco mantém seus links de origem.</p><div class='history-callout' role='status'>" + esc(visibleStatusCopy) + (dossier.checked_at ? "<br/>Consultado em " + datePt(dossier.checked_at) + "." : "") + "</div>" + (active ? "<div class='law-progress'><span class='spinner' aria-hidden='true'></span><div><p class='progress-title'>" + (dossier.status === "queued" ? "Consulta na fila" : "Consultando o Senado") + "</p><p class='progress-copy'>" + esc(dossier.job?.message || statusCopy) + "</p></div></div>" : "") + processCards + noProcess + "<button class='text-button' data-prepare-proceedings='" + esc(slug) + "' " + (active ? "disabled" : "") + ">" + (dossier.status === "not_requested" ? "Buscar tramitação oficial" : "Atualizar tramitação") + "</button></section></div>";
+    main.querySelector("[data-prepare-proceedings]")?.addEventListener("click", async event => {
+      const button = event.currentTarget; button.disabled = true;
+      try {
+        await getJSON(`${API}/laws/${encodeURIComponent(slug)}/proceedings/prepare?refresh=${dossier.status !== "not_requested"}`, { method: "POST" });
+        await renderProceedings(slug);
+      } catch (error) {
+        const banner = document.createElement("div"); banner.className = "error-banner"; banner.textContent = error.message;
+        main.querySelector(".history-layout")?.prepend(banner); button.disabled = false;
+      }
+    });
+    if (active && dossier.job?.id) pollProceedings(slug, dossier.job.id);
+  } catch (error) {
+    main.innerHTML = "<div class='content-shell'>" + lawHeader(law, "proceedings", trail) + "<div class='error-banner'>" + esc(error.message) + "</div></div>";
+  }
+}
+
+async function pollProceedings(slug, jobId) {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    const job = await getJSON(`${API}/jobs/${encodeURIComponent(jobId)}`).catch(() => null);
+    if (job && !["queued", "running"].includes(job.status)) { renderProceedings(slug); return; }
+  }
+  if (location.pathname.endsWith("/tramitacao")) renderProceedings(slug);
+}
+
 async function renderDiff(changeId) {
   let change;
   try { change = await getJSON(`${API}/changes/${encodeURIComponent(changeId)}`); }
@@ -366,9 +459,10 @@ function route() {
   const path = decodeURIComponent(location.pathname);
   const diff = path.match(/^\/diff\/([^/]+)/);
   if (diff) return renderDiff(diff[1]);
-  const law = path.match(/^\/lei\/([^/]+)(?:\/(historico|artigo\/([^/]+)))?/);
+  const law = path.match(/^\/lei\/([^/]+)(?:\/(historico|tramitacao|artigo\/([^/]+)))?/);
   if (law) {
     if (law[2] === "historico") return renderHistory(law[1]);
+    if (law[2] === "tramitacao") return renderProceedings(law[1]);
     if (law[3]) return renderLaw(law[1], law[3]);
     return renderLaw(law[1]);
   }

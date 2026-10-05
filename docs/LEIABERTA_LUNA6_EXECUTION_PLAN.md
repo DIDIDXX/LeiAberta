@@ -772,15 +772,16 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 
 **T23 — Processos, autores, emendas e relatorias.** Depende T17/T19.
 
-- Modelos/API e importadores Câmara/Senado/SAPL conforme vínculo explícito.
-- Piloto LMP comprovado; expansão para corpus com relações disponíveis.
-- Saída: origens documentadas, papéis distintos e indisponibilidade explicada.
+- Piloto implementado sob demanda: procura processo do Senado por tipo/número/ano exatos, importa autoria, emendas, situação e andamentos e arquiva as respostas oficiais.
+- A Câmara só é consultada quando o detalhe do Senado contém referência cruzada CD; a API da Câmara também precisa devolver uma única identidade exata. O piloto carrega autoria, último relator indicado pela situação, andamentos e proposições relacionadas.
+- Ainda não há backfill para todo o catálogo, adapter SAPL de proposições nem coleta histórica de relatorias de todas as Casas.
+- Saída do piloto: processo e fonte conferíveis na aba Tramitação. A expansão do corpus continua pendente.
 
 **T24 — Votações e votos.** Depende T23.
 
-- Importar eventos/votos, modalidade/contexto e totais oficiais, com paginação.
-- UI nominal/simbólica, filtros e links às Casas/fontes.
-- Saída: votos reais vinculados ao objeto correto; nenhuma contagem/nominal inventada.
+- O piloto lê votações de comissão no Senado e sessões/votos nominais da Câmara vinculados pelo processo cruzado oficial. As respostas originais e URLs ficam arquivadas.
+- A aba Tramitação apresenta sessões, data, descrição, voto individual e fonte; sessões sem voto nominal permanecem sem nomes inventados.
+- Não há coleta em lote, cobertura de todas as modalidades/Casas nem garantia de API de votação para todo processo.
 
 ### Fase 6 — operação contínua e conclusão verificável
 
@@ -820,7 +821,7 @@ Executar uma tarefa por vez quando houver dependência. Frentes independentes po
 
 ## 10. Matriz de testes e portões de qualidade
 
-Os testes abaixo fazem parte da **implementação futura**. Esta entrega de planejamento não executou a nova suíte nem implantou correções.
+Esta matriz continua sendo o padrão de conclusão do plano, não uma declaração de que todos os portões foram aprovados. Em 05/10/2026, a suíte local tinha 127 testes passando; o adapter de tramitação também foi consultado contra as APIs reais para a Lei 14.550/2023, encontrando o PL 1604/2022, um vínculo de emenda, 46 andamentos da Câmara e 379 votos nominais. A migration 0010 foi aplicada em SQLite temporário. PostgreSQL/Redis de integração, corpus nacional e auditoria de completude continuam sendo verificações pendentes.
 
 ### 10.1 Fixtures oficiais
 

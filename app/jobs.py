@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.audit import audit_archived_document
 from app.catalog import AMENDING_LAWS
 from app.db import SessionLocal
-from app.models import HistoryEvent, HydrationJob, JobOutbox, Law, LawChange, LawVersion, LegalNode, SourceSnapshot
+from app.models import HistoryEvent, HydrationJob, JobOutbox, Law, LawChange, LawVersion, LegalNode, SenateProceeding, SourceSnapshot
 from app.sources.normas import SourceDocumentUnavailable
 from app.sources.planalto import PARSER_VERSION, ParsedNode, detect_raw_format, extract_paragraphs, fetch_official_html, parse_legal_nodes, source_note_for_law
 
@@ -52,7 +52,7 @@ def _bounded_backfill_limit(session, requested: int, *, job_type: str, source_na
 
 
 def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: bool = False) -> HydrationJob:
-    if job_type not in {"hydrate", "history"}:
+    if job_type not in {"hydrate", "history", "provenance"}:
         raise ValueError("Tipo de job desconhecido.")
     session = SessionLocal()
     try:
@@ -75,6 +75,15 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
             done = session.scalar(select(HydrationJob).where(HydrationJob.law_slug == law_slug, HydrationJob.job_type == job_type, HydrationJob.status == "succeeded").order_by(HydrationJob.updated_at.desc()).limit(1))
             if done:
                 return done
+        if job_type == "provenance" and not refresh:
+            dossier = session.get(SenateProceeding, law_slug)
+            if dossier and dossier.status in {"complete", "partial", "no_process"}:
+                done = session.scalar(select(HydrationJob).where(
+                    HydrationJob.law_slug == law_slug, HydrationJob.job_type == job_type,
+                    HydrationJob.status == "succeeded",
+                ).order_by(HydrationJob.updated_at.desc()).limit(1))
+                if done:
+                    return done
         job = HydrationJob(id=str(uuid.uuid4()), law_slug=law_slug, job_type=job_type,
                            stage_name="queued",
                            message="Aguardando worker" if priority else "Aguardando fila de processamento")
@@ -86,6 +95,11 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
             coverage = dict(stored_law.coverage or {})
             if coverage.get("history") in {None, "not_materialized", "not_requested", "unavailable", "failed"}:
                 coverage["history"] = "queued"
+            stored_law.coverage = coverage
+        if job_type == "provenance":
+            coverage = dict(stored_law.coverage or {})
+            coverage["senate_provenance"] = "queued"
+            coverage.pop("senate_provenance_error", None)
             stored_law.coverage = coverage
         try:
             session.commit()
@@ -444,6 +458,10 @@ def queue_history(law: Law) -> HydrationJob:
     return queue_job(law.slug, "history", priority=True)
 
 
+def queue_provenance(law: Law, *, refresh: bool = False) -> HydrationJob:
+    return queue_job(law.slug, "provenance", refresh=refresh, priority=True)
+
+
 def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
     """Return queued user requests so bulk backfills cannot leave them waiting behind the backlog."""
     if not 1 <= limit <= MAX_INTERACTIVE_JOB_BATCH:
@@ -456,6 +474,7 @@ def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
                 HydrationJob.stage_name == "queued",
                 or_(
                     and_(HydrationJob.job_type == "history", HydrationJob.message == "Aguardando worker"),
+                    and_(HydrationJob.job_type == "provenance", HydrationJob.message == "Aguardando worker"),
                     and_(HydrationJob.job_type == "hydrate", HydrationJob.message == "Aguardando worker"),
                 ),
             )
@@ -713,6 +732,60 @@ def _process_history_job(job_id: str) -> None:
         session.close()
 
 
+def _process_senate_provenance_job(job_id: str) -> None:
+    session = SessionLocal()
+    try:
+        job = session.get(HydrationJob, job_id)
+        law = session.get(Law, job.law_slug) if job else None
+        if not job or not law:
+            raise ValueError("Job ou norma não encontrados.")
+        _update_job(session, job, stage=1, message="Consultando tramitação oficial do Senado")
+        from app.sources.senado_proceedings import fetch_senate_proceedings
+
+        def archive(document) -> None:
+            archive_source_document(
+                law.slug, document.url, hashlib.sha256(document.body).hexdigest(),
+                "application/json; charset=utf-8", document.body, law.current_version_id,
+            )
+
+        data, documents = fetch_senate_proceedings(law.law_type, law.number, law.year,
+                                                   on_document=archive)
+        _update_job(session, job, stage=4, message="Arquivando processos, emendas e votações oficiais")
+        dossier = session.get(SenateProceeding, law.slug)
+        if dossier is None:
+            dossier = SenateProceeding(law_slug=law.slug)
+            session.add(dossier)
+        dossier.status = data["status"]
+        dossier.data = data
+        dossier.checked_at = datetime.now(timezone.utc)
+        dossier.error = ""
+        coverage = dict(law.coverage or {})
+        coverage["senate_provenance"] = data["status"]
+        coverage["senate_provenance_checked_at"] = dossier.checked_at.isoformat()
+        coverage.pop("senate_provenance_error", None)
+        law.coverage = coverage
+        job.status = "succeeded"
+        job.stage = 5
+        job.stage_name = "complete"
+        if data["status"] == "no_process":
+            job.message = "Consulta exata ao Senado concluída; nenhum processo vinculado foi listado"
+        else:
+            process_count = data.get("processes_loaded", 0)
+            amendment_count = sum(len(item.get("amendments", [])) for item in data.get("processes", []))
+            vote_count = sum(len(item.get("committee_votes", [])) + len(item.get("plenary_votes", []))
+                             for item in data.get("processes", []))
+            job.message = (f"{process_count} processo(s), {amendment_count} emenda(s) e "
+                           f"{vote_count} sessão(ões) de votação consultados no Senado")
+        job.error = ""
+        job.lease_until = None
+        job.updated_at = datetime.now(timezone.utc)
+        session.commit()
+        logger.info("senate_provenance_finished law_id=%s status=%s processes=%s documents=%s",
+                    law.slug, dossier.status, len(data.get("processes", [])), len(documents))
+    finally:
+        session.close()
+
+
 def _persist_normas_text_changes(session, law: Law, current_version: LawVersion | None, changes) -> int:
     compared = 0
     source_version_url = current_version.source_url if current_version else law.source_url
@@ -816,6 +889,8 @@ def process_hydration_job(job_id: str) -> bool:
     try:
         if job_type == "history":
             _process_history_job(job_id)
+        elif job_type == "provenance":
+            _process_senate_provenance_job(job_id)
         else:
             _process_hydration_job_unchecked(job_id)
         return True
@@ -852,6 +927,17 @@ def process_hydration_job(job_id: str) -> bool:
                         coverage["history"] = "unavailable" if coverage.get("history") in {None, "queued"} else "partial"
                         coverage["history_error"] = failed.error[:500]
                         law.coverage = coverage
+                    elif failed.job_type == "provenance":
+                        coverage = dict(law.coverage or {})
+                        dossier = retry_session.get(SenateProceeding, law.slug)
+                        if dossier and dossier.status in {"complete", "partial", "no_process"}:
+                            coverage["senate_provenance"] = dossier.status
+                        else:
+                            coverage["senate_provenance"] = "failed"
+                        coverage["senate_provenance_error"] = failed.error[:500]
+                        law.coverage = coverage
+                        if dossier:
+                            dossier.error = failed.error[:1000]
                     elif isinstance(exc, SourceDocumentUnavailable):
                         coverage = dict(law.coverage or {})
                         coverage["structured_text"] = "partial" if law.current_version_id else "unavailable"
