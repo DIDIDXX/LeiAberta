@@ -99,25 +99,24 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] Rever search, sitemap, DB, jobs e fontes; EXPLAIN/queue details indisponíveis.
 - [x] Custos calculados com pricing oficial e limitados como estimate sem invoice.
 
-## Fases 8–9 — merge, deploy e validação pública
+## Fases 8–10 — merge, produção e fechamento (2026-10-05)
 
-- [~] Testes locais verdes, sem migration; backup verificado em execução anterior e rollback documentado.
-- [~] PRs #47–#62 integrados; PRs #63 (readiness/CSP/cap Planalto) e #64 (fontes CSP necessárias) integrados e implantados.
-- [x] PR #62 integrado como `81982a28d36836563acf83b7115af355b31ea830`; deploy web/worker/backup SUCCESS confirmado. Hardening final em `b2054b00aa934a1eea94f5cd5428dbac2e97fcb9` implantado.
-- [~] Serviços Railway online; `/ready` 200 validado em produção; heartbeat Redis do worker e `/worker-health` 200/503 implementados/testados localmente; CI/deploy pendentes.
-- [x] Baseline smoke cobre health, LGDP, Lei 13709, art. 7, Maria da Penha/history e proceedings; art. 121 passou em E2E local.
-- [x] Playwright de produção passou em 390px/1440px, sem overflow nem erros JS/rede; LGDP abriu Art. 7.
+- [x] PRs #62–#68 integrados após Python/E2E/Docker verdes.
+- [x] Código funcional validado no SHA `06646081480668017d288ad89e98545eead82a0c`.
+- [x] Railway web/worker/backup/Redis/Postgres SUCCESS; uma réplica de cada service.
+- [x] `/health`, `/ready` e `/worker-health` 200; heartbeat tem testes 200/503 e TTL de 90s.
+- [x] Smoke público: LGDP, Art. 7, Maria da Penha history parcial, sitemap, stats.
+- [x] Browser 390px/1440px: overflow 0, busca LGDP e Art. 7 ok, console/network limpos.
+- [x] CSP, Planalto size/HTTPS/redirect allowlist, rate budgets Redis e 429/Retry-After implantados.
+- [x] Relatórios, README, runbook, ADR, LICENSE, CONTRIBUTING, SECURITY, Code of Conduct, templates, CI/Dependabot atualizados.
+- [x] Testes: Python 146 passed (1 aviso upstream), E2E 5/5 no CI, imagem Docker build ok.
 
-## Fase 10 — fechamento e entregáveis
+## Pendências externas ou dependentes de dados
 
-- [x] `docs/audits/technical-audit.md`
-- [x] `docs/audits/security-audit.md`
-- [x] `docs/audits/cost-analysis.md`
-- [x] `docs/audits/scale-analysis.md`
-- [x] `docs/runbooks/backup-restore.md`
-- [x] `docs/reports/post-audit-status.md`
-- [x] `README.md` atualizado com setup, cobertura real, fontes e API.
-- [x] `docs/audits/WORKLOG.md` e `CHECKLIST.md` atualizados nesta fase.
-- [~] PR #62 integrado; hardening complementar e atualização pós-deploy deste checklist aguardam CI, merge e deploy.
-- [ ] Relatório final contém URL, SHA, deploy, mudanças, testes, custo, performance, segurança, OSS, produto, pendências e próximos 10 passos.
-- [ ] Pendências identificam dependência concreta; backlog tecnicamente possível não é rotulado como impossibilidade.
+- [!] Não há denominator/fonte nacional que permita provar “todas as leis”; crescer cobertura requer novos catálogos oficiais por jurisdição.
+- [!] SQL read-only/EXPLAIN e fatura não são expostos pelo Railway connector; não há medição precisa de índices/conexões/queue age/custo faturado.
+- [!] `pg-diagnostic` com delete staged exige aceitar no Dashboard Railway usando 2FA; connector recusou autenticação incompleta.
+- [~] Rate limit per-client aguarda validar identidade de IP fornecida pelo proxy; budgets globais Redis protegem o serviço no estado atual.
+- [~] Harmonizar cap/redirect policy de todos os source adapters; Planalto já está fechado e testado.
+
+O restante do checklist das fases 0–7 acima mantém evidências e decisões da auditoria original. Este bloco registra a conclusão após os deploys finais.
