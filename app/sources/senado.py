@@ -14,7 +14,20 @@ TYPE_CODES = {
     "Lei": "LEI", "Lei Complementar": "LCP", "Medida Provisória": "MPV",
     "Emenda Constitucional": "EMC", "Decreto Legislativo": "DLG",
     "Resolução do Senado Federal": "RSF",
-    "Decreto-Lei": "DEL", "Constituição": "CF",
+    "Decreto-Lei": "DEL", "Constituição": "CON-v",
+    "Lei Constitucional": "LCT", "Lei Delegada": "LDL",
+    "Resolução do Congresso Nacional": "RCN",
+    "Resolução da Câmara dos Deputados": "RCD",
+    "Resolução da Revisão Constitucional": "RRC",
+    "Emenda Constitucional de Revisão": "EMR", "Ato Complementar": "ACP",
+    "Decreto": "DEC-n", "Decreto não Numerado": "DEC-sn",
+    "Decreto Legislativo do Congresso Nacional": "DLN",
+    "Constituição Federal vigente": "CON-v", "Constituição Federal anterior": "CON-nv",
+    "Ato das Disposições Constitucionais Transitórias": "ADCT",
+    "Regimento Interno da Assembleia Constituinte": "RAC",
+    "Regimento Interno do Senado Federal": "RISF",
+    "Ato Internacional com Força de Lei": "AILEI",
+    "Ato Internacional com Força de Emenda Constitucional": "AIEMC",
 }
 CHANGE_WORDS = ("altera", "acréscimo", "acrescimo", "revogação", "revogacao", "restabelecimento")
 
@@ -45,7 +58,8 @@ def _date(value: str) -> date | None:
         return None
 
 
-def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) -> tuple[bytes, str]:
+def fetch_norm_xml(law_type: str, number: str, year: int, *, source_url: str | None = None,
+                   timeout: int = 25) -> tuple[bytes, str]:
     type_code = TYPE_CODES.get(law_type)
     if not type_code:
         raise ValueError(f"Tipo normativo ainda não mapeado no catálogo Senado: {law_type}")
@@ -56,6 +70,10 @@ def fetch_norm_xml(law_type: str, number: str, year: int, *, timeout: int = 25) 
     normalized_display = re.sub(r"[^\d-]", "", number)
     normalized_number = normalized_display.split("-", 1)[0]
     if not normalized_number:
+        if source_url:
+            from app.sources.normas import fetch_senado_detail_xml
+
+            return fetch_senado_detail_xml(source_url, law_type, number, year, timeout=timeout), source_url
         raise ValueError("O catálogo Senado exige número para resolver esta norma.")
     headers = {"User-Agent": "LeiAberta/0.2 (+fontes oficiais)", "Accept": "application/xml"}
     list_url = f"{BASE_URL}/legislacao/lista?" + urllib.parse.urlencode({"tipo": type_code, "numero": normalized_number, "ano": year})

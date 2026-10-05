@@ -117,6 +117,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
             "O registro não contém uma URN federal de legislação reconhecida.",
             "Os metadados do Normas.leg.br não correspondem à URN solicitada.",
             "O registro oficial não possui uma representação HTML de texto integral.",
+            "A identidade da norma não contém número reconhecível.",
         )
         no_prior_job = latest_hydration_id.is_(None)
         retry_after_repair = and_(
@@ -362,7 +363,9 @@ def _process_history_job(job_id: str) -> None:
             from app.sources.normas import fetch_normas_history
 
             _update_job(session, job, stage=1, message="Consultando histórico oficial do Senado")
-            body, list_url = fetch_norm_xml(law.law_type, law.number, law.year)
+            body, list_url = fetch_norm_xml(
+                law.law_type, law.number, law.year, source_url=law.fetch_url,
+            )
             checksum = hashlib.sha256(body).hexdigest()
             session.commit()
             archive_source_document(law.slug, list_url, checksum, "application/xml; charset=utf-8",

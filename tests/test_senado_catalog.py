@@ -6,6 +6,17 @@ from app.models import Law, SourceRegistry
 FIXTURES = Path(__file__).parent / "fixtures" / "official"
 
 
+def _senado_list_record(*, remote_id="12345", year=2026, number="",
+                        title="Decreto de 21/04/2026"):
+    return (
+        f"<Lista><documentos><documento id='{remote_id}'>"
+        f"<anoassinatura>{year}</anoassinatura><numero>{number}</numero>"
+        f"<normaNome>{title}</normaNome><ementa>Norma oficial de teste.</ementa>"
+        f"<dataassinatura>21/04/{year}</dataassinatura><norma/>"
+        f"</documento></documentos></Lista>"
+    ).encode()
+
+
 def test_senado_list_parser_preserves_official_identity_and_signature_date():
     body = (FIXTURES / "senado-list-lei14550-2023.xml").read_bytes()
     [record] = parse_law_catalog(body, minimum_records=1)
@@ -31,6 +42,37 @@ def test_senado_catalog_parses_other_normative_types_and_measure_sequences():
     sequence = next(item for item in mpv if item.title.startswith("Medida Provisória nº 2.206-1"))
     assert sequence.number == "2.206-1"
     assert sequence.remote_id == "559113"
+
+
+def test_senado_catalog_parses_additional_and_unnumbered_official_classes():
+    [decree] = parse_law_catalog(
+        _senado_list_record(), type_code="DEC-sn", minimum_records=1,
+    )
+    assert (decree.type_code, decree.law_type, decree.number, decree.year) == (
+        "DEC-sn", "Decreto não Numerado", "s/n", 2026,
+    )
+
+    [delegated] = parse_law_catalog(
+        _senado_list_record(remote_id="12346", year=1992, number="13",
+                            title="Lei Delegada nº 13 de 27/08/1992"),
+        type_code="LDL", minimum_records=1,
+    )
+    assert (delegated.law_type, delegated.number, delegated.year) == ("Lei Delegada", "13", 1992)
+
+
+def test_senado_year_partition_parser_allows_empty_year_and_rejects_wrong_year():
+    assert parse_law_catalog(
+        b"<documentos />", type_code="DEC-n", minimum_records=0,
+        expected_year=1800, allow_empty=True,
+    ) == []
+
+    import pytest
+
+    with pytest.raises(ValueError, match="partição Senado de 2025 contém registro de 2026"):
+        parse_law_catalog(
+            _senado_list_record(), type_code="DEC-n", minimum_records=0,
+            expected_year=2025, allow_empty=True,
+        )
 
 
 def test_senado_catalog_attaches_seed_and_inserts_new_record_idempotently(db_session, add_law):

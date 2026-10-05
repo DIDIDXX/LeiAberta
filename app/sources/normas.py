@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from http.client import IncompleteRead
 from dataclasses import dataclass
 from datetime import date
 from urllib.error import HTTPError
@@ -62,18 +64,24 @@ def _fetch(url: str, *, accept: str, timeout: int, maximum: int = MAX_SOURCE_BYT
         url,
         headers={"Accept": accept, "User-Agent": "LeiAberta/0.3 (+fontes oficiais)"},
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(maximum + 1)
-            if response.status != 200:
-                raise SourceDocumentUnavailable(f"A fonte oficial respondeu HTTP {response.status}.")
-            if len(body) > maximum:
-                raise SourceDocumentUnavailable("A resposta oficial excede o limite de tamanho permitido.")
-            return body, response.geturl(), response.headers.get("Content-Type", "")
-    except HTTPError as exc:
-        if exc.code in {400, 404, 410, 422}:
-            raise SourceDocumentUnavailable(f"A fonte oficial não disponibiliza este documento (HTTP {exc.code}).") from exc
-        raise
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read(maximum + 1)
+                if response.status != 200:
+                    raise SourceDocumentUnavailable(f"A fonte oficial respondeu HTTP {response.status}.")
+                if len(body) > maximum:
+                    raise SourceDocumentUnavailable("A resposta oficial excede o limite de tamanho permitido.")
+                return body, response.geturl(), response.headers.get("Content-Type", "")
+        except HTTPError as exc:
+            if exc.code in {400, 404, 410, 422}:
+                raise SourceDocumentUnavailable(f"A fonte oficial não disponibiliza este documento (HTTP {exc.code}).") from exc
+            raise
+        except (IncompleteRead, TimeoutError, ConnectionError, OSError):
+            if attempt == 2:
+                raise
+            time.sleep(0.5 * (2 ** attempt))
+    raise RuntimeError("As tentativas de leitura da fonte oficial foram encerradas sem resposta.")
 
 
 def _expected_identity(law_type: str, number: str, year: int) -> tuple[str, str, int]:
@@ -81,7 +89,8 @@ def _expected_identity(law_type: str, number: str, year: int) -> tuple[str, str,
     if not type_code:
         raise SourceDocumentUnavailable(f"O tipo {law_type!r} não está mapeado no catálogo do Senado.")
     display_number = re.sub(r"[^\d-]", "", number)
-    if not display_number:
+    nonnumbered = number.strip().casefold() in {"s/n", "sn", "s.n.", "sem número", "sem numero"}
+    if not display_number and not nonnumbered:
         raise SourceDocumentUnavailable("A identidade da norma não contém número reconhecível.")
     return type_code, display_number, year
 
@@ -99,6 +108,14 @@ def _fetch_senado_detail(source_url: str, expected: tuple[str, str, int], *, tim
     body, final_url, _content_type = _fetch(source_url, accept="application/xml", timeout=timeout)
     if urllib.parse.urlparse(final_url).hostname != SENATE_DATA_HOST:
         raise SourceDocumentUnavailable("O Senado redirecionou para um domínio não reconhecido.")
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError as exc:
+        raise SourceDocumentUnavailable("O detalhe do Senado não veio em XML válido.") from exc
+    documents = root.findall("./documentos/documento")
+    requested_id = urllib.parse.urlparse(source_url).path.rsplit("/", 1)[-1]
+    if len(documents) != 1 or documents[0].get("id") != requested_id:
+        raise SourceDocumentUnavailable("O detalhe do Senado não corresponde ao identificador remoto solicitado.")
     return body
 
 
@@ -115,14 +132,16 @@ def _urn_from_senado_xml(body: bytes, expected: tuple[str, str, int]) -> str:
         raise SourceDocumentUnavailable("O detalhe do Senado não inclui a identificação da norma.")
 
     type_code, expected_number, expected_year = expected
-    actual_type = (identity.findtext("tipo") or "").strip().split("-", 1)[0]
+    actual_type = (identity.findtext("tipo") or "").strip()
     actual_base = "".join(char for char in (identity.findtext("numero") or "") if char.isdigit())
     actual_reissue = "".join(char for char in (identity.findtext("reedicao") or "") if char.isdigit())
     actual_number = f"{actual_base}-{actual_reissue}" if actual_reissue else actual_base
     date_text = (identity.findtext("dataassinatura") or "").strip()
     year_match = re.search(r"\b(\d{4})\b", date_text)
     actual_year = int(year_match.group(1)) if year_match else None
-    if actual_type != type_code or actual_number != expected_number or actual_year != expected_year:
+    type_matches = actual_type == type_code or actual_type.split("-", 1)[0] == type_code
+    number_matches = actual_number == expected_number if expected_number else not actual_number
+    if not type_matches or not number_matches or actual_year != expected_year:
         raise SourceDocumentUnavailable(
             f"A identidade retornada pelo Senado diverge da norma pedida: "
             f"{actual_type} {actual_number}/{actual_year} != {type_code} {expected_number}/{expected_year}."
@@ -136,6 +155,21 @@ def _urn_from_senado_xml(body: bytes, expected: tuple[str, str, int]) -> str:
     if not urn.startswith(("urn:lex:br:federal:", "urn:lex:br:senado.federal:")):
         raise SourceDocumentUnavailable("O registro não contém uma URN de legislação reconhecida.")
     return urn
+
+
+def fetch_senado_detail_xml(
+    source_url: str,
+    law_type: str,
+    number: str,
+    year: int,
+    *,
+    timeout: int = 30,
+) -> bytes:
+    """Fetch one Senate record by its persisted remote URL and validate its identity."""
+    expected = _expected_identity(law_type, number, year)
+    body = _fetch_senado_detail(source_url, expected, timeout=timeout)
+    _urn_from_senado_xml(body, expected)
+    return body
 
 
 def _fetch_normas_metadata(urn: str, *, timeout: int) -> tuple[dict, bytes, str]:

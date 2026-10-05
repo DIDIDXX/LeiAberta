@@ -103,6 +103,7 @@ def run() -> None:
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
     # Keep catalog work bounded while the large state and district catalogs sync.
     catalog_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="catalog-sync")
+    senado_sync_future = None
     alesp_sync_future = None
     sinj_sync_future = None
     sapl_sync_future = None
@@ -116,6 +117,17 @@ def run() -> None:
     next_subnational_batch = time.monotonic()
     while True:
         try:
+            if senado_sync_future is not None and senado_sync_future.done():
+                try:
+                    result = senado_sync_future.result()
+                    logger.info("senado_catalog_refresh_finished listed=%s skipped=%s errors=%s",
+                                result["listed"], len(result["skipped_fresh"]), len(result["errors"]))
+                    if result["errors"]:
+                        next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
+                except Exception:
+                    logger.exception("senado_catalog_refresh_failed")
+                    next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
+                senado_sync_future = None
             if alesp_sync_future is not None and alesp_sync_future.done():
                 try:
                     result = alesp_sync_future.result()
@@ -173,12 +185,11 @@ def run() -> None:
                 try:
                     from app.catalog_sync.senado import sync_senado_law_catalog
 
-                    senado = sync_senado_law_catalog()
+                    if senado_sync_future is None:
+                        senado_sync_future = catalog_executor.submit(sync_senado_law_catalog)
+                        logger.info("senado_catalog_refresh_started")
                 except Exception:
-                    logger.exception("senado_catalog_refresh_failed")
-                else:
-                    logger.info("senado_catalog_refresh_finished listed=%s skipped=%s errors=%s",
-                                senado["listed"], len(senado["skipped_fresh"]), len(senado["errors"]))
+                    logger.exception("senado_catalog_refresh_start_failed")
                 try:
                     from app.catalog_sync.ibge import sync_ibge_jurisdictions
 
