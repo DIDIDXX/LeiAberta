@@ -18,7 +18,7 @@ class Law(Base):
     jurisdiction: Mapped[str] = mapped_column(String(24), default="federal", index=True)
     state_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
     municipality: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    law_type: Mapped[str] = mapped_column(String(48))
+    law_type: Mapped[str] = mapped_column(String(128))
     number: Mapped[str] = mapped_column(String(96), index=True)
     year: Mapped[int] = mapped_column(Integer, index=True)
     external_source_id: Mapped[str | None] = mapped_column(String(96), unique=True, nullable=True)

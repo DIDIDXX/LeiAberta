@@ -23,6 +23,7 @@ logger = logging.getLogger("leiaberta.jobs")
 QUEUE_NAME = "leiaberta:hydrate"
 QUEUE_GROUP = "leiaberta-workers"
 ACTIVE_STATUSES = ["queued", "running"]
+MAX_INTERACTIVE_JOB_BATCH = 24
 _SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
 
 
@@ -261,8 +262,8 @@ def queue_history(law: Law) -> HydrationJob:
 
 def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
     """Return queued user requests so bulk backfills cannot leave them waiting behind the backlog."""
-    if not 1 <= limit <= 16:
-        raise ValueError("A consulta prioritária aceita de 1 a 16 jobs.")
+    if not 1 <= limit <= MAX_INTERACTIVE_JOB_BATCH:
+        raise ValueError(f"A consulta prioritária aceita de 1 a {MAX_INTERACTIVE_JOB_BATCH} jobs.")
     with SessionLocal() as session:
         return list(session.scalars(
             select(HydrationJob.id)
