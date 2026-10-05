@@ -17,7 +17,6 @@ python scripts/audit_archived_documents.py --limit 1000
 if ! python scripts/sync_jurisdictions.py; then
   echo "IBGE jurisdiction sync failed; serving the last stored inventory" >&2
 fi
-if ! python scripts/sync_senado_catalog.py; then
-  echo "Senate legal catalog sync failed; serving the last stored catalogs" >&2
-fi
+# The worker refreshes Senate catalogs asynchronously so large annual partitions
+# do not block the web process from opening its health-check port.
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
