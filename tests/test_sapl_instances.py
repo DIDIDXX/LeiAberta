@@ -146,6 +146,29 @@ def test_sapl_history_uses_the_matching_municipal_api_host(monkeypatch):
 
 ALAGOAS = next(item for item in SAPL_INSTANCES if item.source_id == "state:AL:sapl")
 
+STATE_SAPL_EXPECTED = {
+    "AC": ("sapl.al.ac.leg.br", "https://www.al.ac.leg.br/"),
+    "AL": ("sapl.al.al.leg.br", "https://www.al.al.leg.br/"),
+    "AM": ("sapl.al.am.leg.br", "https://www.aleam.gov.br/"),
+    "MT": ("sapl.al.mt.leg.br", "https://www.al.mt.gov.br/"),
+    "PB": ("sapl.al.pb.leg.br", "https://www.al.pb.leg.br/"),
+    "PI": ("sapl.al.pi.leg.br", "https://www.al.pi.leg.br/"),
+    "RO": ("sapl.al.ro.leg.br", "https://www.al.ro.leg.br/"),
+    "TO": ("sapl.al.to.leg.br", "https://www.al.to.leg.br/"),
+}
+
+
+def test_verified_state_sapl_installations_are_scoped_to_their_uf():
+    states = {item.state_code: item for item in SAPL_INSTANCES if item.scope_kind == "state"}
+    assert set(STATE_SAPL_EXPECTED) <= states.keys()
+    for uf, (host, authority_url) in STATE_SAPL_EXPECTED.items():
+        item = states[uf]
+        assert item.host == f"https://{host}"
+        assert item.authority_url == authority_url
+        assert item.source_id == f"state:{uf}:sapl"
+        assert item.jurisdiction_id == f"state:{uf}"
+        assert item.federation_scope_filter == "E"
+
 
 def test_alagoas_state_sapl_keeps_only_verified_state_records():
     assert ALAGOAS.jurisdiction_id == "state:AL"
