@@ -1,33 +1,36 @@
-# LeiAberta — post-audit execution status
+# LeiAberta — status final de execução
 
-Date: 2026-10-05. Branch: `codex/luna6-autonomous-audit-20261005`, based on `94807cd7b0673384f6d3428e7c7fc16722d634e6`.
+Data: 2026-10-05. Repositório: `DIDIDXX/LeiAberta`. URL pública: https://web-production-12e95.up.railway.app.
 
-## Completed in this branch
+## Produção confirmada após PR #62
 
-- Established persistent worklog/checklist and read the prior execution plan, requirements, report, source/research artifacts, migrations, models, jobs, app/search, source adapters, startup, UI, tests and deployment configuration.
-- Recorded production baseline and Railway metrics/topology, including 5 GB volumes and a 3.053 GB Postgres data volume.
-- Fixed the three demonstrated public-path scale problems in code: grouped stats query, capped fuzzy suggestion candidates, sitemap index + 10k URL fragments.
-- Added law-specific canonical/Open Graph metadata and up to ten escaped law articles in `noscript`; existing JavaScript UI/API paths remain.
-- Added conservative response security headers and moved the web container to UID 10001.
-- Added permissive MIT license, contribution/security/conduct docs, bug/legal-data/source issue templates, PR template, GitHub Actions test/E2E/image jobs and monthly Dependabot updates.
-- Added technical, security, cost, scale and product reports, ADR and backup/restore runbook. README coverage claims remain explicit that nationwide completeness is not achieved.
-- Python suite: 131 passed, one Starlette/httpx deprecation warning. Final Playwright suite 5/5 passed in 32.0 s, including 390px mobile homepage/search.
-- Docker image built successfully after mounting the environment's proxy CA only for dependency installation. Container ran as UID 10001 and `/health` returned 200. The temporary image/container were local only.
+- SHA implantado: `81982a28d36836563acf83b7115af355b31ea830` (`Prevent horizontal overflow on mobile law pages`).
+- Deploys SUCCESS: web `679ff153-080e-4ee1-9e88-27b2a52c7a77`; worker `034f637d-1546-461e-9d36-a69861d7582c`; backup `6c2e5d02-39cb-4b38-a08f-56acab1cd3bc`. Web e worker estão online, uma réplica cada; Postgres e Redis seguem SUCCESS.
+- Playwright real em viewport 390px e 1440px: busca “LGDP” encontrou Lei 13.709/2018, Art. 7 abriu, scroll width = viewport width, sem erros de console, pageerror ou request.
+- Smoke público: `/health` 200 em 0,395s; typo search 200 em 0,390s; busca `art 7 LGPD` 200 em 2,705s sob execução concorrente; lei HTML 200 em 0,396s; nodes Art. 7 200 em 0,409s; histórico Maria da Penha 200 em 0,416s; sitemap index 200 em 0,485s; stats 200 em 0,896s. São amostras individuais, não p95.
+- A UI de histórico agora permite solicitar preparação e apresenta evidência parcial com transparência. Maria da Penha permanece parcial: 65 relações, 62 sem texto pareado; nenhum diff foi inventado para essas relações.
 
-## Outstanding release actions
+## Correções acumuladas integradas
 
-1. Python + E2E pass locally; commit and CI are the remaining code verification steps.
-2. PR #47 is open. Its first CI run exposed that Playwright referenced `.venv/bin` only; `playwright.config.js` now selects the local venv when present and the runner's Python otherwise. Local E2E passed 5/5 after the fix; CI rerun #2 is running before merge.
-3. After deploy, remeasure `/api/stats`, typo search, sitemap index and shards; verify health, web/worker/Redis/Postgres and migrations.
-4. Check the application still answers via configured public domain and confirm new law page content. User-facing exact metrics/cost remain estimates until billing and DB query access exist.
-5. A Railway diagnostic Function/service unexpectedly created during earlier audit tooling remains only as a staged deletion. Railway API refused to commit that removal because it requires 2FA from the Railway Dashboard. It has no volume and is not in the LeiAberta deployment path. Do not attempt to bypass 2FA; the production user must apply/remove that staged diagnostic patch in Railway Dashboard.
+- Corrigidos os gargalos comprovados de `/api/stats`, sugestões typo e sitemap; adicionados canonical/metadata e conteúdo sem JavaScript limitado.
+- Melhorias de busca mantêm o alias oficial da LGPD acima do falso positivo “LGDP”.
+- Adicionados headers básicos, CSP, imagem Docker non-root, CI, Dependabot, licença MIT, guias OSS e runbook de backup/restore.
+- Corrigido overflow de textos longos na página mobile de lei; CI do PR #62 passou (Python, E2E, imagem Docker).
+- Testes locais do hardening complementar atual: 138 Python e 5 Playwright E2E passaram; uma advertência upstream de depreciação Starlette/httpx continua.
 
-## Limits that remain
+## Hardening complementar em andamento
 
-- The national legal corpus is not complete: only enumerated official sources can be ingested, and there is no single complete national denominator for municipal/state laws. The historical inventory showed 833,109 catalog rows, not all laws; source registries and text coverage remain partial. Reaching full coverage requires continued official source discovery, source-specific enumeration/terms and legal-text validation.
-- The connected Railway API exposes metrics/configuration but not SQL shell/query execution or billing invoices. Exact relation/index sizes, queue ages/connections and invoice cannot be confirmed; estimates and uncertainty are documented.
-- T-08 public rate limiting, T-09 production search indexes/EXPLAIN, T-13 uniform fetch size/redirect policy, T-04 volume growth policy, and T-05 region trade-off remain open with explicit next evidence. These are not marked “fixed.”
+Uma branch/PR subsequente contém CSP same-origin, `/ready` (DB + Alembic heads), limite de 25 MB para fetch do Planalto e testes. No momento deste registro ainda precisa CI, merge, deploy e smoke; não contar como funcionalidade publicada até completar esse ciclo.
 
-## Final deploy status
+## Pendências reais e limites
 
-Not deployed from this branch at report creation. Current production remains at web `7465fadf-1cab-4c07-81a3-d4d4cf96da73` and worker `4a9523b7-d3ec-4c89-8d8e-ddfdae888b00`, both SUCCESS at last inventory. After PR merge, replace this line with merged SHA, deployment IDs/status and production measurements.
+1. **“Todas as leis” do Brasil não é uma meta verificável com as fontes disponíveis:** não há denominador nacional único e o inventário inclui leis federais e integrações estaduais/municipais selecionadas, com cobertura e materialização incompletas. Expandir estados/municípios exige descoberta e validação fonte a fonte; nunca apresentar catálogo parcial como completo.
+2. **Accesso de auditoria:** Railway connector não oferece SQL read-only/EXPLAIN nem fatura; tamanhos por tabela/índice, conexões, queue age, invoice e p95 controlado não foram medidos. Volume Postgres observado: 3,053/5 GB na baseline. São limitações de ferramenta/sessão, não prova de ausência de risco.
+3. **Identidade de cliente e rate limit:** a origem confiável de client IP no proxy Railway ainda não foi comprovada; limiter por IP baseado em `X-Forwarded-For` sem essa validação seria spoofável. Dedupe e limites da fila seguem ativos.
+4. **Redirect dos fetchers:** Planalto agora tem cap de corpo; validação uniforme de host final/scheme e limites de todos os adapters ainda requer fixtures de cada fonte oficial/mirror.
+5. **Recurso diagnóstico Railway:** remoção está staged, mas efetivação exige 2FA via Railway Dashboard; a ferramenta MCP recusou por falta de 2FA. Serviço sem volume e fora do caminho do produto.
+6. **Heartbeat do worker:** Railway mostra o worker Online; falta heartbeat de aplicação separado com regra de frescor.
+
+## Próxima ação
+
+Concluir CI/merge/deploy do hardening complementar, validar `/ready` em produção e repetir o smoke mobile. Depois publicar este status com o SHA final. Aplicar a exclusão staged do serviço diagnóstico no Dashboard com 2FA quando o responsável acessar a conta.

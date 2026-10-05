@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import case, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from xml.sax.saxutils import escape
 
@@ -50,6 +51,12 @@ async def baseline_security_headers(request: Request, call_next):
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+    )
     if request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip() == "https":
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
     return response
@@ -96,6 +103,22 @@ def _node_payload(node: LegalNode) -> dict:
 def health(session: Session = Depends(get_session)):
     session.execute(text("SELECT 1"))
     return {"status": "ok", "service": "leiaberta-api"}
+
+
+@app.get("/ready", include_in_schema=False)
+def readiness(session: Session = Depends(get_session)):
+    """Readiness check: the database is reachable and has the current schema."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    try:
+        applied_heads = set(session.scalars(text("SELECT version_num FROM alembic_version")).all())
+    except SQLAlchemyError as exc:
+        raise HTTPException(status_code=503, detail="Database schema is unavailable") from exc
+    expected_heads = set(ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_heads())
+    if applied_heads != expected_heads:
+        raise HTTPException(status_code=503, detail="Database schema is not current")
+    return {"status": "ready", "service": "leiaberta-api"}
 
 
 @app.get("/api/health")

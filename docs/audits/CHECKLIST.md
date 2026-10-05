@@ -39,10 +39,10 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 12. Cache/ETag revisado; adiar cache HTTP até especificar invalidação e estado dinâmico.
 - [!] 13. Postgres storage: volume medido; relation size/bloat/connections indisponíveis via connector.
 - [!] 14. Pool: configuração default encontrada; dimensionamento requer `max_connections`/`pg_stat_activity` indisponíveis.
-- [x] 15. Fontes revisadas por famílias; limites heterogêneos mapeados, Planalto/Senado permanecem com cap pendente.
-- [~] 16. SSRF: allowlists por adapters confirmadas; fetcher Planalto necessita validação da URL final/redirecionamentos.
+- [x] 15. Fontes revisadas por famílias; Planalto agora rejeita corpos acima de 25 MB; limites Senado permanecem pendentes.
+- [~] 16. SSRF: Planalto agora tem limite de 25 MB testado; validação host/scheme da URL final ainda pendente.
 - [~] 17. Rate limit/abuso: dedupe/backpressure existentes; client rate limiter pendente IP confiável/edge support.
-- [~] 18. Headers corrigidos; CSP e raw query logs ainda pendentes; nenhuma credencial exportada.
+- [x] 18. Headers e CSP same-origin aplicados com teste; raw query logging permanece sob revisão; nenhuma credencial exportada.
 - [x] 19. Docker non-root, `.dockerignore`, build e container smoke executados.
 - [~] 20. package-lock presente, Dependabot criado; Python requirements ainda não travados.
 - [~] 21. CI PR workflow criado; aguarda branch remota e checks.
@@ -58,7 +58,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 31. Provenance relacional revisada; não adicionar graph DB sem necessidade medida.
 - [~] 32. Limites de query/docs revisados; API versioning/paginação/rate-limit faltam.
 - [~] 33. Queue observability não exposta pela integração; recomendações/limiares documentados.
-- [~] 34. Health atual é liveness/DB only; readiness schema/worker heartbeat ainda falta.
+- [~] 34. `/ready` agora confirma DB + heads Alembic (testes 200/503); readiness deploy e worker heartbeat ainda faltam.
 - [x] 35. Startup sem sync longo; worker cuida de atualização em background.
 - [~] 36. Fixtures/E2E cobrem funções-chave; concorrência e p50/p95 ainda sem ambiente de carga isolado.
 - [x] 37. Sem framework, DB, fila, região ou vendor de observability novo.
@@ -73,8 +73,8 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 
 ## Fases 4–5 — correções P0/P1
 
-- [x] Corrigir os P1 comprovados e seguros nesta branch; nenhum P0 comprovado.
-- [x] Aplicar P1 de alto ROI/baixo risco: stats, fuzzy bound, sitemap, SEO, headers, container/OSS/CI.
+- [x] Corrigir P1 operacionais seguros: stats, typo, sitemap, SEO, CSP, readiness, container/OSS/CI; limites de fonte aplicados ao Planalto.
+- [x] Aplicar P1 de alto ROI/baixo risco: stats, fuzzy bound, sitemap, SEO, headers/CSP, readiness, container/OSS/CI.
 - [x] Para mudanças, adicionar teste, documentar risco/rollback; commit e CI aguardam PR.
 - [x] Nenhuma migration; evitar risco de lock/disk e não fazer backfill no startup.
 - [~] API/E2E/container/hydration/history passaram; falhas Redis/PG/restart/concurrency permanecem para testes futuros.
@@ -102,11 +102,11 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 ## Fases 8–9 — merge, deploy e validação pública
 
 - [~] Testes locais verdes, sem migration; backup verificado em execução anterior e rollback documentado.
-- [ ] Criar PR isolado; aguarda commit final remoto.
-- [ ] Acompanhar SHA/deploys após merge.
-- [ ] Validar health e readiness separadamente, worker/DB/Redis/fila e logs pós-deploy.
+- [~] PRs #47–#62 integrados; PR adicional de CSP, readiness e cap Planalto está em preparação e requer CI/merge/deploy.
+- [x] PR #62 integrado como `81982a28d36836563acf83b7115af355b31ea830`; deploy web/worker/backup SUCCESS confirmado. Novo hardening ainda sem deploy.
+- [~] Serviços Railway online; `/ready` implementado/testado localmente, ainda aguarda produção. Worker heartbeat app-level continua ausente.
 - [x] Baseline smoke cobre health, LGDP, Lei 13709, art. 7, Maria da Penha/history e proceedings; art. 121 passou em E2E local.
-- [~] SEO/no-JS mudou; Playwright mobile passou localmente. Produção pós-deploy aguarda merge.
+- [x] Playwright de produção passou em 390px/1440px, sem overflow nem erros JS/rede; LGDP abriu Art. 7.
 
 ## Fase 10 — fechamento e entregáveis
 
@@ -118,6 +118,6 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] `docs/reports/post-audit-status.md`
 - [x] `README.md` atualizado com setup, cobertura real, fontes e API.
 - [x] `docs/audits/WORKLOG.md` e `CHECKLIST.md` atualizados nesta fase.
-- [ ] Todos os documentos/ADRs/testes/code changes commitados e branch/PR integrados.
+- [~] PR #62 integrado; hardening complementar e atualização pós-deploy deste checklist aguardam CI, merge e deploy.
 - [ ] Relatório final contém URL, SHA, deploy, mudanças, testes, custo, performance, segurança, OSS, produto, pendências e próximos 10 passos.
 - [ ] Pendências identificam dependência concreta; backlog tecnicamente possível não é rotulado como impossibilidade.

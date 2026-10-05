@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+from sqlalchemy import text
 from fastapi.testclient import TestClient
 
 from app.db import get_session
@@ -33,6 +35,71 @@ def test_public_responses_include_baseline_security_headers():
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
     assert response.headers["strict-transport-security"] == "max-age=31536000"
+    csp = response.headers["content-security-policy"]
+    assert "script-src 'self'" in csp
+    assert "object-src 'none'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+def test_readiness_requires_current_alembic_schema(db_session):
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    expected_heads = ScriptDirectory.from_config(Config("alembic.ini")).get_heads()
+    db_session.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+    db_session.execute(
+        text("INSERT INTO alembic_version (version_num) VALUES (:head)"),
+        {"head": expected_heads[0]},
+    )
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/ready")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+
+
+def test_readiness_rejects_missing_alembic_schema(db_session):
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/ready")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 503
+
+
+def test_planalto_fetch_rejects_oversized_response(monkeypatch):
+    from app.sources import planalto
+
+    class Response:
+        status = 200
+        headers = {"Content-Type": "text/html"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, size):
+            assert size == planalto.MAX_SOURCE_BYTES + 1
+            return b"x" * size
+
+        def geturl(self):
+            return "https://www.planalto.gov.br/ccivil_03/leis/l13709.htm"
+
+    monkeypatch.setattr(planalto.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    with pytest.raises(ValueError, match="excede o limite"):
+        planalto.fetch_official_html("https://www.planalto.gov.br/ccivil_03/leis/l13709.htm")
 
 
 def test_sitemap_uses_configured_public_url(db_session, add_law, monkeypatch):
