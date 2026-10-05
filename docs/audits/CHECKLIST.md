@@ -45,7 +45,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 18. Headers e CSP same-origin aplicados com teste; raw query logging permanece sob revisão; nenhuma credencial exportada.
 - [x] 19. Docker non-root, `.dockerignore`, build e container smoke executados.
 - [~] 20. package-lock presente, Dependabot criado; Python requirements ainda não travados.
-- [~] 21. CI PR workflow criado; aguarda branch remota e checks.
+- [x] 21. CI PR workflow integrado; checks Python/E2E/Docker verdes nos PRs #66–#68.
 - [x] 22. Warning Alembic corrigido; Ruff/type checks ficam para evolução gradual.
 - [x] 23. OSS: MIT, CONTRIBUTING, SECURITY, Code of Conduct, templates e ADR criados.
 - [x] 24. CONTRIBUTING cobre setup, testes, migrations, adapters, provenance, jurisdições, fixtures e IDs.
@@ -58,7 +58,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [x] 31. Provenance relacional revisada; não adicionar graph DB sem necessidade medida.
 - [~] 32. Limites de query/docs revisados; API versioning/paginação e fairness por cliente permanecem no roadmap; budgets globais ativos.
 - [~] 33. Queue observability não exposta pela integração; recomendações/limiares documentados.
-- [~] 34. `/ready` confirma DB + Alembic heads em teste e produção; worker heartbeat separado permanece ausente.
+- [x] 34. `/ready` confirma DB + Alembic heads; heartbeat Redis do worker e `/worker-health` 200/503 foram implantados e validados.
 - [x] 35. Startup sem sync longo; worker cuida de atualização em background.
 - [~] 36. Fixtures/E2E cobrem funções-chave; concorrência e p50/p95 ainda sem ambiente de carga isolado.
 - [x] 37. Sem framework, DB, fila, região ou vendor de observability novo.
@@ -93,7 +93,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 
 ## Fase 7 — custo/performance/escala finais
 
-- [~] Código/endpoint local revistos; métricas de produção precisam novo deploy.
+- [x] Repetir smoke e métricas de latência após o deploy: endpoints de saúde, busca, histórico, sitemap e stats respondem; medições amostrais, não p95.
 - [x] Gerar `docs/audits/cost-analysis.md` com rate proxy, premissas e cenários.
 - [x] Gerar `docs/audits/scale-analysis.md` com operating point, limites e plano p50/p95.
 - [x] Rever search, sitemap, DB, jobs e fontes; EXPLAIN/queue details indisponíveis.
@@ -101,15 +101,16 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 
 ## Fases 8–10 — merge, produção e fechamento (2026-10-05)
 
-- [x] PRs #62–#68 integrados após Python/E2E/Docker verdes.
-- [x] Código funcional validado no SHA `06646081480668017d288ad89e98545eead82a0c`.
-- [x] Railway web/worker/backup/Redis/Postgres SUCCESS; uma réplica de cada service.
+- [x] PRs #62–#69 integrados após checks Python/E2E/Docker verdes.
+- [x] Código funcional em `06646081480668017d288ad89e98545eead82a0c`; SHA principal/deploy atual `bc9456567a76eb2836f55c4e48965a1861729680` inclui fechamento de documentação.
+- [x] Railway web (`6647d401-5f3f-4c99-b4a6-a5ed73625c5f`), worker (`40a598c1-cf58-4626-88ce-3775bd4d3ab8`), backup (`dc1bc8f5-9f90-4231-96ce-a54f980ca860`), Redis e Postgres SUCCESS; uma réplica de cada serviço. O monitor registra duas falhas antigas de deploy (web/worker, 16:16 UTC), seguidas por deploys SUCCESS às 17:49 UTC; nenhuma falha ativa.
 - [x] `/health`, `/ready` e `/worker-health` 200; heartbeat tem testes 200/503 e TTL de 90s.
 - [x] Smoke público: LGDP, Art. 7, Maria da Penha history parcial, sitemap, stats.
 - [x] Browser 390px/1440px: overflow 0, busca LGDP e Art. 7 ok, console/network limpos.
 - [x] CSP, Planalto size/HTTPS/redirect allowlist, rate budgets Redis e 429/Retry-After implantados.
 - [x] Relatórios, README, runbook, ADR, LICENSE, CONTRIBUTING, SECURITY, Code of Conduct, templates, CI/Dependabot atualizados.
 - [x] Testes: Python 146 passed (1 aviso upstream), E2E 5/5 no CI, imagem Docker build ok.
+- [x] Revalidação direta às 17:51 UTC: `/health`, `/ready`, `/worker-health`, LGDP search, history e sitemap 200; amostras entre 0,277s e 0,322s.
 
 ## Pendências externas ou dependentes de dados
 

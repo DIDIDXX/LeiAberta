@@ -6,8 +6,10 @@ Data: 2026-10-05. Projeto: `DIDIDXX/LeiAberta`. URL: https://web-production-12e9
 
 - SHA do código validado: `06646081480668017d288ad89e98545eead82a0c` (PRs #62–#68 integrados; PR #68 inclui heartbeat do worker).
 - Deploys SUCCESS desse SHA: web `e29b4142-1f73-49f4-9c70-915635b1c03c`; worker `06b79a18-ccc6-486b-841c-311cfba2155e`; backup `8dab8856-0731-4edf-afb5-967e752a98ad`. Redis `e0cc2708-a527-4918-aa06-3f994675234a` e Postgres `78c139ee-fc38-4883-be04-99d72052c7d0` também SUCCESS. Uma réplica por serviço; sem migration nesta rodada.
+- O `main` e a produção agora estão no SHA `bc9456567a76eb2836f55c4e48965a1861729680` (PR #69, atualização documental); deploys atuais também SUCCESS: web `6647d401-5f3f-4c99-b4a6-a5ed73625c5f`, worker `40a598c1-cf58-4626-88ce-3775bd4d3ab8`, backup `dc1bc8f5-9f90-4231-96ce-a54f980ca860`.
 - Web, Postgres, Redis e backup em `asia-southeast1-eqsg3a`; worker em `us-east4-eqdc4a`. Volumes de 5 GB para Postgres e Redis; backup agendado diariamente.
 - `/health`, `/ready`, `/worker-health`, typo search `LGDP`, histórico e sitemap deram 200. Amostras: health 0,311s; ready 0,297s; worker-health 0,261s; busca 0,287s; histórico 0,299s; sitemap 0,371s; `/api/stats` 0,824s. Não são p95.
+- Revalidação direta às 17:51 UTC, depois do deploy `bc945`: health, ready, worker-health, LGDP search, history e sitemap deram 200 em 0,277–0,322s. A integração Railway mostra duas falhas antigas de web/worker às 16:16 UTC, ambas sucedidas por deploys SUCCESS às 17:49 UTC; não há falha ou alerta ativo.
 - Playwright em produção: 390px e 1440px; LGDP encontrou a LGPD e Art. 7 abriu; overflow 0 px; nenhum erro JS, CSP ou de rede. CSP autoriza scripts/API same-origin e apenas os hosts Google Fonts já usados.
 - Busca/histórico em produção: Lei Maria da Penha segue parcial e honesta — 65 itens, 62 relações sem texto pareado, nenhum job ativo e nenhum diff inventado.
 - Catálogo no endpoint de estatísticas: 1.167.592 registros enumerados e 23.013 materializados. Isso não representa todas as leis brasileiras.
