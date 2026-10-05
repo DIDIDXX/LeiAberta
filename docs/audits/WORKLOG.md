@@ -46,6 +46,14 @@
 - Limites/redirect tests de todos os adapters: cobertura comum ainda varia por fonte; Planalto foi fechado neste ciclo.
 - Remover serviço diagnóstico: patch staged requer 2FA no Dashboard e o connector recusou efetivação sem esse fator.
 
+## Revalidação de fechamento (2026-10-05 17:51 UTC)
+
+- A PR #69 foi integrada: `main` está em `bc9456567a76eb2836f55c4e48965a1861729680`; o SHA funcional validado permanece `06646081480668017d288ad89e98545eead82a0c`.
+- Railway confirmou deploy SUCCESS do SHA `bc945...`: web `6647d401-5f3f-4c99-b4a6-a5ed73625c5f`, worker `40a598c1-cf58-4626-88ce-3775bd4d3ab8`, backup `dc1bc8f5-9f90-4231-96ce-a54f980ca860`; Redis e Postgres também SUCCESS. Uma réplica por serviço.
+- Às 17:51 UTC, requests diretos a `/health`, `/ready`, `/worker-health`, `/api/search?q=LGDP`, `/api/laws/11340-2006/history` e `/sitemap.xml` deram HTTP 200 (0,277–0,322s). O histórico segue parcial e sem comparação inventada.
+- O monitor registra uma falha antiga cada de web e worker às 16:16 UTC; ambas foram seguidas pelas implantações SUCCESS das 17:49 UTC e não há alerta ativo.
+- Continua staged somente a exclusão do serviço de diagnóstico sem volume; o conector não conseguiu aceitar o patch porque Railway exige 2FA no Dashboard.
+
 ## Próxima ação exata fora do código
 
 1. No Railway Dashboard, com sessão autenticada/2FA, aceitar o delete staged do `pg-diagnostic`.
