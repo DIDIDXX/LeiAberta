@@ -13,10 +13,6 @@ until alembic upgrade head; do
 done
 
 python -m app.seed --enqueue-hot
-python scripts/audit_archived_documents.py --limit 1000
-if ! python scripts/sync_jurisdictions.py; then
-  echo "IBGE jurisdiction sync failed; serving the last stored inventory" >&2
-fi
-# The worker refreshes Senate catalogs asynchronously so large annual partitions
-# do not block the web process from opening its health-check port.
+# Catalog refreshes and maintenance audits stay off the HTTP startup path; the
+# worker refreshes jurisdiction and legislative catalogs asynchronously.
 exec uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}"
