@@ -291,10 +291,14 @@ def test_law_page_has_canonical_metadata_and_no_script_content(db_session, add_l
     app.dependency_overrides[get_session] = override_session
     try:
         response = TestClient(app).get("/lei/13709-2018")
+        article_response = TestClient(app).get("/lei/13709-2018/artigo/7")
     finally:
         app.dependency_overrides.clear()
     assert response.status_code == 200
-    assert '<title>Lei Geral de Proteção de Dados Pessoais — LeiAberta</title>' in response.text
+    assert '<title>Lei nº 13.709/2018 — Lei Geral de Proteção de Dados Pessoais | LeiAberta</title>' in response.text
+    assert 'property="og:image" content="https://leiaberta.example/static/og-image.png"' in response.text
+    assert 'Art. 7 da Lei nº 13.709/2018' in article_response.text
+    assert 'href="https://leiaberta.example/lei/13709-2018/artigo/7"' in article_response.text
     assert 'href="https://leiaberta.example/lei/13709-2018"' in response.text
     assert "<noscript>" in response.text
     assert "https://www.planalto.gov.br/" in response.text
