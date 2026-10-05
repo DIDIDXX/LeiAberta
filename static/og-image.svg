@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#f8f8f5"/>
+  <path d="M70 70h1060v490H70z" fill="none" stroke="#dbe2d9"/>
+  <rect x="105" y="105" width="37" height="37" rx="9" fill="#173b35"/>
+  <path d="M115 116h17m-17 7h12m-12 7h17" stroke="#dcebe2" stroke-width="2" stroke-linecap="round"/>
+  <text x="157" y="134" fill="#17211f" font-family="Arial,sans-serif" font-size="30" font-weight="700">LeiAberta</text>
+  <text x="105" y="286" fill="#17211f" font-family="Georgia,serif" font-size="63">Entenda como uma lei</text>
+  <text x="105" y="364" fill="#246c58" font-family="Georgia,serif" font-size="63">chegou ao texto atual.</text>
+  <text x="108" y="427" fill="#67726d" font-family="Arial,sans-serif" font-size="24">Alterações verificadas, dispositivos e fontes oficiais.</text>
+  <path d="M108 488h985" stroke="#dbe2d9"/>
+  <text x="108" y="531" fill="#627168" font-family="Arial,sans-serif" font-size="15" letter-spacing="3">FONTES PÚBLICAS · EVIDÊNCIA VERIFICÁVEL · OPEN SOURCE</text>
+</svg>

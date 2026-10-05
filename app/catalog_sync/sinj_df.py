@@ -291,6 +291,8 @@ def sync_sinj_df_catalog(*, force: bool = False, page_size: int = PAGE_SIZE) -> 
             registry.status = "enumerated"
             registry.scope = {**scope, "records_enumerated": enumerated, "records_in_database": db_total,
                               "last_page": expected_pages - 1, "catalog_ids_sha256": digest.hexdigest(),
+                              "last_success_at": datetime.now(timezone.utc).isoformat(),
+                              "new_records": added, "updated_records": refreshed, "failed_records": 0,
                               "observed_at": datetime.now(timezone.utc).isoformat()}
             registry.last_checked_at = datetime.now(timezone.utc)
             registry.last_error = ""
@@ -306,6 +308,7 @@ def sync_sinj_df_catalog(*, force: bool = False, page_size: int = PAGE_SIZE) -> 
                 registry.last_error = str(exc)[:1000]
                 registry.scope = {**(registry.scope or {}), "records_enumerated": enumerated,
                                   "last_page": max(-1, len(seen) // page_size),
+                                  "sync_failures": int((registry.scope or {}).get("sync_failures", 0)) + 1,
                                   "last_attempt_at": datetime.now(timezone.utc).isoformat()}
                 registry.last_checked_at = datetime.now(timezone.utc)
                 session.commit()
