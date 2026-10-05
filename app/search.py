@@ -149,17 +149,19 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
     terms = parsed["terms"]
     if not laws and terms:
         needle = f"%{terms}%"
+        transposed_terms = _adjacent_transpositions(terms) if len(terms.split()) == 1 else set()
+        search_patterns = [needle, *(f"%{variant}%" for variant in transposed_terms)]
         token_conditions = []
         for token in terms.split():
             if len(token) >= 4:
                 token_needle = f"%{token}%"
                 token_conditions.extend((Law.title.ilike(token_needle), Law.description.ilike(token_needle),
                                          cast(Law.aliases, String).ilike(token_needle)))
-        candidates = candidate_query.where(or_(
-            Law.title.ilike(needle), Law.description.ilike(needle),
-            cast(Law.aliases, String).ilike(needle),
-            *token_conditions,
-        )).limit(1000)
+        candidate_conditions = [condition for pattern in search_patterns for condition in (
+            Law.title.ilike(pattern), Law.description.ilike(pattern),
+            cast(Law.aliases, String).ilike(pattern),
+        )]
+        candidates = candidate_query.where(or_(*candidate_conditions, *token_conditions)).limit(1000)
         laws = list(session.scalars(candidates))
         description_loaded = bool(laws)
     if not laws and terms.split():
@@ -170,17 +172,6 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             Law.title.ilike(prefix_needle), cast(Law.aliases, String).ilike(prefix_needle),
         )).limit(1000)))
         description_loaded = bool(laws)
-    if not laws and len(terms.split()) == 1:
-        transposed = _adjacent_transpositions(terms)
-        if transposed:
-            patterns = [f"%{variant}%" for variant in transposed]
-            laws = list(session.scalars(candidate_query.where(or_(
-                *[condition for pattern in patterns for condition in (
-                    Law.title.ilike(pattern), Law.description.ilike(pattern),
-                    cast(Law.aliases, String).ilike(pattern),
-                )]
-            )).limit(1000)))
-            description_loaded = bool(laws)
     if parsed["number"] and not laws and not terms:
         return {"query": query, "parsed": parsed, "results": [], "suggestion": False}
     # Fuzzy typo suggestions are for the curated, high-demand catalog. Scanning
@@ -212,6 +203,8 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             score = max(score, 900)
             exact = True
         terms = parsed["terms"]
+        if any(normalize_query(alias) in _adjacent_transpositions(terms) for alias in aliases):
+            score = max(score, 840)
         if terms:
             if terms in normalized_aliases:
                 score = max(score, 900)
@@ -274,7 +267,7 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             "source_url": law.source_url,
             "materialization_status": law.materialization_status,
             "article": parsed["article"] if parsed["article"] else None,
-            "suggestion": not exact and score < 820,
+            "suggestion": not exact,
             "score": score,
         })
     return {"query": query, "parsed": parsed, "results": results, "suggestion": bool(results and results[0]["suggestion"])}
