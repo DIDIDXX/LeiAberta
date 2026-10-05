@@ -34,6 +34,15 @@ app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e hist�
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
 
 
+def _public_base_url(request: Request) -> str:
+    configured = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    if configured:
+        return configured
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
+    return f"{scheme}://{host}"
+
+
 @app.middleware("http")
 async def baseline_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -461,11 +470,7 @@ def robots():
 
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request, session: Session = Depends(get_session)):
-    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-    if not base_url:
-        scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
-        host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
-        base_url = f"{scheme}://{host}"
+    base_url = _public_base_url(request)
     page_size = 10_000
     law_count = session.scalar(select(func.count()).select_from(Law)) or 0
     page_count = (law_count + page_size - 1) // page_size
@@ -484,11 +489,7 @@ def sitemap_laws(page: int, request: Request, session: Session = Depends(get_ses
     law_count = session.scalar(select(func.count()).select_from(Law)) or 0
     if page < 0 or page * page_size >= law_count:
         raise HTTPException(status_code=404, detail="Fragmento do sitemap não encontrado.")
-    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-    if not base_url:
-        scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
-        host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
-        base_url = f"{scheme}://{host}"
+    base_url = _public_base_url(request)
     slugs = session.scalars(select(Law.slug).order_by(Law.slug).offset(page * page_size).limit(page_size))
     entries = [f"<url><loc>{escape(base_url)}/lei/{escape(slug)}</loc></url>" for slug in slugs]
     body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">" + "".join(entries) + "</urlset>"
@@ -500,7 +501,7 @@ def law_page(slug: str, request: Request, session: Session = Depends(get_session
     law = session.get(Law, slug)
     if not law:
         raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
-    canonical_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+    canonical_base = _public_base_url(request)
     canonical = f"{canonical_base}/lei/{slug}"
     title = f"{law.title} — LeiAberta"
     description = law.description or f"{law.law_type} {law.number}/{law.year} — consulte o registro oficial e a cobertura disponível."

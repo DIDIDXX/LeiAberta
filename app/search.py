@@ -99,6 +99,19 @@ def _similarity(query: str, candidate: str) -> float:
     return ratio
 
 
+def _adjacent_transpositions(value: str) -> set[str]:
+    if not 4 <= len(value) <= 20 or not value.isalpha():
+        return set()
+    variants = set()
+    for index in range(len(value) - 1):
+        if value[index] == value[index + 1]:
+            continue
+        chars = list(value)
+        chars[index], chars[index + 1] = chars[index + 1], chars[index]
+        variants.add("".join(chars))
+    return variants
+
+
 def _display_number(digits: str) -> str:
     if len(digits) <= 3:
         return digits
@@ -157,6 +170,17 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             Law.title.ilike(prefix_needle), cast(Law.aliases, String).ilike(prefix_needle),
         )).limit(1000)))
         description_loaded = bool(laws)
+    if not laws and len(terms.split()) == 1:
+        transposed = _adjacent_transpositions(terms)
+        if transposed:
+            patterns = [f"%{variant}%" for variant in transposed]
+            laws = list(session.scalars(candidate_query.where(or_(
+                *[condition for pattern in patterns for condition in (
+                    Law.title.ilike(pattern), Law.description.ilike(pattern),
+                    cast(Law.aliases, String).ilike(pattern),
+                )]
+            )).limit(1000)))
+            description_loaded = bool(laws)
     if parsed["number"] and not laws and not terms:
         return {"query": query, "parsed": parsed, "results": [], "suggestion": False}
     # Fuzzy typo suggestions are for the curated, high-demand catalog. Scanning
@@ -167,7 +191,7 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
             Law.slug, Law.jurisdiction, Law.state_code, Law.municipality, Law.law_type, Law.number,
             Law.year, Law.title, Law.status, Law.aliases, Law.source_url, Law.materialization_status,
             Law.hot,
-        )).order_by(Law.title).limit(2_000)))
+        )).order_by(Law.last_hydrated_at.desc().nullslast(), Law.title).limit(2_000)))
     scored: list[tuple[int, float, Law, bool]] = []
 
     for law in laws:

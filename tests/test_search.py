@@ -1,5 +1,7 @@
-from app.models import LegalNode
-from app.search import normalize_query, parse_query, search_laws
+from datetime import datetime, timedelta, timezone
+
+from app.models import LegalNode, Law
+from app.search import _adjacent_transpositions, normalize_query, parse_query, search_laws
 
 
 def test_normalizes_accents_numbers_and_punctuation():
@@ -11,6 +13,10 @@ def test_parses_number_and_two_digit_year():
     assert parsed["number"] == "13709"
     assert parsed["number_sequence"] is None
     assert parsed["year"] == 2018
+
+
+def test_adjacent_transposition_candidates_cover_common_typo():
+    assert "lgpd" in _adjacent_transpositions("lgdp")
 
 
 def test_exact_number_year_wins_and_typo_suggests_lgpd(db_session, add_law):
@@ -28,6 +34,26 @@ def test_exact_number_year_wins_and_typo_suggests_lgpd(db_session, add_law):
     assert alias["suggestion"] is False
     assert fuzzy["results"][0]["title"] == "Lei Geral de Proteção de Dados Pessoais"
     assert fuzzy["suggestion"] is True
+
+
+def test_fuzzy_candidates_prioritize_recent_hot_laws_over_alphabetical_catalog(db_session, add_law):
+    older = datetime.now(timezone.utc) - timedelta(days=30)
+    fillers = [Law(
+        slug=f"catalog-{index}", jurisdiction="federal", law_type="Lei", number=str(index + 1),
+        year=2000, title=f"A catalog law {index:04d}", description="", status="Não verificado",
+        aliases=[], source_name="Senado", source_url="https://senado.example",
+        fetch_url="https://senado.example", hot=True, materialization_status="catalog",
+        coverage={}, last_hydrated_at=older,
+    ) for index in range(2_001)]
+    lgpd = add_law(aliases=["LGPD"], title="Lei Geral de Proteção de Dados Pessoais")
+    lgpd.last_hydrated_at = datetime.now(timezone.utc)
+    db_session.add_all([*fillers, lgpd])
+    db_session.commit()
+
+    result = search_laws(db_session, "LGDP")
+
+    assert result["results"][0]["slug"] == "13709-2018"
+    assert result["suggestion"] is True
 
 
 def test_hyphenated_official_number_resolves_the_exact_measure_sequence(db_session):
