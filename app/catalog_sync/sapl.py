@@ -75,6 +75,42 @@ class SaplInstance:
 
 
 SAPL_INSTANCES = (
+    SaplInstance(
+        ibge_code="12", municipality="", state_code="AC",
+        host="https://sapl.al.ac.leg.br", source_id="state:AC:sapl",
+        source_name="Assembleia Legislativa do Estado do Acre — SAPL",
+        authority_url="https://www.al.ac.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
+    SaplInstance(
+        ibge_code="13", municipality="", state_code="AM",
+        host="https://sapl.al.am.leg.br", source_id="state:AM:sapl",
+        source_name="Assembleia Legislativa do Estado do Amazonas — SAPL",
+        authority_url="https://www.aleam.gov.br/", scope_kind="state", federation_scope_filter="E",
+    ),
+    SaplInstance(
+        ibge_code="51", municipality="", state_code="MT",
+        host="https://sapl.al.mt.leg.br", source_id="state:MT:sapl",
+        source_name="Assembleia Legislativa do Estado de Mato Grosso — SAPL",
+        authority_url="https://www.al.mt.gov.br/", scope_kind="state", federation_scope_filter="E",
+    ),
+    SaplInstance(
+        ibge_code="25", municipality="", state_code="PB",
+        host="https://sapl.al.pb.leg.br", source_id="state:PB:sapl",
+        source_name="Assembleia Legislativa do Estado da Paraíba — SAPL",
+        authority_url="https://www.al.pb.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
+    SaplInstance(
+        ibge_code="11", municipality="", state_code="RO",
+        host="https://sapl.al.ro.leg.br", source_id="state:RO:sapl",
+        source_name="Assembleia Legislativa do Estado de Rondônia — SAPL",
+        authority_url="https://www.al.ro.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
+    SaplInstance(
+        ibge_code="17", municipality="", state_code="TO",
+        host="https://sapl.al.to.leg.br", source_id="state:TO:sapl",
+        source_name="Assembleia Legislativa do Estado do Tocantins — SAPL",
+        authority_url="https://www.al.to.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
     # Verified from the Assembly's official site, which links to this SAPL instance.
     SaplInstance(
         ibge_code="27", municipality="", state_code="AL",
