@@ -38,7 +38,7 @@ def test_interactive_queue_selection_skips_bulk_and_delayed_retry_jobs(db_sessio
 
     monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
 
-    assert jobs.queued_interactive_job_ids(limit=4) == [
+    assert jobs.queued_interactive_job_ids(limit=8) == [
         jobs_by_name["manual-hydrate"], jobs_by_name["manual-history"],
     ]
 

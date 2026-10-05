@@ -252,8 +252,8 @@ def queue_history(law: Law) -> HydrationJob:
 
 def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
     """Return queued user requests so bulk backfills cannot leave them waiting behind the backlog."""
-    if not 1 <= limit <= 4:
-        raise ValueError("A consulta prioritária aceita de 1 a 4 jobs.")
+    if not 1 <= limit <= 8:
+        raise ValueError("A consulta prioritária aceita de 1 a 8 jobs.")
     with SessionLocal() as session:
         return list(session.scalars(
             select(HydrationJob.id)
