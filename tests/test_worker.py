@@ -78,3 +78,26 @@ def test_worker_publishes_expiring_heartbeat():
     timestamp = worker.publish_worker_heartbeat(redis, "worker-test", 8, now)
     assert redis.record == ("leiaberta:worker:heartbeat", timestamp, 90)
     assert timestamp == "2026-10-05T17:00:00+00:00"
+
+
+def test_worker_heartbeat_loop_runs_independently_until_stopped():
+    class FakeRedis:
+        def __init__(self):
+            self.records = []
+
+        def set(self, key, value, ex):
+            self.records.append((key, value, ex))
+
+    class StopAfterOneHeartbeat:
+        def is_set(self):
+            return False
+
+        def wait(self, seconds):
+            assert seconds == 30
+            return True
+
+    redis = FakeRedis()
+    worker.worker_heartbeat_loop(redis, "worker-test", 8, StopAfterOneHeartbeat())
+    assert len(redis.records) == 1
+    assert redis.records[0][0] == "leiaberta:worker:heartbeat"
+    assert redis.records[0][2] == 90

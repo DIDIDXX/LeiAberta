@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import time
 import uuid
+from threading import Event, Thread
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -38,6 +39,26 @@ def publish_worker_heartbeat(redis, consumer: str, concurrency: int,
     redis.set("leiaberta:worker:heartbeat", timestamp, ex=90)
     logger.info("worker_heartbeat consumer=%s concurrency=%s at=%s", consumer, concurrency, timestamp)
     return timestamp
+
+
+def worker_heartbeat_loop(redis, consumer: str, concurrency: int, stop: Event,
+                          interval_seconds: int = 30) -> None:
+    """Keep liveness independent of long-running batches on the worker loop."""
+    while not stop.is_set():
+        try:
+            publish_worker_heartbeat(redis, consumer, concurrency)
+        except Exception:
+            logger.exception("worker_heartbeat_publish_failed")
+        if stop.wait(interval_seconds):
+            return
+
+
+def start_worker_heartbeat(redis, consumer: str, concurrency: int) -> tuple[Event, Thread]:
+    stop = Event()
+    thread = Thread(target=worker_heartbeat_loop, args=(redis, consumer, concurrency, stop),
+                    name="worker-heartbeat", daemon=True)
+    thread.start()
+    return stop, thread
 
 
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
@@ -144,12 +165,9 @@ def run() -> None:
     history_batch_seconds = max(300, int(os.getenv("HISTORY_BACKFILL_BATCH_SECONDS", "300")))
     history_batch_size = min(500, max(1, int(os.getenv("HISTORY_BACKFILL_BATCH_SIZE", "500"))))
     next_history_batch = time.monotonic()
-    next_worker_heartbeat = time.monotonic()
+    start_worker_heartbeat(redis, consumer, concurrency)
     while True:
         try:
-            if time.monotonic() >= next_worker_heartbeat:
-                publish_worker_heartbeat(redis, consumer, concurrency)
-                next_worker_heartbeat = time.monotonic() + 30
             if senado_sync_future is not None and senado_sync_future.done():
                 try:
                     result = senado_sync_future.result()
