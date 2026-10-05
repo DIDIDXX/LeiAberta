@@ -67,3 +67,14 @@
 ## Próxima ação exata
 
 Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
+
+
+## Retomada e validação final (2026-10-05 UTC)
+
+- PR #62 foi integrado como `81982a28d36836563acf83b7115af355b31ea830`; CI (python, e2e, image) verde. Railway web/worker/backup em SUCCESS (`679ff153-080e-4ee1-9e88-27b2a52c7a77`, `034f637d-1546-461e-9d36-a69861d7582c`, `6c2e5d02-39cb-4b38-a08f-56acab1cd3bc`).
+- Browser smoke de produção: 390px e 1440px; scrollWidth igual à viewport; LGDP resolveu LGPD, Art. 7 visível; nenhum erro de console, pageerror ou request.
+- Produção: `/health` 0.395s, typo search 0.390s, HTML lei 0.396s, nodes 0.409s, history 0.416s, sitemap index 0.485s, `/api/stats` 0.896s. `art 7 LGPD` retornou 200/2.705s em teste concorrente. Amostras, não p95.
+- História Maria da Penha: 65 relações oficiais, 62 sem redação pareada; status parcial permanece e não há diffs inferidos.
+- Hardening local adicional: CSP same-origin, `/ready` (conectividade DB + Alembic heads), cap de 25 MB no fetcher Planalto. `pytest -q`: 138 passed, 1 aviso upstream; Playwright: 5/5 passed; `git diff --check` passou. Estes itens ainda aguardam PR/CI/merge/deploy.
+- Pendências/bloqueios: inventário nacional exaustivo sem denominator oficial; SQL/EXPLAIN/fatura indisponíveis via connector; cliente confiável de proxy ainda não verificado para rate limit; validação uniforme de redirects/adapters; readiness + worker heartbeat precisam confirmação após deploy; exclusão staged do diagnóstico Railway requer 2FA no Dashboard.
+- Próxima ação exata: criar branch e PR do hardening; CI verde; merge/deploy; confirmar `/ready` e CSP via HTTP; reexecutar browser/smoke; atualizar status com SHA e deployment IDs definitivos.
