@@ -76,6 +76,108 @@ class SaplInstance:
 
 SAPL_INSTANCES = (
     SaplInstance(
+        ibge_code="2301000", municipality="Aquiraz", state_code="CE",
+        host="https://sapl.aquiraz.ce.leg.br", source_id="municipality:2301000:sapl",
+        source_name="Câmara Municipal de Aquiraz — SAPL",
+        authority_url="https://sapl.aquiraz.ce.leg.br/", 
+    ),
+    SaplInstance(
+        ibge_code="2302800", municipality="Canindé", state_code="CE",
+        host="https://sapl.caninde.ce.leg.br", source_id="municipality:2302800:sapl",
+        source_name="Câmara Municipal de Canindé — SAPL",
+        authority_url="https://sapl.caninde.ce.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="2304285", municipality="Eusébio", state_code="CE",
+        host="https://sapl.eusebio.ce.leg.br", source_id="municipality:2304285:sapl",
+        source_name="Câmara Municipal de Eusébio — SAPL",
+        authority_url="https://sapl.eusebio.ce.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="2307650", municipality="Maracanaú", state_code="CE",
+        host="https://sapl.maracanau.ce.leg.br", source_id="municipality:2307650:sapl",
+        source_name="Câmara Municipal de Maracanaú — SAPL",
+        authority_url="https://sapl.maracanau.ce.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="2507507", municipality="João Pessoa", state_code="PB",
+        host="https://sapl.joaopessoa.pb.leg.br", source_id="municipality:2507507:sapl",
+        source_name="Câmara Municipal de João Pessoa — SAPL",
+        authority_url="https://sapl.joaopessoa.pb.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="2304400", municipality="Fortaleza", state_code="CE",
+        host="https://sapl.fortaleza.ce.leg.br", source_id="municipality:2304400:sapl",
+        source_name="Câmara Municipal de Fortaleza — SAPL",
+        authority_url="https://sapl.fortaleza.ce.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="3303906", municipality="Petrópolis", state_code="RJ",
+        host="https://sapl.petropolis.rj.leg.br", source_id="municipality:3303906:sapl",
+        source_name="Câmara Municipal de Petrópolis — SAPL",
+        authority_url="https://sapl.petropolis.rj.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="4314407", municipality="Pelotas", state_code="RS",
+        host="https://sapl.pelotas.rs.leg.br", source_id="municipality:4314407:sapl",
+        source_name="Câmara Municipal de Pelotas — SAPL",
+        authority_url="https://sapl.pelotas.rs.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="4104204", municipality="Campo Largo", state_code="PR",
+        host="https://sapl.campolargo.pr.leg.br", source_id="municipality:4104204:sapl",
+        source_name="Câmara Municipal de Campo Largo — SAPL",
+        authority_url="https://sapl.campolargo.pr.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="1506807", municipality="Santarém", state_code="PA",
+        host="https://sapl.santarem.pa.leg.br", source_id="municipality:1506807:sapl",
+        source_name="Câmara Municipal de Santarém — SAPL",
+        authority_url="https://sapl.santarem.pa.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="1500602", municipality="Altamira", state_code="PA",
+        host="https://sapl.altamira.pa.leg.br", source_id="municipality:1500602:sapl",
+        source_name="Câmara Municipal de Altamira — SAPL",
+        authority_url="https://sapl.altamira.pa.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="1505536", municipality="Parauapebas", state_code="PA",
+        host="https://sapl.parauapebas.pa.leg.br", source_id="municipality:1505536:sapl",
+        source_name="Câmara Municipal de Parauapebas — SAPL",
+        authority_url="https://sapl.parauapebas.pa.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="3143302", municipality="Montes Claros", state_code="MG",
+        host="https://sapl.montesclaros.mg.leg.br", source_id="municipality:3143302:sapl",
+        source_name="Câmara Municipal de Montes Claros — SAPL",
+        authority_url="https://sapl.montesclaros.mg.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="3170701", municipality="Varginha", state_code="MG",
+        host="https://sapl.varginha.mg.leg.br", source_id="municipality:3170701:sapl",
+        source_name="Câmara Municipal de Varginha — SAPL",
+        authority_url="https://sapl.varginha.mg.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="3122306", municipality="Divinópolis", state_code="MG",
+        host="https://sapl.divinopolis.mg.leg.br", source_id="municipality:3122306:sapl",
+        source_name="Câmara Municipal de Divinópolis — SAPL",
+        authority_url="https://sapl.divinopolis.mg.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="1721000", municipality="Palmas", state_code="TO",
+        host="https://sapl.palmas.to.leg.br", source_id="municipality:1721000:sapl",
+        source_name="Câmara Municipal de Palmas — SAPL",
+        authority_url="https://sapl.palmas.to.leg.br/",
+    ),
+    SaplInstance(
+        ibge_code="1100122", municipality="Ji-Paraná", state_code="RO",
+        host="https://sapl.jiparana.ro.leg.br", source_id="municipality:1100122:sapl",
+        source_name="Câmara Municipal de Ji-Paraná — SAPL",
+        authority_url="https://sapl.jiparana.ro.leg.br/",
+    ),
+    SaplInstance(
         ibge_code="12", municipality="", state_code="AC",
         host="https://sapl.al.ac.leg.br", source_id="state:AC:sapl",
         source_name="Assembleia Legislativa do Estado do Acre — SAPL",
