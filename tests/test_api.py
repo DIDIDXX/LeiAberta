@@ -37,6 +37,8 @@ def test_public_responses_include_baseline_security_headers():
     assert response.headers["strict-transport-security"] == "max-age=31536000"
     csp = response.headers["content-security-policy"]
     assert "script-src 'self'" in csp
+    assert "https://fonts.googleapis.com" in csp
+    assert "https://fonts.gstatic.com" in csp
     assert "object-src 'none'" in csp
     assert "frame-ancestors 'none'" in csp
 
