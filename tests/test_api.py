@@ -26,6 +26,15 @@ def test_search_endpoint_handles_typo(db_session, add_law):
     assert payload["results"][0]["slug"] == "13709-2018"
 
 
+def test_public_responses_include_baseline_security_headers():
+    response = TestClient(app).get("/robots.txt", headers={"x-forwarded-proto": "https"})
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["strict-transport-security"] == "max-age=31536000"
+
+
 def test_sitemap_uses_configured_public_url(db_session, add_law, monkeypatch):
     db_session.add(add_law())
     db_session.commit()
@@ -41,8 +50,66 @@ def test_sitemap_uses_configured_public_url(db_session, add_law, monkeypatch):
         app.dependency_overrides.clear()
 
     assert response.status_code == 200
-    assert "https://leiaberta.example/lei/13709-2018" in response.text
+    assert "https://leiaberta.example/sitemap-laws-0.xml" in response.text
     assert "leiaberta.up.railway.app" not in response.text
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        fragment = TestClient(app).get("/sitemap-laws-0.xml")
+    finally:
+        app.dependency_overrides.clear()
+    assert fragment.status_code == 200
+    assert "https://leiaberta.example/lei/13709-2018" in fragment.text
+
+
+def test_sitemap_fragment_rejects_pages_outside_catalog(db_session):
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/sitemap-laws-0.xml")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 404
+
+
+def test_law_page_has_canonical_metadata_and_no_script_content(db_session, add_law, monkeypatch):
+    db_session.add(add_law())
+    db_session.commit()
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://leiaberta.example/")
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/lei/13709-2018")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert '<title>Lei Geral de Proteção de Dados Pessoais — LeiAberta</title>' in response.text
+    assert 'href="https://leiaberta.example/lei/13709-2018"' in response.text
+    assert "<noscript>" in response.text
+    assert "https://www.planalto.gov.br/" in response.text
+
+
+def test_stats_reports_aggregated_catalog_counts(db_session, add_law):
+    law = add_law()
+    db_session.add(law)
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/stats")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["indexed_laws"] == 1
+    assert response.json()["materialized_laws"] == 0
 
 
 def test_history_is_explicitly_not_requested_until_a_real_job_exists(db_session, add_law):

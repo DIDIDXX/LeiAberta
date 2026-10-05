@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a product or data problem with enough evidence to reproduce it.
+body:
+  - type: input
+    id: url
+    attributes:
+      label: Lei URL or endpoint
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: input
+    id: official_source
+    attributes:
+      label: Official source URL and identifier
+      description: Required for legal text, status, history, or provenance reports.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Reproduction and evidence
+      description: Do not include secrets, personal data, or production dumps.

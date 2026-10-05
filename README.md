@@ -69,10 +69,11 @@ O adapter `app/sources/planalto.py` baixa HTML oficial, preserva redações marc
 - `GET /api/jurisdictions?kind=municipality&uf=SP`
 - `GET /api/sources`
 - `GET /api/laws/{slug}/coverage`
+- `GET /api/stats`
 - `POST /api/laws/{slug}/hydrate`
 - `GET /api/hydration/{job_id}`
 - `GET /api/changes/{change_id}`
-- `GET /health`, `GET /robots.txt`, `GET /sitemap.xml`
+- `GET /health`, `GET /robots.txt`, `GET /sitemap.xml` e fragmentos `GET /sitemap-laws-{page}.xml`
 
 ## Configuração
 
@@ -84,7 +85,7 @@ Veja `.env.example`. Em Railway, `DATABASE_URL` deve referenciar `Postgres.DATAB
 pytest
 ```
 
-Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguidade, IDs estáveis, casos de estrutura/variantes, API, job durável, diretório territorial e a consulta processual Senado/Câmara por identidade cruzada. A suíte Python passou com 127 testes; ela não comprova a completude de todas as fontes ou leis brasileiras.
+Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguidade, IDs estáveis, casos de estrutura/variantes, API, job durável, diretório territorial e a consulta processual Senado/Câmara por identidade cruzada. A suíte Python passou com 131 testes neste branch; ela não comprova a completude de todas as fontes ou leis brasileiras. O fluxo Playwright está em `npm run test:e2e`.
 
 ## Fontes e limitações
 
@@ -99,4 +100,4 @@ Os testes cobrem normalização, parsing de número/ano, fuzzy search, ambiguida
 
 ## Plano de expansão
 
-O inventário executado, fontes pesquisadas, bloqueios e próximos lotes estão documentados em [`docs/LEIABERTA_LUNA6_EXECUTION_PLAN.md`](docs/LEIABERTA_LUNA6_EXECUTION_PLAN.md), [`docs/reports/execution-status.md`](docs/reports/execution-status.md) e [`docs/research/sapl_municipal_source_verification_2026-10-05.json`](docs/research/sapl_municipal_source_verification_2026-10-05.json). A meta de “todas as leis” só pode ser declarada quando cada acervo oficial integrado publicar seu denominador, cobertura, lacunas e auditoria do texto; o estado atual ainda não atende essa meta.
+O inventário, cobertura, riscos de produção, custo, escala, segurança, proveniência, backup/restore e decisões estão em [`docs/audits`](docs/audits/production-baseline.md). Procedimentos de operação ficam em [`docs/runbooks/backup-restore.md`](docs/runbooks/backup-restore.md). Contribuição e disclosure estão em [`CONTRIBUTING.md`](CONTRIBUTING.md) e [`SECURITY.md`](SECURITY.md). A meta de “todas as leis” só pode ser declarada quando cada acervo oficial integrado publicar seu denominador, cobertura, lacunas e auditoria do texto; o estado atual ainda não atende essa meta.

@@ -159,13 +159,15 @@ def search_laws(session: Session, query: str, limit: int = 10) -> dict:
         description_loaded = bool(laws)
     if parsed["number"] and not laws and not terms:
         return {"query": query, "parsed": parsed, "results": [], "suggestion": False}
-    # If no exact SQL match exists, scan names only for typo suggestions such as LGDP.
+    # Fuzzy typo suggestions are for the curated, high-demand catalog. Scanning
+    # every catalog row here made a typo query load hundreds of thousands of
+    # laws and run Python SequenceMatcher repeatedly.
     if not laws:
-        laws = list(session.scalars(candidate_query.options(load_only(
+        laws = list(session.scalars(candidate_query.where(Law.hot.is_(True)).options(load_only(
             Law.slug, Law.jurisdiction, Law.state_code, Law.municipality, Law.law_type, Law.number,
             Law.year, Law.title, Law.status, Law.aliases, Law.source_url, Law.materialization_status,
             Law.hot,
-        ))))
+        )).order_by(Law.title).limit(2_000)))
     scored: list[tuple[int, float, Law, bool]] = []
 
     for law in laws:

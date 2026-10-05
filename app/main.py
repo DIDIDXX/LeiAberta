@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
+from html import escape as html_escape
 from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import func, select, text
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session
 from xml.sax.saxutils import escape
 
@@ -31,6 +32,18 @@ TEXT_SOURCE_NAMES = {
 } | set(SAPL_SOURCE_NAMES)
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+
+@app.middleware("http")
+async def baseline_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+    if request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip() == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 
 
 def _law_summary(law: Law, article_count: int | None = None) -> dict:
@@ -83,21 +96,29 @@ def api_health(session: Session = Depends(get_session)):
 
 @app.get("/api/stats")
 def stats(session: Session = Depends(get_session)):
-    indexed = session.scalar(select(func.count()).select_from(Law)) or 0
-    materialized = session.scalar(select(func.count()).select_from(Law).where(Law.current_version_id.is_not(None))) or 0
+    # One grouped pass replaces one COUNT per discovered SAPL instance. With
+    # hundreds of source registries, the old per-source loop rescanned the
+    # large laws table hundreds of times and made this public endpoint stall.
+    law_counts = session.execute(select(
+        Law.source_name,
+        func.count().label("total"),
+        func.sum(case((Law.current_version_id.is_not(None), 1), else_=0)).label("materialized"),
+        func.sum(case((Law.materialization_status == "unavailable", 1), else_=0)).label("unavailable"),
+    ).group_by(Law.source_name)).all()
+    counts_by_source = {
+        source_name: {"total": int(total), "with_text": int(with_text or 0), "unavailable": int(unavailable or 0)}
+        for source_name, total, with_text, unavailable in law_counts
+    }
+    indexed = sum(row["total"] for row in counts_by_source.values())
+    materialized = sum(row["with_text"] for row in counts_by_source.values())
     articles = session.scalar(select(func.count()).select_from(LegalNode).join(
         Law, LegalNode.law_slug == Law.slug,
     ).where(LegalNode.node_type == "article", LegalNode.version_id == Law.current_version_id)) or 0
     changes = session.scalar(select(func.count()).select_from(LawChange)) or 0
-    senate_total = session.scalar(select(func.count()).select_from(Law).where(
-        Law.source_name == "Senado Federal — Dados Abertos Legislativos",
-    )) or 0
-    senate_with_text = session.scalar(select(func.count()).select_from(Law).where(
-        Law.source_name == "Senado Federal — Dados Abertos Legislativos", Law.current_version_id.is_not(None),
-    )) or 0
-    senate_unavailable = session.scalar(select(func.count()).select_from(Law).where(
-        Law.source_name == "Senado Federal — Dados Abertos Legislativos", Law.materialization_status == "unavailable",
-    )) or 0
+    senate = counts_by_source.get("Senado Federal — Dados Abertos Legislativos", {})
+    senate_total = senate.get("total", 0)
+    senate_with_text = senate.get("with_text", 0)
+    senate_unavailable = senate.get("unavailable", 0)
     senate_active = session.scalar(select(func.count()).select_from(HydrationJob).join(
         Law, HydrationJob.law_slug == Law.slug,
     ).where(
@@ -110,13 +131,8 @@ def stats(session: Session = Depends(get_session)):
         ("state:DF:sinj", "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF"),
         ("municipality:1302603:sapl", "Câmara Municipal de Manaus — SAPL"),
     ):
-        total = session.scalar(select(func.count()).select_from(Law).where(Law.source_name == source_name)) or 0
-        with_text = session.scalar(select(func.count()).select_from(Law).where(
-            Law.source_name == source_name, Law.current_version_id.is_not(None),
-        )) or 0
-        unavailable = session.scalar(select(func.count()).select_from(Law).where(
-            Law.source_name == source_name, Law.materialization_status == "unavailable",
-        )) or 0
+        counts = counts_by_source.get(source_name, {})
+        total, with_text, unavailable = counts.get("total", 0), counts.get("with_text", 0), counts.get("unavailable", 0)
         subnational_catalogs[source_id] = {
             "source_name": source_name, "catalog_laws": total, "with_text": with_text,
             "unavailable": unavailable, "pending": max(0, total - with_text - unavailable),
@@ -125,13 +141,8 @@ def stats(session: Session = Depends(get_session)):
     for registry in session.scalars(select(SourceRegistry).where(SourceRegistry.adapter == "sapl_catalog")):
         if registry.id in known_catalog_ids:
             continue
-        total = session.scalar(select(func.count()).select_from(Law).where(Law.source_name == registry.name)) or 0
-        with_text = session.scalar(select(func.count()).select_from(Law).where(
-            Law.source_name == registry.name, Law.current_version_id.is_not(None),
-        )) or 0
-        unavailable = session.scalar(select(func.count()).select_from(Law).where(
-            Law.source_name == registry.name, Law.materialization_status == "unavailable",
-        )) or 0
+        counts = counts_by_source.get(registry.name, {})
+        total, with_text, unavailable = counts.get("total", 0), counts.get("with_text", 0), counts.get("unavailable", 0)
         subnational_catalogs[registry.id] = {
             "source_name": registry.name, "catalog_laws": total, "with_text": with_text,
             "unavailable": unavailable, "pending": max(0, total - with_text - unavailable),
@@ -450,15 +461,93 @@ def robots():
 
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap(request: Request, session: Session = Depends(get_session)):
-    slugs = list(session.scalars(select(Law.slug).order_by(Law.slug)))
     base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     if not base_url:
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
         host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
         base_url = f"{scheme}://{host}"
-    urls = [base_url, *[f"{base_url}/lei/{slug}" for slug in slugs]]
-    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">" + "".join(f"<url><loc>{escape(url)}</loc></url>" for url in urls) + "</urlset>"
+    page_size = 10_000
+    law_count = session.scalar(select(func.count()).select_from(Law)) or 0
+    page_count = (law_count + page_size - 1) // page_size
+    xml_header = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    if page_count:
+        entries = [f"<sitemap><loc>{escape(base_url)}/sitemap-laws-{page}.xml</loc></sitemap>" for page in range(page_count)]
+        body = xml_header + "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">" + "".join(entries) + "</sitemapindex>"
+    else:
+        body = xml_header + f"<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\"><url><loc>{escape(base_url)}</loc></url></urlset>"
     return Response(body, media_type="application/xml")
+
+
+@app.get("/sitemap-laws-{page}.xml", include_in_schema=False)
+def sitemap_laws(page: int, request: Request, session: Session = Depends(get_session)):
+    page_size = 10_000
+    law_count = session.scalar(select(func.count()).select_from(Law)) or 0
+    if page < 0 or page * page_size >= law_count:
+        raise HTTPException(status_code=404, detail="Fragmento do sitemap não encontrado.")
+    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    if not base_url:
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+        host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc)).split(",")[0].strip()
+        base_url = f"{scheme}://{host}"
+    slugs = session.scalars(select(Law.slug).order_by(Law.slug).offset(page * page_size).limit(page_size))
+    entries = [f"<url><loc>{escape(base_url)}/lei/{escape(slug)}</loc></url>" for slug in slugs]
+    body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">" + "".join(entries) + "</urlset>"
+    return Response(body, media_type="application/xml")
+
+
+@app.get("/lei/{slug}", include_in_schema=False)
+def law_page(slug: str, request: Request, session: Session = Depends(get_session)):
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    canonical_base = os.getenv("PUBLIC_BASE_URL", "").rstrip("/") or str(request.base_url).rstrip("/")
+    canonical = f"{canonical_base}/lei/{slug}"
+    title = f"{law.title} — LeiAberta"
+    description = law.description or f"{law.law_type} {law.number}/{law.year} — consulte o registro oficial e a cobertura disponível."
+    details = f"{law.law_type} {law.number}/{law.year} · {law.jurisdiction} · {law.status}"
+    no_script = [f"<h1>{html_escape(law.title)}</h1>", f"<p>{html_escape(details)}</p>"]
+    if law.description:
+        no_script.append(f"<p>{html_escape(law.description)}</p>")
+    if law.current_version_id:
+        nodes = session.scalars(select(LegalNode).where(
+            LegalNode.version_id == law.current_version_id,
+            LegalNode.node_type == "article",
+        ).order_by(LegalNode.order_index).limit(10))
+        no_script.append("<section aria-label=\"Primeiros artigos estruturados\">")
+        for node in nodes:
+            no_script.append(
+                f"<article id=\"{html_escape(node.node_id, quote=True)}\"><h2>{html_escape(node.label)}</h2>"
+                f"<p>{html_escape(node.text[:3000])}</p></article>"
+            )
+        no_script.append("</section>")
+    else:
+        no_script.append("<p>O texto estruturado ainda não está disponível neste acervo.</p>")
+    if law.source_url.startswith("https://"):
+        no_script.append(
+            f"<p><a rel=\"nofollow noopener\" href=\"{html_escape(law.source_url, quote=True)}\">"
+            "Consultar fonte oficial</a></p>"
+        )
+    page = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    page = page.replace("<title>LeiAberta — veja o que mudou</title>", f"<title>{html_escape(title)}</title>")
+    page = page.replace(
+        '<meta name="description" content="Pesquise legislação brasileira e acompanhe o texto, as fontes oficiais e as alterações documentadas." />',
+        f'<meta name="description" content="{html_escape(description, quote=True)}" />',
+    )
+    page = page.replace(
+        '<meta property="og:title" content="LeiAberta — legislação com histórico" />',
+        f'<meta property="og:title" content="{html_escape(title, quote=True)}" />',
+    )
+    page = page.replace(
+        '<meta property="og:description" content="Veja o que mudou. Quem mudou. E por quê." />',
+        f'<meta property="og:description" content="{html_escape(description, quote=True)}" />',
+    )
+    page = page.replace('<link rel="canonical" href="/" />', f'<link rel="canonical" href="{html_escape(canonical, quote=True)}" />')
+    page = page.replace(
+        '<main id="main" tabindex="-1"><div class="page-loading"><span class="spinner"></span> Abrindo o acervo</div></main>',
+        '<main id="main" tabindex="-1"><div class="page-loading"><span class="spinner"></span> Abrindo o acervo</div>'
+        f'<noscript><section class="content-shell">{"".join(no_script)}</section></noscript></main>',
+    )
+    return HTMLResponse(page)
 
 
 @app.get("/{path:path}", include_in_schema=False)

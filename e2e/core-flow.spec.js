@@ -1,5 +1,16 @@
 const { test, expect } = require("@playwright/test");
 
+test("the home and search flow fit a mobile viewport", async ({ browser }) => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, isMobile: true });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: /Veja o que mudou/ })).toBeVisible();
+  const search = page.getByRole("searchbox", { name: "Pesquisar legislação" });
+  await search.fill("LGDP");
+  await expect(page.getByRole("link", { name: /Lei Geral de Proteção de Dados Pessoais/ }).first()).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.close();
+});
+
 test("LGDP resolves to LGPD, shows article 7 and links the official source", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Veja o que mudou/ })).toBeVisible();
