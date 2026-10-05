@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import time
 import uuid
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app.jobs import (
@@ -29,6 +30,14 @@ def hydration_concurrency() -> int:
 def catalog_concurrency() -> int:
     """Serialize catalog writers by default; raise this only after measuring DB headroom."""
     return min(MAX_CATALOG_CONCURRENCY, max(1, int(os.getenv("CATALOG_SYNC_CONCURRENCY", "1"))))
+
+
+def publish_worker_heartbeat(redis, consumer: str, concurrency: int,
+                             now: datetime | None = None) -> str:
+    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
+    redis.set("leiaberta:worker:heartbeat", timestamp, ex=90)
+    logger.info("worker_heartbeat consumer=%s concurrency=%s at=%s", consumer, concurrency, timestamp)
+    return timestamp
 
 
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
@@ -135,8 +144,12 @@ def run() -> None:
     history_batch_seconds = max(300, int(os.getenv("HISTORY_BACKFILL_BATCH_SECONDS", "300")))
     history_batch_size = min(500, max(1, int(os.getenv("HISTORY_BACKFILL_BATCH_SIZE", "500"))))
     next_history_batch = time.monotonic()
+    next_worker_heartbeat = time.monotonic()
     while True:
         try:
+            if time.monotonic() >= next_worker_heartbeat:
+                publish_worker_heartbeat(redis, consumer, concurrency)
+                next_worker_heartbeat = time.monotonic() + 30
             if senado_sync_future is not None and senado_sync_future.done():
                 try:
                     result = senado_sync_future.result()
