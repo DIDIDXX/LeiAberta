@@ -26,7 +26,7 @@ ACTIVE_STATUSES = ["queued", "running"]
 _SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
 
 
-def queue_job(law_slug: str, job_type: str, *, refresh: bool = False) -> HydrationJob:
+def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: bool = False) -> HydrationJob:
     if job_type not in {"hydrate", "history"}:
         raise ValueError("Tipo de job desconhecido.")
     session = SessionLocal()
@@ -41,13 +41,18 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False) -> Hydrati
             .limit(1)
         )
         if existing:
+            if priority and existing.status == "queued" and existing.stage_name == "queued":
+                existing.message = "Aguardando worker"
+                session.commit()
+                session.refresh(existing)
             return existing
         if job_type == "hydrate" and stored_law.materialization_status == "ready" and not refresh:
             done = session.scalar(select(HydrationJob).where(HydrationJob.law_slug == law_slug, HydrationJob.job_type == job_type, HydrationJob.status == "succeeded").order_by(HydrationJob.updated_at.desc()).limit(1))
             if done:
                 return done
         job = HydrationJob(id=str(uuid.uuid4()), law_slug=law_slug, job_type=job_type,
-                           stage_name="queued", message="Aguardando worker")
+                           stage_name="queued",
+                           message="Aguardando worker" if priority else "Aguardando fila de processamento")
         session.add(job)
         session.add(JobOutbox(job_id=job.id))
         if job_type == "hydrate" and not stored_law.current_version_id:
@@ -80,7 +85,7 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False) -> Hydrati
 
 
 def queue_hydration(law: Law, *, refresh: bool = False) -> HydrationJob:
-    return queue_job(law.slug, "hydrate", refresh=refresh)
+    return queue_job(law.slug, "hydrate", refresh=refresh, priority=True)
 
 
 def queue_senado_text_batch(*, limit: int = 100) -> dict:
@@ -242,7 +247,27 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
 
 
 def queue_history(law: Law) -> HydrationJob:
-    return queue_job(law.slug, "history")
+    return queue_job(law.slug, "history", priority=True)
+
+
+def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
+    """Return queued user requests so bulk backfills cannot leave them waiting behind the backlog."""
+    if not 1 <= limit <= 4:
+        raise ValueError("A consulta prioritária aceita de 1 a 4 jobs.")
+    with SessionLocal() as session:
+        return list(session.scalars(
+            select(HydrationJob.id)
+            .where(
+                HydrationJob.status == "queued",
+                HydrationJob.stage_name == "queued",
+                or_(
+                    HydrationJob.job_type == "history",
+                    and_(HydrationJob.job_type == "hydrate", HydrationJob.message == "Aguardando worker"),
+                ),
+            )
+            .order_by(HydrationJob.created_at, HydrationJob.id)
+            .limit(limit)
+        ))
 
 
 def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_format: str,

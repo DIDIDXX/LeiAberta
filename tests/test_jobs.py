@@ -16,6 +16,33 @@ from app.sources.alesp import AlespHistorySnapshot
 from app.sources.sinj_df import SinjDFHistorySnapshot
 
 
+def test_interactive_queue_selection_skips_bulk_and_delayed_retry_jobs(db_session, add_law, monkeypatch):
+    now = datetime.now(timezone.utc)
+    rows = [
+        ("bulk", "hydrate", "queued", "queued", "Aguardando captura do texto legislativo", 0),
+        ("manual-hydrate", "hydrate", "queued", "queued", "Aguardando worker", 1),
+        ("manual-history", "history", "queued", "queued", "Aguardando worker", 2),
+        ("retry-history", "history", "queued", "retry_wait", "Fonte temporariamente indisponível", 3),
+    ]
+    jobs_by_name = {}
+    for slug, job_type, status, stage, message, offset in rows:
+        db_session.add(add_law(slug=f"interactive-{slug}"))
+        job = HydrationJob(
+            id=slug, law_slug=f"interactive-{slug}", job_type=job_type,
+            status=status, stage=0, stage_name=stage, message=message, attempts=0,
+            error="", created_at=now.replace(microsecond=offset), updated_at=now,
+        )
+        db_session.add(job)
+        jobs_by_name[slug] = job.id
+    db_session.commit()
+
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+
+    assert jobs.queued_interactive_job_ids(limit=4) == [
+        jobs_by_name["manual-hydrate"], jobs_by_name["manual-history"],
+    ]
+
+
 def test_reparse_creates_immutable_representation_and_keeps_old_nodes(db_session, add_law, monkeypatch):
     law = add_law(slug="1234-2024")
     body = b"<html><body>new parser source</body></html>"

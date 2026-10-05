@@ -5,7 +5,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration_job
+from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration_job, queued_interactive_job_ids
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
@@ -29,6 +29,17 @@ def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> Non
             logger.exception("worker_job_unhandled_error job=%s", job_id)
             continue
         redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
+
+
+def process_priority_jobs(job_ids: list[str], executor: ThreadPoolExecutor) -> None:
+    """Claim user-triggered work before reading older bulk-backfill entries."""
+    futures = {executor.submit(process_hydration_job, job_id): job_id for job_id in job_ids}
+    for future in as_completed(futures):
+        job_id = futures[future]
+        try:
+            future.result()
+        except Exception:
+            logger.exception("worker_priority_job_unhandled_error job=%s", job_id)
 
 
 def wait_for_database_schema(*, timeout: float = 300, interval: float = 3) -> None:
@@ -192,6 +203,10 @@ def run() -> None:
                     except Exception:
                         logger.exception("sapl_manaus_catalog_refresh_start_failed")
             dispatch_outbox()
+            priority_job_ids = queued_interactive_job_ids(limit=concurrency)
+            if priority_job_ids:
+                process_priority_jobs(priority_job_ids, executor)
+                continue
             claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
                                        start_id="0-0", count=concurrency)
             messages = claimed[1] if claimed and len(claimed) > 1 else []
