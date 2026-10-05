@@ -17,7 +17,7 @@ Date: 2026-10-05. Branch: `codex/luna6-autonomous-audit-20261005`, based on `948
 ## Outstanding release actions
 
 1. Python + E2E pass locally; commit and CI are the remaining code verification steps.
-2. Commit branch, open PR, wait for GitHub CI, resolve failures, merge and confirm Railway deployments.
+2. PR #47 is open. Its first CI run exposed that Playwright referenced `.venv/bin` only; `playwright.config.js` now selects the local venv when present and the runner's Python otherwise. Local E2E passed 5/5 after the fix; CI rerun #2 is running before merge.
 3. After deploy, remeasure `/api/stats`, typo search, sitemap index and shards; verify health, web/worker/Redis/Postgres and migrations.
 4. Check the application still answers via configured public domain and confirm new law page content. User-facing exact metrics/cost remain estimates until billing and DB query access exist.
 5. A Railway diagnostic Function/service unexpectedly created during earlier audit tooling remains only as a staged deletion. Railway API refused to commit that removal because it requires 2FA from the Railway Dashboard. It has no volume and is not in the LeiAberta deployment path. Do not attempt to bypass 2FA; the production user must apply/remove that staged diagnostic patch in Railway Dashboard.
