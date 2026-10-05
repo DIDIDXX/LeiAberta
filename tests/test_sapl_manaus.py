@@ -82,6 +82,45 @@ def test_sapl_document_archives_pdf_and_materializes_identity_checked_text(monke
     assert result.source_url.endswith("/lei.pdf")
 
 
+def test_sapl_detail_accepts_designation_year_different_from_signature_year(monkeypatch):
+    detail = {
+        "id": 6518, "esfera_federacao": "M", "tipo": 5, "numero": "6", "ano": 1994,
+        "data": "1995-02-21", "texto_integral": "https://sapl.cmm.am.gov.br/media/sapl/public/normajuridica/1994/6518/emenda.pdf",
+    }
+    monkeypatch.setattr(sapl, "_json", lambda *_args, **_kwargs: (detail, "https://sapl.cmm.am.gov.br/api/norma/normajuridica/6518/"))
+    monkeypatch.setattr(sapl, "_type_name", lambda *_args, **_kwargs: "Emenda à Lei Orgânica")
+    remote_id, verified = sapl._verified_detail(
+        "https://sapl.cmm.am.gov.br/api/norma/normajuridica/6518/", "Emenda à Lei Orgânica", "6", 1994,
+        timeout=1,
+    )
+    assert remote_id == "6518"
+    assert verified["data"] == "1995-02-21"
+
+
+def test_sapl_document_refetches_detail_when_attachment_metadata_is_temporarily_missing(monkeypatch):
+    url = "https://sapl.cmm.am.gov.br/api/norma/normajuridica/9910/"
+    base = {"id": 9910, "esfera_federacao": "M", "tipo": 14, "numero": "6920", "ano": 2026, "data": "2026-09-28"}
+    first = {**base, "texto_integral": None}
+    second = {**base, "texto_integral": "https://sapl.cmm.am.gov.br/media/sapl/public/normajuridica/2026/9910/decreto.pdf"}
+    details = iter((first, second))
+    monkeypatch.setattr(sapl, "_verified_detail", lambda *_args, **_kwargs: ("9910", next(details)))
+    monkeypatch.setattr(sapl, "_fetch", lambda *_args, **_kwargs: (
+        b"%PDF-original", second["texto_integral"], "application/pdf",
+    ))
+    monkeypatch.setattr(sapl, "pdf_to_html", lambda _body: (
+        b"<html><body><p>Decreto Executivo 6.920/2026. Art. 1. Norma para desapropriacao municipal do imovel mencionado.</p></body></html>"
+    ))
+
+    document = sapl.fetch_sapl_document(url, "Decreto Executivo", "6920", 2026)
+    assert document.source_url.endswith("/decreto.pdf")
+
+
+def test_sapl_media_url_canonicalizes_official_relative_and_http_urls():
+    path = "/media/sapl/public/normajuridica/2026/9910/decreto.pdf"
+    assert sapl._validated_media_url(path) == "https://sapl.cmm.am.gov.br" + path
+    assert sapl._validated_media_url("http://sapl.cmm.am.gov.br" + path) == "https://sapl.cmm.am.gov.br" + path
+
+
 def test_sapl_document_rejects_media_url_outside_official_host(monkeypatch):
     monkeypatch.setattr(sapl, "_verified_detail", lambda *a, **k: ("1", {"texto_integral": "https://evil.example/law.pdf"}))
     with pytest.raises(SourceDocumentUnavailable, match="endereço oficial"):

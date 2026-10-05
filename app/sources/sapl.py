@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import urllib.parse
 import urllib.request
@@ -18,6 +19,7 @@ from app.sources.network import open_with_retry
 from app.sources.normas import SourceDocumentUnavailable
 
 MAX_BYTES = 25_000_000
+logger = logging.getLogger("leiaberta.sources.sapl")
 
 
 @dataclass(frozen=True)
@@ -112,7 +114,7 @@ def _verified_detail(source_url: str, law_type: str, number: str, year: int, *, 
     expected_digits = re.sub(r"\D", "", number)
     actual_digits = re.sub(r"\D", "", actual_number)
     if (actual_type.casefold() != law_type.strip().casefold()
-            or actual_digits != expected_digits or signed is None or signed.year != year
+            or actual_digits != expected_digits or signed is None
             or int(detail.get("ano") or 0) != year):
         raise SourceDocumentUnavailable(
             f"A identidade SAPL diverge da norma pedida: {actual_type} {actual_number}/{signed.year if signed else '?'}.")
@@ -120,11 +122,14 @@ def _verified_detail(source_url: str, law_type: str, number: str, year: int, *, 
 
 
 def _validated_media_url(value: object) -> str:
-    url = urllib.parse.urlparse(str(value or "").strip())
-    if (url.scheme != "https" or url.hostname != "sapl.cmm.am.gov.br"
+    raw = str(value or "").strip()
+    if raw.startswith("/media/sapl/public/normajuridica/"):
+        raw = urllib.parse.urljoin(f"{SAPL_HOST}/", raw)
+    url = urllib.parse.urlparse(raw)
+    if (url.scheme not in {"https", "http"} or url.hostname != "sapl.cmm.am.gov.br"
             or not url.path.startswith("/media/sapl/public/normajuridica/") or url.query or url.fragment):
         raise SourceDocumentUnavailable("A ficha SAPL não oferece anexo integral em endereço oficial reconhecido.")
-    return urllib.parse.urlunparse(url)
+    return urllib.parse.urlunparse(url._replace(scheme="https"))
 
 
 def _validate_document_text(parsed_body: bytes, law_type: str, number: str, year: int) -> None:
@@ -139,7 +144,18 @@ def _validate_document_text(parsed_body: bytes, law_type: str, number: str, year
 
 def fetch_sapl_document(source_url: str, law_type: str, number: str, year: int, *, timeout: int = 30) -> SaplDocument:
     _remote_id, detail = _verified_detail(source_url, law_type, number, year, timeout=timeout)
-    text_url = _validated_media_url(detail.get("texto_integral"))
+    media_url = detail.get("texto_integral")
+    if not media_url:
+        # The public API occasionally serves a ficha before its attachment
+        # metadata is visible through the same endpoint. Re-read once before
+        # classifying a law as having no official full text.
+        _remote_id, detail = _verified_detail(source_url, law_type, number, year, timeout=timeout)
+        media_url = detail.get("texto_integral")
+    try:
+        text_url = _validated_media_url(media_url)
+    except SourceDocumentUnavailable:
+        logger.warning("sapl_document_attachment_unavailable remote_id=%s value=%r", _remote_id, media_url)
+        raise
     try:
         body, final_url, content_type = _fetch(text_url, accept="application/pdf, text/html, application/vnd.openxmlformats-officedocument.wordprocessingml.document", timeout=timeout)
     except SourceDocumentUnavailable:
