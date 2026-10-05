@@ -4,13 +4,15 @@
 
 LeiAberta conecta catálogos e documentos legislativos públicos a texto estruturado, alterações verificáveis e fontes oficiais. Catálogo, texto, histórico e tramitação são estágios diferentes; lacunas ficam visíveis.
 
-[Abrir o LeiAberta](https://web-production-12e95.up.railway.app) · [Ver uma alteração real](https://web-production-12e95.up.railway.app/diff/3b1c3ba3-dc6e-4481-9aa0-3e197f2f8c10) · [API](docs/API.md) · [Contribuir](CONTRIBUTING.md)
+[Abrir o LeiAberta](https://web-production-12e95.up.railway.app) · [Ver o antes e depois de uma alteração real](https://web-production-12e95.up.railway.app/diff/be3a1531-edaa-5a78-94ca-70c6544e3853) · [API](docs/API.md) · [Contribuir](CONTRIBUTING.md)
 
 Alterações do projeto: [CHANGELOG.md](CHANGELOG.md).
 
 [![CI](https://github.com/DIDIDXX/LeiAberta/actions/workflows/ci.yml/badge.svg)](https://github.com/DIDIDXX/LeiAberta/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ![Tela da alteração demonstrativa do LeiAberta](docs/assets/launch/hero-law-diff.png)
+
+[Assistir à demo de 30 segundos](docs/assets/launch/demo.webm) · [Ver screenshots](docs/assets/launch/)
 
 ## Por que existe
 
@@ -20,7 +22,7 @@ O LeiAberta mantém dados observáveis e separa metadados catalogados, texto cap
 
 ## Demonstração
 
-A home abre a busca e leva à inclusão do § 4º do art. 19 da Lei Maria da Penha pela Lei 14.550/2023. O diff mostra o texto incluído e liga a norma modificadora ao Planalto. Há também registro de processo do Senado relacionado. Relações processuais não são tratadas como prova do diff, e não se atribui o texto a um parlamentar.
+A home abre o diff registrado do art. 389 do Código Civil: a redação anterior e posterior associadas à Lei 14.905/2024. O registro da comparação vem do Normas.leg.br, que classifica sua transcrição como valor jurídico não oficial; a página mostra essa ressalva e liga separadamente ao texto consolidado consultado. A data associada ao registro não é apresentada como data de vigência. O caso complementar da Lei Maria da Penha demonstra uma inclusão com fonte primária e, por isso, sem texto anterior.
 
 ## Recursos
 

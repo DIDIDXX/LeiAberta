@@ -1,22 +1,27 @@
-# Hero case: Lei Maria da Penha, art. 19, § 4º
+# Hero case: Código Civil, art. 389
 
 ## Por que este caso
 
-A LGPD tem mais eventos no histórico, mas ainda mostra várias relações sem comparação completa e seu diff mais recente usa compilação Normas.leg.br. A Lei Maria da Penha oferece uma demonstração curta com inclusão textual real e URL direta do Planalto.
+O CTA principal agora mostra uma alteração de redação em um dispositivo que já existia, para que a demonstração tenha texto antes e depois. O texto anterior e posterior está registrado para o art. 389 do Código Civil e a relação aponta a Lei nº 14.905/2024.
 
-## Evidência observada
+## Comparação registrada
 
-- Norma consolidada: Lei nº 11.340/2006, slug `11340-2006`.
-- Dispositivo: `art:19.par:4`.
-- Ato modificador: Lei nº 14.550/2023, assinada em 19/04/2023.
-- Operação: inclusão (`ADD`); o dispositivo não existia no texto anterior representado na comparação.
-- Marcador na publicação: “Incluído pela Lei nº 14.550, de 2023”.
-- Fonte modificadora: [Planalto — Lei 14.550/2023](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/lei/L14550.htm).
-- Texto consolidado usado na comparação: [Planalto — Lei 11.340/2006](https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2006/lei/l11340.htm).
-- Diff no LeiAberta: [ver comparação](https://web-production-12e95.up.railway.app/diff/3b1c3ba3-dc6e-4481-9aa0-3e197f2f8c10).
-- Processo: o catálogo tem registro do Senado para a Lei 14.550/2023 (`senado-36981001`) e dossiê com um processo compatível, consultado em 05/10/2026. A relação ao projeto de origem não é usada como prova do texto do diff.
+- Norma: Código Civil, Lei nº 10.406/2002 (`10406-2002`).
+- Dispositivo: `art:389`.
+- Ato associado: Lei nº 14.905, de 28/06/2024.
+- Tipo: `UPDATE`; ambos os lados contêm redação.
+- Antes: “Não cumprida a obrigação, responde o devedor por perdas e danos, mais juros e atualização monetária segundo índices oficiais regularmente estabelecidos, e honorários de advogado.”
+- Depois: “Não cumprida a obrigação, responde o devedor por perdas e danos, mais juros, atualização monetária e honorários de advogado.”
+- Registro versionado da comparação: [Normas.leg.br — trecho do art. 389](https://normas.leg.br/?urn=urn:lex:br:federal:lei:2024-06-28;14905@2024-06-28!art2_cpt_alt1_art389_cpt).
+- Texto consolidado consultado: [Planalto — Código Civil](https://www.planalto.gov.br/ccivil_03/leis/2002/l10406compilada.htm).
+- Diff no LeiAberta: [ver antes e depois](https://web-production-12e95.up.railway.app/diff/be3a1531-edaa-5a78-94ca-70c6544e3853).
 
-## Limites
+## Limites da evidência
 
-A lei consolidada está marcada como estrutura parcial e seu histórico geral como parcial. Este caso prova esta inclusão e suas fontes; não prova que todo o histórico da Lei Maria da Penha foi reconstruído, nem atribui a redação a uma pessoa.
+O registro da comparação vem do Normas.leg.br. O próprio catálogo classifica suas transcrições como valor jurídico não oficial. Por isso a interface diz “Comparação registrada”, identifica o host e separa esse registro do texto consolidado consultado. A data exibida é a data associada à comparação; ela não afirma a data de vigência. A comparação não identifica quem redigiu o dispositivo.
 
+O texto consolidado do Código Civil e seu histórico geral permanecem com cobertura parcial e auditoria documental pendente. A demonstração sustenta este par de redações registrado, não certifica a completude da lei inteira.
+
+## Caso complementar
+
+A inclusão do § 4º do art. 19 da Lei Maria da Penha pela Lei nº 14.550/2023 continua disponível como exemplo de dispositivo novo: [Planalto — Lei 14.550/2023](https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/lei/L14550.htm). Esse exemplo tem fonte primária, mas o lado anterior fica vazio porque o parágrafo foi incluído naquele ato.

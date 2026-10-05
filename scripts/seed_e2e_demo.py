@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.db import SessionLocal
 from app.models import Law, LawChange, LawVersion, LegalNode
 
-FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/launch/lmp-art19-par4.json"
+FIXTURE = Path(__file__).resolve().parents[1] / "tests/fixtures/launch/codigo-civil-art389-2024.json"
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
     with SessionLocal() as session:
         law = session.get(Law, data["law_slug"])
         if law is None:
-            raise RuntimeError("Playwright seed must create the Maria da Penha catalog entry first")
+            raise RuntimeError("Playwright seed must create the Civil Code catalog entry first")
         change = session.get(LawChange, data["id"])
         if change is not None:
             return
@@ -25,7 +25,7 @@ def main():
         ))
         if version is None:
             version = LawVersion(
-                law_slug=law.slug, version_name="Playwright fixture; derived from recorded official evidence",
+                law_slug=law.slug, version_name="Playwright fixture; derived from recorded source comparison",
                 source_url=data["law_source_url"], checksum="e2e-launch-case-v1",
                 parser_version="fixture-v1", article_count=1,
             )
@@ -36,7 +36,7 @@ def main():
             law.coverage = {**(law.coverage or {}), "structured_text": "partial", "history": "partial"}
             session.add(LegalNode(
                 law_slug=law.slug, version_id=version.id, node_id=data["node_id"],
-                parent_node_id="art:19", node_type="paragraph", label="§ 4º",
+                parent_node_id=None, node_type="article", label="Art. 389º",
                 text=data["after_text"], order_index=1,
             ))
         session.add(LawChange(
