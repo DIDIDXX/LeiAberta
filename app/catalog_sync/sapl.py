@@ -145,8 +145,11 @@ def parse_catalog_page(payload: dict, type_names: dict[str, str]) -> list[SaplCa
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Registro SAPL {remote_id!r} sem ano válido.") from exc
         signed_at = _date(item.get("data"))
+        # SAPL's ``ano`` is part of the norm's official designation and does not
+        # always equal its signature date year (e.g. Emenda à Loman 6/1994,
+        # signed on 1995-02-21). Preserve both official fields independently.
         if (not remote_id.isdigit() or len(remote_id) > 24 or not law_type or signed_at is None
-                or signed_at.year != year or item.get("esfera_federacao") != "M" or len(number) > 96):
+                or item.get("esfera_federacao") != "M" or len(number) > 96):
             raise ValueError(f"Registro SAPL sem identidade municipal verificável: id={remote_id!r}.")
         title = str(item.get("__str__") or f"{law_type} {number}/{year}").strip()
         records.append(SaplCatalogNorm(
