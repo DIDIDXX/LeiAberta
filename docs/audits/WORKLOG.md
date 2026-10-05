@@ -78,3 +78,5 @@ Validar CI rerun, merge PR #47, acompanhar Railway SUCCESS e smoke pós-deploy.
 - Hardening local adicional: CSP same-origin, `/ready` (conectividade DB + Alembic heads), cap de 25 MB no fetcher Planalto. `pytest -q`: 138 passed, 1 aviso upstream; Playwright: 5/5 passed; `git diff --check` passou. Estes itens ainda aguardam PR/CI/merge/deploy.
 - Pendências/bloqueios: inventário nacional exaustivo sem denominator oficial; SQL/EXPLAIN/fatura indisponíveis via connector; cliente confiável de proxy ainda não verificado para rate limit; validação uniforme de redirects/adapters; readiness + worker heartbeat precisam confirmação após deploy; exclusão staged do diagnóstico Railway requer 2FA no Dashboard.
 - Próxima ação exata: criar branch e PR do hardening; CI verde; merge/deploy; confirmar `/ready` e CSP via HTTP; reexecutar browser/smoke; atualizar status com SHA e deployment IDs definitivos.
+
+- Smoke CSP em produção encontrou bloqueio da folha já existente do Google Fonts; patch restrito a `fonts.googleapis.com` e `fonts.gstatic.com` preparado, após validar necessidade pelo console do browser. Precisa CI/merge/redeploy e smoke limpo.
