@@ -27,7 +27,7 @@
 
 ## Validação local
 
-- `pytest -q`: 149 passaram; um aviso de depreciação upstream Starlette/httpx.
+- `pytest -q`: 150 passaram; um aviso de depreciação upstream Starlette/httpx.
 - `npm run test:e2e`: 2 passaram, fluxo do hero e typo/mobile, sem chamadas reais aos catálogos oficiais.
 - `node --check`, `compileall`, `git diff --check`: passaram.
 - `docker build`: apt instala, mas `pip` não valida o certificado interceptado do proxy para PyPI neste executor. A imagem continua no gate CI GitHub.
@@ -37,11 +37,11 @@
 - OG SVG e script Playwright de captura criados. Screenshots do site ainda serão feitos somente após o deploy final.
 - Nenhum commit/PR/deploy desta branch concluído ainda; próxima fase é publicar commits lógicos via GitHub, aguardar CI, merge e conferir Railway.
 - Railway apresentou patch já staged desde 15:41 UTC que remove o serviço `pg-diagnostic-8187f5d5-103d-45b9-992c-d60926ae3276`. Está marcado destrutivo. Não faz parte do diff deste branch e não foi aceito junto ao deploy do app.
+- Durante a medição de performance às 22:07 UTC, `/worker-health` retornou 503 (`Worker heartbeat is stale`) enquanto os logs Railway mostravam o worker completando páginas do catálogo SAPL. A emissão do heartbeat estava no mesmo loop do despacho e podia ficar atrasada por trabalho prolongado; foi movida para thread daemon próprio e coberta por teste. Aguardar deploy para confirmar recuperação em produção.
 
 ## Próximas ações
 
-1. Fechar docs/checklist e publicar commits lógicos + PR.
-2. CI verde, merge, esperar web/worker Railway em `SUCCESS` e conferir SHA.
+1. Atualizar facts/worklog e aguardar CI do head mais recente do PR.
+2. Merge, esperar web/worker Railway em `SUCCESS` e conferir SHA.
 3. Smoke de APIs/páginas, browser em 390/430/768/1440 px e performance amostral.
 4. Capturar screenshots reais do deploy final, atualizar README/FACTS/relatório e decidir release se houver suporte disponível.
-

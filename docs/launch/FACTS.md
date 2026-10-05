@@ -10,7 +10,7 @@ Snapshot observado na produção em 05/10/2026, aproximadamente 21:40 UTC. Métr
 | Alterações documentadas | 537 | `documented_changes`; relação sem before/after não está incluída como diff comprovado |
 | Fontes | 375 registries; 370 status `enumerated` | `GET /api/sources`; inclui linhas descobertas e em sincronização, nem todas são adapters de catálogo |
 | Jurisdições territoriais | cadastro IBGE sincronizado | Diretório territorial não implica leis catalogadas por jurisdição |
-| Testes Python | 149 passaram | `pytest -q`; testes são automação, não prova de cobertura integral |
+| Testes Python | 150 passaram | `pytest -q`; testes são automação, não prova de cobertura integral |
 | E2E | 2 passaram | `npm run test:e2e`; Playwright local com fixture de alteração oficial arquivada |
 | Infraestrutura | Railway: web, worker, PostgreSQL, Redis | Topologia observada; sem serviço externo novo nesta rodada |
 | Custo mensal | Não publicado | Não há comprovante de billing/invoice nesta sessão; não inferir custo de configuração de recurso |

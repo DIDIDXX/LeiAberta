@@ -26,7 +26,7 @@ Estados: `[ ]` pendente, `[~]` em andamento, `[x]` concluído, `[!]` bloqueio t�
 ## Segurança/produção
 - [x] Nenhuma migration; rate limits de leitura/job existentes mantidos.
 - [x] CSP, headers, allowlists, worker heartbeat e sitemap mantidos.
+- [x] Heartbeat emitido fora do loop de jobs; teste impede falsa staleness durante processamento longo.
 - [ ] Railway web/worker `SUCCESS` no SHA final e smoke pós-deploy.
 - [!] Build de Docker no executor local falha porque o proxy TLS interceptado não é confiado pelo container; gate de imagem segue no CI remoto.
 - [!] Um patch destrutivo pré-existente (remoção `pg-diagnostic`) está staged em Railway produção; não foi aceito com o deploy do app.
-
