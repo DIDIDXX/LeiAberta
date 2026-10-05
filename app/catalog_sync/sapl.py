@@ -400,7 +400,10 @@ def fetch_catalog_page(page: int, *, page_size: int = PAGE_SIZE, timeout: int = 
                        instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> tuple[dict, str]:
     if page < 1 or not 1 <= page_size <= PAGE_SIZE:
         raise ValueError("Página ou tamanho inválido para o catálogo SAPL.")
-    params = {"page_size": page_size, "page": page}
+    # SAPL exposes ordering via the ``o`` query parameter. Sorting by its
+    # unique primary key prevents records with tied dates from moving across
+    # page boundaries while the catalog is enumerated.
+    params = {"page_size": page_size, "page": page, "o": "id"}
     if instance.federation_scope_filter:
         params["esfera_federacao"] = instance.federation_scope_filter
     url = instance.norms_url + "?" + urllib.parse.urlencode(params)
