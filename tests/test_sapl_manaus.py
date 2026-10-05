@@ -26,6 +26,18 @@ def test_sapl_catalog_parser_captures_municipal_identity_and_attachment():
     assert item.text_url.endswith("/1949/1/lei.pdf")
 
 
+def test_sapl_catalog_preserves_designation_year_when_signature_is_next_year():
+    payload = _catalog_payload()
+    record = payload["results"][0]
+    record.update({
+        "__str__": "Emenda à Loman nº 6, de 21 de fevereiro de 1995",
+        "numero": "6", "ano": 1994, "data": "1995-02-21",
+    })
+    [item] = parse_catalog_page(payload, {"2": "Emenda à Lei Orgânica"})
+    assert item.year == 1994
+    assert item.signed_at == date(1995, 2, 21)
+
+
 def test_sapl_catalog_rejects_wrong_federation_and_untrusted_attachment():
     payload = _catalog_payload("https://attacker.example/law.pdf")
     assert parse_catalog_page(payload, {"2": "Lei Ordinária"})[0].text_url is None
