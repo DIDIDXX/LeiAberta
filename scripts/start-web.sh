@@ -8,9 +8,10 @@ until alembic upgrade head; do
     echo "Database migration did not succeed after 20 attempts" >&2
     exit 1
   fi
-  echo "Waiting for PostgreSQL before migration (attempt $attempt/20)" >&2
-  sleep 3
+  echo "Retrying PostgreSQL migration after a reported error (attempt $attempt/20)" >&2
+  sleep 1
 done
+echo "Database migrations are at the current Alembic head" >&2
 
 python -m app.seed --enqueue-hot
 # Catalog refreshes and maintenance audits stay off the HTTP startup path; the
