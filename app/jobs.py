@@ -26,6 +26,10 @@ ACTIVE_STATUSES = ["queued", "running"]
 MAX_INTERACTIVE_JOB_BATCH = 24
 _SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
 _SUBNATIONAL_BACKFILL_SOURCE_CURSOR: str | None = None
+_HISTORY_BACKFILL_CURSORS: dict[str, str] = {}
+_HISTORY_BACKFILL_SOURCE_CURSOR: str | None = None
+_HISTORY_BACKFILL_EXHAUSTED: set[str] = set()
+_HISTORY_BACKFILL_RESCAN_AT: datetime | None = None
 
 
 def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: bool = False) -> HydrationJob:
@@ -265,6 +269,127 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
     return {"queued_count": len(jobs), "limit": limit, "queued_by_source": queued_by_source, "jobs": jobs}
 
 
+def queue_official_history_batch(*, limit: int = 500) -> dict:
+    """Queue one fair, resumable batch across every connected history adapter."""
+    global _HISTORY_BACKFILL_SOURCE_CURSOR, _HISTORY_BACKFILL_RESCAN_AT
+    if not 1 <= limit <= 500:
+        raise ValueError("O lote de históricos deve conter de 1 a 500 normas.")
+    from app.catalog_sync.sapl import SAPL_INSTANCES
+    from app.sources.senado import TYPE_CODES
+
+    supported_source_names = (
+        "Presidência da República — Planalto",
+        "Senado Federal — Dados Abertos Legislativos",
+        "Assembleia Legislativa do Estado de São Paulo — ALESP",
+        "Sistema Integrado de Normas Jurídicas do Distrito Federal — SINJ-DF",
+        *(instance.source_name for instance in SAPL_INSTANCES),
+    )
+    now = datetime.now(timezone.utc)
+    if _HISTORY_BACKFILL_RESCAN_AT is None or now >= _HISTORY_BACKFILL_RESCAN_AT:
+        _HISTORY_BACKFILL_EXHAUSTED.clear()
+        _HISTORY_BACKFILL_RESCAN_AT = now + timedelta(hours=1)
+
+    session = SessionLocal()
+    jobs: list[dict] = []
+    queued_by_source: dict[str, int] = {}
+    try:
+        available_sources = set(session.scalars(
+            select(Law.source_name).where(Law.source_name.in_(supported_source_names)).distinct()
+        ))
+        source_names = tuple(sorted(
+            name for name in supported_source_names
+            if name in available_sources and name not in _HISTORY_BACKFILL_EXHAUSTED
+        ))
+        if source_names and _HISTORY_BACKFILL_SOURCE_CURSOR in source_names:
+            start = (source_names.index(_HISTORY_BACKFILL_SOURCE_CURSOR) + 1) % len(source_names)
+            source_names = source_names[start:] + source_names[:start]
+
+        remaining = limit
+        for source_index, source_name in enumerate(source_names):
+            if remaining < 1:
+                break
+            sources_left = len(source_names) - source_index
+            source_quota = min(remaining, max(1, (remaining + sources_left - 1) // sources_left))
+            _HISTORY_BACKFILL_SOURCE_CURSOR = source_name
+            cursor = _HISTORY_BACKFILL_CURSORS.get(source_name, "")
+            scan_limit = min(2_000, max(20, source_quota * 20))
+            statement = select(Law).where(
+                Law.source_name == source_name,
+                Law.slug > cursor,
+            ).order_by(Law.slug).limit(scan_limit)
+            candidates = list(session.scalars(statement))
+            if not candidates and cursor:
+                cursor = ""
+                candidates = list(session.scalars(select(Law).where(
+                    Law.source_name == source_name,
+                    Law.slug > cursor,
+                ).order_by(Law.slug).limit(scan_limit)))
+            if not candidates:
+                _HISTORY_BACKFILL_EXHAUSTED.add(source_name)
+                _HISTORY_BACKFILL_CURSORS[source_name] = ""
+                continue
+
+            candidate_slugs = [law.slug for law in candidates]
+            active_slugs = set(session.scalars(select(HydrationJob.law_slug).where(
+                HydrationJob.law_slug.in_(candidate_slugs),
+                HydrationJob.job_type == "history",
+                HydrationJob.status.in_(ACTIVE_STATUSES),
+            )))
+            selected = []
+            last_scanned = cursor
+            for law in candidates:
+                last_scanned = law.slug
+                coverage = dict(law.coverage or {})
+                if coverage.get("history") in {"partial", "complete", "unavailable"}:
+                    continue
+                if law.slug in active_slugs:
+                    continue
+                if (source_name == "Senado Federal — Dados Abertos Legislativos"
+                        and law.law_type not in TYPE_CODES):
+                    continue
+                selected.append(law)
+                if len(selected) >= source_quota:
+                    break
+
+            _HISTORY_BACKFILL_CURSORS[source_name] = last_scanned
+            for law in selected:
+                coverage = dict(law.coverage or {})
+                coverage["history"] = "queued"
+                coverage.pop("history_error", None)
+                law.coverage = coverage
+                job = HydrationJob(
+                    id=str(uuid.uuid4()), law_slug=law.slug, job_type="history", status="queued",
+                    stage_name="queued", message="Aguardando varredura histórica em lote",
+                    created_at=now, updated_at=now,
+                )
+                session.add(job)
+                session.add(JobOutbox(job_id=job.id, created_at=now, available_at=now))
+                jobs.append({"slug": law.slug, "job_id": job.id, "source": source_name})
+                queued_by_source[source_name] = queued_by_source.get(source_name, 0) + 1
+                remaining -= 1
+
+            if len(candidates) < scan_limit and len(selected) < source_quota:
+                if cursor:
+                    # Wrap on the next visit so new records inserted during a
+                    # long source sync are included without a full-table scan.
+                    _HISTORY_BACKFILL_CURSORS[source_name] = ""
+                elif not selected:
+                    _HISTORY_BACKFILL_EXHAUSTED.add(source_name)
+
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+    if jobs:
+        try:
+            dispatch_outbox()
+        except Exception as exc:
+            logger.warning("official_history_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
+    return {"queued_count": len(jobs), "limit": limit, "queued_by_source": queued_by_source, "jobs": jobs}
+
+
 def queue_history(law: Law) -> HydrationJob:
     return queue_job(law.slug, "history", priority=True)
 
@@ -280,7 +405,7 @@ def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
                 HydrationJob.status == "queued",
                 HydrationJob.stage_name == "queued",
                 or_(
-                    HydrationJob.job_type == "history",
+                    and_(HydrationJob.job_type == "history", HydrationJob.message == "Aguardando worker"),
                     and_(HydrationJob.job_type == "hydrate", HydrationJob.message == "Aguardando worker"),
                 ),
             )

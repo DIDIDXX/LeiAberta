@@ -12,4 +12,5 @@ RUN apt-get update \
 WORKDIR /app
 COPY scripts/backup_postgres_to_s3.py /app/backup_postgres_to_s3.py
 ENV PATH="/opt/backup-venv/bin:${PATH}"
+USER postgres
 CMD ["python3", "/app/backup_postgres_to_s3.py"]

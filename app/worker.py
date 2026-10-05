@@ -11,6 +11,7 @@ from app.jobs import (
     QUEUE_NAME,
     dispatch_outbox,
     process_hydration_job,
+    queue_official_history_batch,
     queued_interactive_job_ids,
 )
 
@@ -109,7 +110,7 @@ def run() -> None:
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
     # Keep catalog work bounded while the large state and district catalogs sync.
-    catalog_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="catalog-sync")
+    catalog_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="catalog-sync")
     senado_sync_future = None
     alesp_sync_future = None
     sinj_sync_future = None
@@ -117,11 +118,14 @@ def run() -> None:
     refresh_check_seconds = max(300, int(os.getenv("CATALOG_REFRESH_CHECK_SECONDS", "3600")))
     next_refresh_check = time.monotonic()
     senado_batch_seconds = max(300, int(os.getenv("SENADO_TEXT_BATCH_SECONDS", "300")))
-    senado_batch_size = min(500, max(1, int(os.getenv("SENADO_TEXT_BATCH_SIZE", "100"))))
+    senado_batch_size = min(500, max(1, int(os.getenv("SENADO_TEXT_BATCH_SIZE", "500"))))
     next_senado_batch = time.monotonic()
     subnational_batch_seconds = max(300, int(os.getenv("SUBNATIONAL_TEXT_BATCH_SECONDS", "300")))
-    subnational_batch_size = min(200, max(1, int(os.getenv("SUBNATIONAL_TEXT_BATCH_SIZE", "100"))))
+    subnational_batch_size = min(200, max(1, int(os.getenv("SUBNATIONAL_TEXT_BATCH_SIZE", "200"))))
     next_subnational_batch = time.monotonic()
+    history_batch_seconds = max(300, int(os.getenv("HISTORY_BACKFILL_BATCH_SECONDS", "300")))
+    history_batch_size = min(500, max(1, int(os.getenv("HISTORY_BACKFILL_BATCH_SIZE", "500"))))
+    next_history_batch = time.monotonic()
     while True:
         try:
             if senado_sync_future is not None and senado_sync_future.done():
@@ -189,6 +193,15 @@ def run() -> None:
                                     result["queued_count"], result["queued_by_source"])
                 except Exception:
                     logger.exception("subnational_text_backfill_enqueue_failed")
+            if time.monotonic() >= next_history_batch:
+                next_history_batch = time.monotonic() + history_batch_seconds
+                try:
+                    result = queue_official_history_batch(limit=history_batch_size)
+                    if result["queued_count"]:
+                        logger.info("official_history_backfill_enqueued count=%s by_source=%s",
+                                    result["queued_count"], result["queued_by_source"])
+                except Exception:
+                    logger.exception("official_history_backfill_enqueue_failed")
             if time.monotonic() >= next_refresh_check:
                 next_refresh_check = time.monotonic() + refresh_check_seconds
                 try:

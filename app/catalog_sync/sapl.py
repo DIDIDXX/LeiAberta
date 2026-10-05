@@ -5,9 +5,11 @@ import hashlib
 import http.client
 import json
 import logging
+import os
 import time
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -791,16 +793,28 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
 
 
 def sync_all_sapl_catalogs(*, force: bool = False) -> dict:
+    """Refresh configured SAPL catalogs with bounded parallelism.
+
+    Each catalog persists its own page checkpoints, so independent instances can
+    be synchronized concurrently and safely resumed after a worker restart.
+    """
     results = []
     errors = []
-    for instance in SAPL_INSTANCES:
-        try:
-            results.append(sync_sapl_catalog(instance, force=force))
-        except Exception as exc:
-            error = str(exc)[:500]
-            errors.append({"source_id": instance.source_id, "error": error})
-            logger.exception("sapl_catalog_sync_failed source_id=%s source=%s",
-                             instance.source_id, instance.source_name)
+    max_workers = min(8, max(1, int(os.getenv("SAPL_SYNC_CONCURRENCY", "4"))))
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="sapl-instance") as executor:
+        futures = {
+            executor.submit(sync_sapl_catalog, instance, force=force): instance
+            for instance in SAPL_INSTANCES
+        }
+        for future in as_completed(futures):
+            instance = futures[future]
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                error = str(exc)[:500]
+                errors.append({"source_id": instance.source_id, "error": error})
+                logger.exception("sapl_catalog_sync_failed source_id=%s source=%s",
+                                 instance.source_id, instance.source_name)
     return {"synced": results, "errors": errors,
             "records": sum(row.get("records", 0) for row in results),
             "skipped_fresh": sum(bool(row.get("skipped_fresh")) for row in results)}

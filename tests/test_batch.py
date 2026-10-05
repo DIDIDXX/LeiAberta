@@ -28,6 +28,48 @@ def test_history_batch_dry_run_is_bounded_resumable_and_skips_partial(db_session
     assert result["has_more"] is True
 
 
+def test_official_history_batch_fairly_queues_supported_sources_without_interactive_priority(db_session, monkeypatch):
+    from app import jobs
+    from app.catalog_sync.sapl import SAPL_INSTANCES
+    from app.models import HydrationJob, JobOutbox
+
+    sapl = SAPL_INSTANCES[0]
+    common = dict(law_type="Lei", year=2024, number="1", description="",
+                  status="Não verificado", aliases=[], source_url=sapl.host,
+                  fetch_url=sapl.host, hot=False, materialization_status="catalog")
+    db_session.add_all([
+        Law(slug="senado-history-batch", title="Lei 1", jurisdiction="federal",
+            source_name="Senado Federal — Dados Abertos Legislativos",
+            source_url="https://legis.senado.leg.br/dadosabertos/legislacao/1",
+            fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/1", coverage={}, **{
+                key: value for key, value in common.items()
+                if key not in {"source_url", "fetch_url"}
+            }),
+        Law(slug="sapl-history-batch", title="Lei 1", jurisdiction="municipality", source_name=sapl.source_name,
+            coverage={}, **common),
+        Law(slug="sapl-history-done", title="Lei 2", jurisdiction="municipality", source_name=sapl.source_name,
+            coverage={"history": "partial"}, **common),
+    ])
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "_HISTORY_BACKFILL_SOURCE_CURSOR", None)
+    jobs._HISTORY_BACKFILL_CURSORS.clear()
+    jobs._HISTORY_BACKFILL_EXHAUSTED.clear()
+    monkeypatch.setattr(jobs, "_HISTORY_BACKFILL_RESCAN_AT", None)
+
+    result = jobs.queue_official_history_batch(limit=2)
+
+    assert result["queued_count"] == 2
+    assert set(result["queued_by_source"].values()) == {1}
+    created = db_session.query(HydrationJob).filter_by(job_type="history", status="queued").all()
+    assert {job.law_slug for job in created} == {"senado-history-batch", "sapl-history-batch"}
+    assert all(job.message == "Aguardando varredura histórica em lote" for job in created)
+    assert db_session.query(JobOutbox).count() == 2
+    assert db_session.get(Law, "sapl-history-batch").coverage["history"] == "queued"
+    assert jobs.queued_interactive_job_ids(limit=2) == []
+
+
 def test_senado_text_batch_is_bounded_idempotent_and_persists_outbox(db_session, monkeypatch):
     from app import jobs
     from app.models import HydrationJob, JobOutbox
