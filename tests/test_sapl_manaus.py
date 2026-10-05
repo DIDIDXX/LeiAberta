@@ -2,6 +2,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
+import app.catalog_sync.sapl as sapl_catalog
 from app.catalog_sync.sapl import parse_catalog_page, sync_catalog_page
 from app.models import Jurisdiction, Law
 from app.sources import sapl
@@ -24,6 +25,45 @@ def test_sapl_catalog_parser_captures_municipal_identity_and_attachment():
     )
     assert item.source_url.endswith("/api/norma/normajuridica/1/")
     assert item.text_url.endswith("/1949/1/lei.pdf")
+
+
+def test_sapl_json_reader_retries_response_body_timeout(monkeypatch):
+    import io
+    import json
+
+    url = "https://sapl.cmm.am.gov.br/api/norma/normajuridica/?page_size=100&page=34"
+    payload = {"results": [], "pagination": {"page": 34}}
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def __init__(self, body, *, fail_read=False):
+            super().__init__(body)
+            self.fail_read = fail_read
+
+        def geturl(self):
+            return url
+
+        def read(self, size=-1):
+            if self.fail_read:
+                self.fail_read = False
+                raise TimeoutError("body read timed out")
+            return super().read(size)
+
+    def fake_urlopen(request, timeout):
+        calls.append((request.full_url, timeout, request.headers.get("Connection")))
+        return Response(json.dumps(payload).encode(), fail_read=len(calls) == 1)
+
+    monkeypatch.setattr(sapl_catalog.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sapl_catalog.time, "sleep", lambda _seconds: None)
+
+    result, final_url = sapl_catalog._get_json(url, timeout=7)
+
+    assert result == payload
+    assert final_url == url
+    assert len(calls) == 2
+    assert all(call[1:] == (7, "close") for call in calls)
 
 
 def test_sapl_catalog_preserves_designation_year_when_signature_is_next_year():
