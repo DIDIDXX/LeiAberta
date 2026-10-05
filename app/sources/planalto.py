@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from bs4 import BeautifulSoup
 
 PARSER_VERSION = "2.1"
+MAX_SOURCE_BYTES = 25_000_000
 ARTICLE_RE = re.compile(r"^Art\.\s*((?:\d{1,3}(?:\.\d{3})+|\d+)(?:[A-NP-Za-np-z]|-(?:\d+|[A-Za-z]))?(?:\s*(?:º|°|o))?(?:-[A-Za-z0-9]+)?)\s*[.\-–—]?\s*(.*)$", re.I)
 PARAGRAPH_RE = re.compile(r"^(§\s*(\d+)\s*(?:º|°|o)?|Parágrafo único)\s*[.\-–—]?\s*(.*)$", re.I)
 INCISO_RE = re.compile(r"^([IVXLCDM]{1,8})\s*[-–—]\s*(.+)$", re.I)
@@ -43,7 +44,9 @@ def fetch_official_html(url: str) -> tuple[bytes, str]:
         )
         try:
             with urllib.request.urlopen(request, timeout=25) as response:
-                body = response.read()
+                body = response.read(MAX_SOURCE_BYTES + 1)
+                if len(body) > MAX_SOURCE_BYTES:
+                    raise ValueError("A fonte oficial excede o limite de tamanho permitido.")
                 content_type = response.headers.get("Content-Type", "")
                 markup_probe = body.lower().replace(b"\x00", b"")[:4096]
                 if response.status != 200 or b"<html" not in markup_probe:
