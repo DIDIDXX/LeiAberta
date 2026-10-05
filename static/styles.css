@@ -323,7 +323,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .catalog-footer span { display: block; }
   .home-lower { display: block; padding: 45px 0 58px; }
   .home-lower > section + section { margin-top: 43px; }
-  .metric-strip { gap: 28px; }
+  .metric-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 20px; }
   .content-shell { padding-top: 22px; padding-bottom: 60px; }
   .breadcrumbs { margin-bottom: 16px; font-size: 10px; }
   .law-header h1 { font-size: 37px; }
