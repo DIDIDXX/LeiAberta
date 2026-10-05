@@ -143,3 +143,113 @@ def test_sapl_history_uses_the_matching_municipal_api_host(monkeypatch):
     )
     assert "sapl.campinagrande.pb.leg.br" in snapshot.source_url
     assert b"sapl.campinagrande.pb.leg.br" in snapshot.body
+
+ALAGOAS = next(item for item in SAPL_INSTANCES if item.source_id == "state:AL:sapl")
+
+MUNICIPAL_SAPL_EXPECTED = {
+    "2301000": ("Aquiraz", "CE", "sapl.aquiraz.ce.leg.br"),
+    "2302800": ("Canindé", "CE", "sapl.caninde.ce.leg.br"),
+    "2304285": ("Eusébio", "CE", "sapl.eusebio.ce.leg.br"),
+    "2307650": ("Maracanaú", "CE", "sapl.maracanau.ce.leg.br"),
+    "2507507": ("João Pessoa", "PB", "sapl.joaopessoa.pb.leg.br"),
+    "2304400": ("Fortaleza", "CE", "sapl.fortaleza.ce.leg.br"),
+    "3303906": ("Petrópolis", "RJ", "sapl.petropolis.rj.leg.br"),
+    "4314407": ("Pelotas", "RS", "sapl.pelotas.rs.leg.br"),
+    "4104204": ("Campo Largo", "PR", "sapl.campolargo.pr.leg.br"),
+    "1506807": ("Santarém", "PA", "sapl.santarem.pa.leg.br"),
+    "1500602": ("Altamira", "PA", "sapl.altamira.pa.leg.br"),
+    "1505536": ("Parauapebas", "PA", "sapl.parauapebas.pa.leg.br"),
+    "3143302": ("Montes Claros", "MG", "sapl.montesclaros.mg.leg.br"),
+    "3170701": ("Varginha", "MG", "sapl.varginha.mg.leg.br"),
+    "3122306": ("Divinópolis", "MG", "sapl.divinopolis.mg.leg.br"),
+    "1721000": ("Palmas", "TO", "sapl.palmas.to.leg.br"),
+    "1100122": ("Ji-Paraná", "RO", "sapl.jiparana.ro.leg.br"),
+}
+
+
+def test_verified_municipal_sapl_installations_keep_ibge_identity():
+    municipalities = {
+        item.ibge_code: item
+        for item in SAPL_INSTANCES
+        if item.scope_kind == "municipality" and item.ibge_code in MUNICIPAL_SAPL_EXPECTED
+    }
+    assert municipalities.keys() == MUNICIPAL_SAPL_EXPECTED.keys()
+    for ibge_code, (name, uf, host) in MUNICIPAL_SAPL_EXPECTED.items():
+        item = municipalities[ibge_code]
+        assert (item.municipality, item.state_code, item.host) == (
+            name, uf, f"https://{host}",
+        )
+        assert item.source_id == f"municipality:{ibge_code}:sapl"
+        assert item.jurisdiction_id == f"municipality:{ibge_code}"
+        assert item.federation_scope_filter is None
+
+
+STATE_SAPL_EXPECTED = {
+    "AC": ("sapl.al.ac.leg.br", "https://www.al.ac.leg.br/"),
+    "AL": ("sapl.al.al.leg.br", "https://www.al.al.leg.br/"),
+    "AM": ("sapl.al.am.leg.br", "https://www.aleam.gov.br/"),
+    "MT": ("sapl.al.mt.leg.br", "https://www.al.mt.gov.br/"),
+    "PB": ("sapl.al.pb.leg.br", "https://www.al.pb.leg.br/"),
+    "PI": ("sapl.al.pi.leg.br", "https://www.al.pi.leg.br/"),
+    "RO": ("sapl.al.ro.leg.br", "https://www.al.ro.leg.br/"),
+    "TO": ("sapl.al.to.leg.br", "https://www.al.to.leg.br/"),
+}
+
+
+def test_verified_state_sapl_installations_are_scoped_to_their_uf():
+    states = {item.state_code: item for item in SAPL_INSTANCES if item.scope_kind == "state"}
+    assert set(STATE_SAPL_EXPECTED) <= states.keys()
+    for uf, (host, authority_url) in STATE_SAPL_EXPECTED.items():
+        item = states[uf]
+        assert item.host == f"https://{host}"
+        assert item.authority_url == authority_url
+        assert item.source_id == f"state:{uf}:sapl"
+        assert item.jurisdiction_id == f"state:{uf}"
+        assert item.federation_scope_filter == "E"
+
+
+def test_alagoas_state_sapl_keeps_only_verified_state_records():
+    assert ALAGOAS.jurisdiction_id == "state:AL"
+    assert ALAGOAS.host == "https://sapl.al.al.leg.br"
+    assert ALAGOAS.federation_scope_filter == "E"
+
+    payload = {"results": [{
+        "id": 4071, "__str__": "Lei Ordinária nº 10.064, de 17 de setembro de 2026",
+        "tipo": 1, "texto_integral": "http://sapl.al.al.leg.br/media/sapl/public/normajuridica/2026/4071/lei.pdf",
+        "numero": "10064", "ano": 2026, "esfera_federacao": "E", "data": "2026-09-17",
+        "data_publicacao": "2026-09-18", "ementa": "Norma estadual.",
+    }]}
+    [law] = parse_catalog_page(payload, {"1": "Lei Ordinária"}, instance=ALAGOAS)
+    assert law.text_url == "https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2026/4071/lei.pdf"
+
+    out_of_scope = {"results": [{**payload["results"][0], "esfera_federacao": "M"}]}
+    try:
+        parse_catalog_page(out_of_scope, {"1": "Lei Ordinária"}, instance=ALAGOAS)
+    except ValueError as exc:
+        assert "abrangência verificável" in str(exc)
+    else:
+        raise AssertionError("The Alagoas state catalog accepted a municipal record")
+
+
+def test_sapl_catalog_pages_use_stable_primary_key_order(monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from app.catalog_sync import sapl as sapl_catalog
+
+    sao_joao = next(item for item in SAPL_INSTANCES if item.ibge_code == "3549102")
+    payload = {"results": [], "pagination": {"page": 43, "total_entries": 12086, "total_pages": 121}}
+    requested = {}
+
+    def fake_get_json(url, *, timeout, instance):
+        requested.update(url=url, timeout=timeout, instance=instance)
+        return payload, url
+
+    monkeypatch.setattr(sapl_catalog, "_get_json", fake_get_json)
+    result, final_url = sapl_catalog.fetch_catalog_page(43, instance=sao_joao)
+
+    assert result is payload
+    assert final_url == requested["url"]
+    assert requested["instance"] is sao_joao
+    assert parse_qs(urlparse(final_url).query) == {
+        "page_size": ["100"], "page": ["43"], "o": ["id"],
+    }
