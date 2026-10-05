@@ -1,15 +1,21 @@
 const { test, expect } = require("@playwright/test");
 
-test("real evidence demo: home to amendment, before/after, official source and device blame", async ({ page }) => {
+test("real existing article: home to before/after comparison and device evidence", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
-  await page.getByRole("link", { name: /Veja por que este artigo mudou/ }).click();
-  await expect(page).toHaveURL(/\/diff\/3b1c3ba3-dc6e-4481-9aa0-3e197f2f8c10/);
+  await page.getByRole("link", { name: /Veja o antes e depois de um artigo/ }).click();
+  await expect(page).toHaveURL(/\/diff\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
+  await expect(page.getByRole("link", { name: "Código Civil" })).toBeVisible();
+  await expect(page.getByText("Data registrada: 28 de jun. de 2024")).toBeVisible();
+  await expect(page.getByText("Comparação registrada", { exact: true })).toBeVisible();
   await expect(page.getByText("Antes", { exact: true })).toBeVisible();
   await expect(page.getByText("Depois", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Fonte oficial da norma modificadora/ })).toHaveAttribute("href", /L14550\.htm/);
+  await expect(page.getByText(/segundo índices oficiais regularmente estabelecidos/)).toBeVisible();
+  await expect(page.getByText(/juros, atualização monetária e honorários de advogado/)).toBeVisible();
+  await expect(page.getByText(/valor jurídico não oficial/)).toBeVisible();
+  await expect(page.getByRole("link", { name: /Versão da comparação no Normas.leg.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
   await page.getByRole("link", { name: /Ver evidências deste dispositivo/ }).click();
-  await expect(page).toHaveURL(/\/lei\/11340-2006\/blame\?node=/);
+  await expect(page).toHaveURL(/\/lei\/10406-2002\/blame\?node=/);
   await expect(page.getByText(/O ato abaixo tem comparação de texto registrada/)).toBeVisible();
   await expect(page.getByRole("link", { name: /Ver antes e depois/ })).toBeVisible();
 });

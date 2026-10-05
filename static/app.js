@@ -129,7 +129,7 @@ async function renderHome() {
       <aside class="hero-aside" aria-label="Sobre a plataforma"><span class="hero-aside-label">Um registro que se pode conferir</span><p><strong>Texto, histórico e origem</strong> reunidos em um só lugar — com cada informação ligada à sua fonte.</p><span class="hero-aside-rule"></span><span class="hero-aside-label">Fontes públicas · leitura aberta</span></aside>
     </section>
     <div class="search-wrap"><label class="search-label" for="home-search">Encontre uma norma ou dispositivo</label>${searchBox({})}<div class="search-examples">Experimente: ${[["LGPD","LGPD"],["LGDP","LGDP"],["13709/18","13709/18"],["Art. 7º da LGPD","art 7 lgpd"],["Lei Maria da Penha","Lei Maria da Penha"]].map(([label,q])=>`<a href="/buscar?q=${encodeURIComponent(q)}">${label}</a>`).join(" · ")}</div></div>
-    <a class="hero-cta" href="/diff/3b1c3ba3-dc6e-4481-9aa0-3e197f2f8c10"><span><small>DEMO · LEI MARIA DA PENHA</small><strong>Veja por que este artigo mudou</strong><em>Art. 19, § 4º · Lei 14.550/2023</em></span><b>Ver alteração →</b></a>
+    <a class="hero-cta" href="/diff/be3a1531-edaa-5a78-94ca-70c6544e3853"><span><small>DEMO · CÓDIGO CIVIL</small><strong>Veja o antes e depois de um artigo</strong><em>Art. 389 · Lei 14.905/2024</em></span><b>Ver alteração →</b></a>
     <section class="catalog-section" id="acervo">
       <div class="section-head"><div><div class="section-kicker">Ponto de partida</div><h2>Normas em destaque</h2></div><a class="section-action" href="/buscar?q=">Ver acervo ${externalIcon}</a></div>
       <div class="catalog-list" id="catalog-list"><div class="page-loading"><span class="spinner"></span> Carregando normas</div></div>
@@ -480,12 +480,22 @@ async function renderDiff(changeId) {
   const nodeName = change.node_id.replaceAll(":", " · ");
   const before = change.before_text || "Este dispositivo ainda não existia no texto anterior consultado.";
   const evidence = change.evidence || { label: "Evidência parcial", level: "partial" };
+  const isNormasVersion = evidence.source_host === "normas.leg.br";
+  const comparisonLinkLabel = evidence.level === "verified_primary"
+    ? "Fonte oficial da norma modificadora"
+    : isNormasVersion ? "Versão da comparação no Normas.leg.br" : "Referência da alteração";
+  const evidenceNote = isNormasVersion
+    ? "A comparação está registrada na versão citada do Normas.leg.br, que classifica essa transcrição como valor jurídico não oficial. A data do registro não confirma vigência."
+    : "A comparação disponível sustenta a alteração; não identifica a pessoa que redigiu cada linha.";
+  const whyText = change.change_type === "ADD"
+    ? `O dispositivo aparece marcado como incluído pela ${esc(change.source_law_label)}.`
+    : `A comparação associa a atualização do dispositivo à ${esc(change.source_law_label)}.`;
   main.innerHTML = `<div class="content-shell">${crumbs([{ label: "Início", href: "/" }, { label: law.title, href: lawPath(law) }, { label: "Histórico", href: `${lawPath(law)}/historico` }, { label: "Alteração" }])}
     <section class="diff-layout"><div class="law-eyebrow"><span class="eyebrow-line"></span> Alteração documentada</div><div class="evidence-badge ${esc(evidence.level)}">${esc(evidence.label)}</div><h1 class="diff-title">${esc(change.summary)}</h1><p class="diff-subtitle">${esc(law.title)} · ${esc(nodeName)}</p>
-    <div class="diff-meta"><span>${datePt(change.changed_at)}</span><span>Origem: <a href="${esc(change.source_url)}" target="_blank" rel="noopener">${esc(change.source_law_label)} ${externalIcon}</a></span><span>Tipo: ${esc(change.change_type === "ADD" ? "Dispositivo incluído" : change.change_type)}</span></div>
+    <div class="diff-meta"><span>Data registrada: ${datePt(change.changed_at)}</span><span>Origem: <a href="${esc(change.source_url)}" target="_blank" rel="noopener">${esc(change.source_law_label)} ${externalIcon}</a></span><span>Tipo: ${esc(change.change_type === "ADD" ? "Dispositivo incluído" : change.change_type === "UPDATE" ? "Redação alterada" : change.change_type)}</span></div>
     <div class="diff-panes"><section class="diff-pane before"><div class="diff-pane-head"><span>Antes</span><span>Texto anterior</span></div><p class="diff-text ${change.before_text ? "" : "diff-empty"}">${esc(before)}</p></section>
       <section class="diff-pane after"><div class="diff-pane-head"><span>Depois</span><span>${esc(nodeName)}</span></div><p class="diff-text">${esc(change.after_text)}</p></section></div>
-    <div class="diff-source-note"><strong>Por que este trecho está assim?</strong> O dispositivo traz uma marca de inclusão pela ${esc(change.source_law_label)}. A comparação disponível sustenta a alteração; não identifica a pessoa que redigiu cada linha. <a class="source-link" href="${safeHttpHref(change.source_url)}" target="_blank" rel="noopener">Fonte oficial da norma modificadora ${externalIcon}</a> · <a class="source-link" href="${safeHttpHref(change.law_source_url)}" target="_blank" rel="noopener">Texto consolidado consultado ${externalIcon}</a> · <a class="source-link" href="${lawPath(law)}/blame?node=${encodeURIComponent(change.node_id)}">Ver evidências deste dispositivo →</a></div>
+    <div class="diff-source-note"><strong>Por que este trecho está assim?</strong> ${whyText} ${evidenceNote} <a class="source-link" href="${safeHttpHref(change.source_url)}" target="_blank" rel="noopener">${comparisonLinkLabel} ${externalIcon}</a> · <a class="source-link" href="${safeHttpHref(change.law_source_url)}" target="_blank" rel="noopener">Texto da norma consultada ${externalIcon}</a> · <a class="source-link" href="${lawPath(law)}/blame?node=${encodeURIComponent(change.node_id)}">Ver evidências deste dispositivo →</a></div>
     </section></div>`;
 }
 
