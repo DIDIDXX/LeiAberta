@@ -9,6 +9,12 @@ from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
+MAX_HYDRATION_CONCURRENCY = 16
+
+
+def hydration_concurrency() -> int:
+    """Allow the network-bound worker to use measured Railway headroom."""
+    return min(MAX_HYDRATION_CONCURRENCY, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "8"))))
 
 
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
@@ -91,7 +97,7 @@ def run() -> None:
     except Exception as exc:
         if "BUSYGROUP" not in str(exc):
             raise
-    concurrency = min(8, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "2"))))
+    concurrency = hydration_concurrency()
     logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
