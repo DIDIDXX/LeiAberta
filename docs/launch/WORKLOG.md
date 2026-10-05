@@ -56,6 +56,7 @@ A solicitação de demo foi refinada para usar uma lei que já existia antes da 
 - Validação registrada: 150 testes Python, 2 E2E, CI Python/imagem/E2E verde, 36 combinações de browser (9 páginas × 4 larguras) e smoke de rotas/APIs em produção. As amostras de latência em `FACTS.md` não são benchmark estatístico.
 - A demo foi gravada novamente contra a produção: 9 screenshots, PNG OG, screenshot dedicado de diff e vídeo WebM. O script de captura limita páginas enormes à viewport por limite de renderização de screenshot full-page do navegador.
 - README, roteiro, fact sheet, posts (não publicados), checklist e relatório final compõem o kit. A criação de release v0.1.0 deve ser tentada após integrar os assets.
+- Release/tag [v0.1.0](https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0) criada em `1664127d1ee9674784c69db3e616ae96ba60ba7c`, com notas de limites e validação.
 - Atualização de descrição/homepage/topics tentou usar a integração GitHub e recebeu 403 `Resource not accessible by integration`; requer escopo administrativo.
 - O patch Railway destrutivo preexistente para remover `pg-diagnostic` não foi aceito nem misturado com o deploy do app.
 
