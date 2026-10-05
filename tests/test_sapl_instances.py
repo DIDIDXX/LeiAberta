@@ -143,3 +143,28 @@ def test_sapl_history_uses_the_matching_municipal_api_host(monkeypatch):
     )
     assert "sapl.campinagrande.pb.leg.br" in snapshot.source_url
     assert b"sapl.campinagrande.pb.leg.br" in snapshot.body
+
+ALAGOAS = next(item for item in SAPL_INSTANCES if item.source_id == "state:AL:sapl")
+
+
+def test_alagoas_state_sapl_keeps_only_verified_state_records():
+    assert ALAGOAS.jurisdiction_id == "state:AL"
+    assert ALAGOAS.host == "https://sapl.al.al.leg.br"
+    assert ALAGOAS.federation_scope_filter == "E"
+
+    payload = {"results": [{
+        "id": 4071, "__str__": "Lei Ordinária nº 10.064, de 17 de setembro de 2026",
+        "tipo": 1, "texto_integral": "http://sapl.al.al.leg.br/media/sapl/public/normajuridica/2026/4071/lei.pdf",
+        "numero": "10064", "ano": 2026, "esfera_federacao": "E", "data": "2026-09-17",
+        "data_publicacao": "2026-09-18", "ementa": "Norma estadual.",
+    }]}
+    [law] = parse_catalog_page(payload, {"1": "Lei Ordinária"}, instance=ALAGOAS)
+    assert law.text_url == "https://sapl.al.al.leg.br/media/sapl/public/normajuridica/2026/4071/lei.pdf"
+
+    out_of_scope = {"results": [{**payload["results"][0], "esfera_federacao": "M"}]}
+    try:
+        parse_catalog_page(out_of_scope, {"1": "Lei Ordinária"}, instance=ALAGOAS)
+    except ValueError as exc:
+        assert "abrangência verificável" in str(exc)
+    else:
+        raise AssertionError("The Alagoas state catalog accepted a municipal record")
