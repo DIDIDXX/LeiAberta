@@ -10,6 +10,12 @@ depends_on = None
 
 def upgrade() -> None:
     if op.get_bind().dialect.name == "postgresql":
+        # Avoid a silent deployment hang if active catalog/hydration requests
+        # temporarily hold a table lock. The web startup script retries this
+        # migration, and PostgreSQL can apply this varchar expansion without a
+        # table rewrite as soon as the lock is available.
+        op.execute("SET LOCAL lock_timeout = '2s'")
+        op.execute("SET LOCAL statement_timeout = '30s'")
         op.alter_column("laws", "law_type", existing_type=sa.String(length=48), type_=sa.String(length=128))
     else:
         with op.batch_alter_table("laws") as batch:
