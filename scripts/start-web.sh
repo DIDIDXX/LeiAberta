@@ -9,6 +9,9 @@ until alembic upgrade head; do
     exit 1
   fi
   echo "Retrying PostgreSQL migration after a reported error (attempt $attempt/20)" >&2
+  if ! python scripts/diagnose_law_table_locks.py; then
+    echo "Could not collect PostgreSQL table-lock diagnostics" >&2
+  fi
   sleep 1
 done
 echo "Database migrations are at the current Alembic head" >&2
