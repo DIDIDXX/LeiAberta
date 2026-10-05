@@ -25,6 +25,7 @@ QUEUE_GROUP = "leiaberta-workers"
 ACTIVE_STATUSES = ["queued", "running"]
 MAX_INTERACTIVE_JOB_BATCH = 24
 _SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
+_SUBNATIONAL_BACKFILL_SOURCE_CURSOR: str | None = None
 
 
 def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: bool = False) -> HydrationJob:
@@ -163,6 +164,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
 
 def queue_subnational_text_batch(*, limit: int = 100) -> dict:
     """Backfill source-published texts from each connected subnational catalog."""
+    global _SUBNATIONAL_BACKFILL_SOURCE_CURSOR
     if not 1 <= limit <= 500:
         raise ValueError("O lote de textos subnacionais deve conter de 1 a 500 normas.")
     from app.catalog_sync.sapl import SAPL_INSTANCES
@@ -179,15 +181,22 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
         available_sources = set(session.scalars(
             select(Law.source_name).where(Law.source_name.in_(supported_source_names)).distinct()
         ))
-        source_names = tuple(name for name in supported_source_names if name in available_sources)
+        source_names = tuple(sorted(name for name in supported_source_names if name in available_sources))
         queued_counts = {name: 0 for name in source_names}
         now = datetime.now(timezone.utc)
-        quota = max(1, limit // len(source_names)) if source_names else 0
+        if source_names and _SUBNATIONAL_BACKFILL_SOURCE_CURSOR in source_names:
+            start = (source_names.index(_SUBNATIONAL_BACKFILL_SOURCE_CURSOR) + 1) % len(source_names)
+            source_names = source_names[start:] + source_names[:start]
         remaining = limit
         for source_index, source_name in enumerate(source_names):
-            source_quota = min(remaining, quota + (1 if source_index < limit % len(source_names) else 0))
-            if source_quota < 1:
-                continue
+            if remaining < 1:
+                break
+            sources_left = len(source_names) - source_index
+            # Spread work evenly when there are fewer sources than slots. If
+            # there are more sources than slots, visit each with one job and
+            # rotate the first source on the next batch so none is starved.
+            source_quota = min(remaining, max(1, (remaining + sources_left - 1) // sources_left))
+            _SUBNATIONAL_BACKFILL_SOURCE_CURSOR = source_name
             cursor = _SUBNATIONAL_BACKFILL_CURSORS.get(source_name, "")
             scan_limit = max(500, source_quota * 20)
             statement = select(Law).where(
