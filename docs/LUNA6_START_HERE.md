@@ -1,36 +1,30 @@
-# Luna 6 — estado da execução
+# LeiAberta — estado da execução
 
-O objetivo ativo é deixar busca, leitura e histórico funcionais, ampliar o corpus e publicar no Railway. Só limitações externas comprovadas ficam como bloqueios; adapters ainda não construídos continuam trabalho executável.
+Atualizado em 05/10/2026 às 02:16 UTC. Código em produção: main 953b10f10e7e9daca53cab215e72e8b728308a4c. Railway web e worker estão em SUCCESS; /api/health responde 200. Deploys: web 552576e2-b37b-41eb-a53a-573f0a3dae33; worker 77a4d645-b3f1-4422-ab0a-1742df97f863.
 
-Leia:
+## Entregas verificadas
 
-1. [Plano e requisitos completos](LEIABERTA_LUNA6_EXECUTION_PLAN.md)
-2. [Requisitos originais](LEIABERTA_ORIGINAL_REQUIREMENTS.md)
-3. [Relatório atualizado por tarefa](reports/execution-status.md)
-4. [Pesquisa e limites de fontes](research/2026-10-04-source-findings.json)
+- Busca, leitura por dispositivo e histórico da Lei Maria da Penha funcionam. O histórico retorna 65 itens: 3 diffs textuais conferidos e 62 relações oficiais sem redações pareadas; não há job preso em preparação.
+- A correção do leitor DOU recuperou as RSF 24, 25 e 27/2024. Os três jobs em produção concluíram com 27, 27 e 25 dispositivos.
+- Catálogo ALESP/SP: 181.172 registros enumerados e gravados.
+- Catálogo SINJ-DF: 125.478 registros enumerados e gravados.
+- Catálogo SAPL/Manaus: 9.846 de 9.846 registros conferidos em 99 páginas; 9.846 registros no banco.
+- Backfill de texto segue ativo. Na medição acima havia 4.397 normas com texto estruturado, 29.902 dispositivos e 5.205 jobs ativos. O worker foi ampliado para 16 tarefas simultâneas; logo após o deploy concluiu 80 hidratações em cerca de 88 segundos.
+- A Lei municipal 115/1949 foi localizada, hidratada e teve histórico consultado. O histórico terminou sem job ativo e sem relações retornadas pela fonte; a auditoria textual exige revisão e não certifica completude.
+- Validação local: 88 testes passaram; 4 cenários E2E passaram, incluindo leitura, busca e diff histórico.
 
-## Código e validação
+## Cobertura que existe hoje
 
-`main` está no release #7 (`21e5fda147508dd20882ae475b9ad50ab6c9d066`), já implantado no Railway. A branch desta revisão acrescenta o adapter SAPL/Manaus, backfill gradual de textos oficiais e retry transitório para o Senado/DOU. A API SAPL declarou 9.846 normas; a Lei 115/1949 foi baixada como PDF e extraída localmente.
+O catálogo inclui seis categorias federais do Senado, ALESP/SP, SINJ-DF e SAPL/Manaus. Isso é uma ampliação confirmada, não um catálogo de todas as leis brasileiras. A integração dos demais órgãos estaduais e municipais ainda precisa ser construída e validada fonte por fonte.
 
-Validação local: **80 testes passaram**, **4 E2E passaram**, `compileall` e `git diff --check` passaram. A migration `0008` está aplicada em produção. A Lei SAPL 115/1949 e um PDF SINJ-DF foram extraídos; páginas digitalizadas seguem o caminho Tesseract português no container Docker.
+O relatório detalhado está em [reports/execution-status.md](reports/execution-status.md). O plano completo e seus critérios continuam em [LEIABERTA_LUNA6_EXECUTION_PLAN.md](LEIABERTA_LUNA6_EXECUTION_PLAN.md).
 
-## Publicação em curso
+## Limitações observadas e trabalho que continua
 
-Publicar a branch SAPL no `main`, aguardar web/worker Railway em `SUCCESS` e conferir `/health`, `/api/stats`, sincronização de 9.846 normas, hidratação PDF, relações do SAPL e backfill ALESP/SINJ. Acompanhar também ALESP em produção, que estava em 120 mil de 181.172 registros na última verificação.
+- Não foi demonstrado um endpoint oficial nacional que enumere todas as jurisdições e redações. Isso não torna impossível integrar as fontes locais; os adapters ainda não construídos são trabalho executável.
+- A rota SRU do LexML devolveu desafio HTML anti-automação, sem registros utilizáveis.
+- No snapshot consultado do SINJ-DF, 5.184 normas não anunciavam arquivo textual. Encontrar fonte oficial alternativa para elas continua pendente.
+- Uma referência de alteração sem os textos anterior e posterior não pode gerar diff jurídico confiável.
+- Railway Hobby informa maxBackupsCount=0, e as ferramentas conectadas não permitem executar ou validar pg_dump/restore. Backup restaurável e staging permanecem bloqueados por plano/acesso.
 
-## Estado de cobertura
-
-Produção enumera 47.316 registros do Senado e 125.478 do SINJ-DF; ALESP continua importando (181.172 esperados). A sync completa isolada da ALESP confirmou 181.172. SAPL/Manaus é o novo adapter preparado para enumerar 9.846 normas. O worker enfileira textos em lotes com limites e continua após reinícios; `with_text` cresce durante o backfill.
-
-Esses acervos não correspondem a todas as leis do Brasil. Não existe um endpoint nacional oficial demonstrado que liste os acervos de todas as jurisdições; cada assembleia, Câmara municipal e repositório exige identificação e reconciliação próprios. O adapter SAPL prova a integração de Manaus, sem declarar os demais municípios atendidos.
-
-## Limitações externas verificadas
-
-- Railway Hobby informa `maxBackupsCount=0`. O conjunto de conectores desta sessão não oferece shell, `pg_dump` ou duplicação/restauração de ambiente; backup restaurável/staging não foi demonstrado.
-- O probe da rota LexML SRU recebeu página de desafio anti-automação em vez de registros. Requer uma rota autorizada acessível ou mudança no acesso do portal.
-- Relações de alteração nem sempre incluem redações anteriores/atuais por dispositivo ou data de vigência. Essas entradas aparecem como relação oficial sem diff inventado.
-- O SINJ-DF não anunciava anexo textual para 5.184 registros do snapshot observado; buscar diários/repositórios oficiais alternativos é trabalho pendente.
-- Normas.leg.br declara valor jurídico não oficial para muitas transcrições e compilações. O produto conserva o rótulo da fonte.
-
-Não declarar que “todas as leis” estão no catálogo enquanto as jurisdições e seus acervos não forem enumerados e reconciliados individualmente.
+Os contadores de hidratação mudam continuamente. Texto baixado, texto completo, estrutura completa e histórico completo são estados distintos. Nenhuma norma recebe selo de completude apenas por ter sido processada.
