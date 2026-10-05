@@ -1,76 +1,86 @@
 # Execução do plano LeiAberta — Luna 6
 
-Atualizado em 05/10/2026 às 02:16 UTC. Código de produção: main 953b10f10e7e9daca53cab215e72e8b728308a4c. Railway web e worker em SUCCESS; /api/health responde 200. Deploys web 552576e2-b37b-41eb-a53a-573f0a3dae33 e worker 77a4d645-b3f1-4422-ab0a-1742df97f863.
+Atualizado em 05/10/2026 às 06:35 UTC, com leitura dos endpoints de produção. O código ativo é `main` no commit `9ebcb8ef64fffce38dcdfe0e56ae68b0f20032af`; Railway web e worker estão em `SUCCESS` nos deploys `04d247fc-28a5-4b9f-97cc-e8ad93e1decb` e `54b872be-eea9-43db-be81-d921d473ec59`. O PR de expansão seguinte ainda não foi publicado quando esta medição foi feita.
 
 ## Estado de produção
 
-| Fonte | Escopo verificado | Com texto na coleta | Estado |
-|---|---:|---:|---|
-| Senado Federal | 47.316 registros em 6 tipos: LEI, LCP, EMC, MPV, DLG e RSF | 4.053 | Enumeração concluída nesses tipos; outras classes federais e atos da Câmara ainda não integrados. |
-| ALESP — SP | 181.172 | 154 | Todas as 37 páginas da consulta oficial gravadas; hidratação ativa. |
-| SINJ-DF | 125.478 | 175 | Todas as 26 páginas do snapshot gravadas; hidratação ativa. |
-| SAPL — Manaus | 9.846 | 3 | 99/99 páginas, 9.846 no banco; hidratação ativa. |
+| Medida | Produção às 06:35 UTC |
+|---|---:|
+| Normas indexadas | 584.446 |
+| Normas com texto estruturado | 11.402 |
+| Dispositivos estruturados | 44.227 |
+| Alterações documentadas | 376 |
+| Jobs ativos | 5.106 |
+| Senado: itens de catálogo | 170.607 |
+| Senado: texto disponível / pendente | 8.935 / 161.404 |
+| ALESP: itens / texto disponível | 181.172 / 1.247 |
+| SINJ-DF: itens / texto disponível | 125.478 / 1.203 |
 
-Na mesma medição: 363.826 registros indexados, 4.397 com texto estruturado, 29.902 dispositivos, 57 alterações documentadas e 5.205 jobs ativos. Estes contadores mudam com o worker. “Pendente” descreve o estado naquela coleta e não prova que a fonte publique anexo para cada registro.
+As contagens mudam enquanto os workers trabalham. “Pendente” significa que o texto ainda não foi materializado; pode haver anexo ausente ou indisponível na própria fonte.
 
-A sincronização SAPL completou em 05/10 às 02:08:30 UTC: 9.846 listados, 1.846 inseridos, 8.000 atualizados, checksum de IDs 2fbbeace09e072fa1e75dc69e5a508d6eac0f557dfed18bc56ae5ced2fc2d3ae. O bloqueio da página 34 foi identificado como conflito de linha entre a atualização periódica de laws.coverage e jobs de hidratação. A sincronização agora evita regravar timestamps por norma quando nada mudou; a enumeração terminou sem novo lock. Depois, o worker foi ampliado para 16 tarefas concorrentes com prioridade preservada para pedidos interativos. Nos primeiros 88 segundos de execução com o limite novo, 80 jobs de hidratação terminaram.
+### SAPL já carregado antes desta expansão
 
-## Busca, texto e histórico
+Na medição, a produção tinha 15 registros SAPL: 12 concluídos, dois falhos e um em sincronização. Fortaleza tinha 14.329/14.329; a sincronização de Pelotas avançava em 2.100/3.942. João Pessoa havia parado na página 90 por um HTTP 404 transitório. São João da Boa Vista havia parado por repetição do ID 9.231 entre páginas. O PR pendente corrige a ordenação para `o=id`, repete 404 limitadamente e retoma checkpoints confirmados; depois do deploy as duas fontes serão reprocessadas pelo worker.
 
-- A API pública está saudável e a busca cobre os registros armazenados nas fontes conectadas.
-- O histórico da Lei 11.340/2006 retorna 65 itens: 3 comparações textuais comprovadas e 62 relações oficiais sem texto suficiente para comparar. O estado é partial, sem job ativo; a interface informa a lacuna em vez de manter “preparando”.
-- O leitor DOU foi corrigido para publicações senatoriais que aparecem como “Resolução” sob a hierarquia oficial “Atos do Senado Federal”. RSF 24/2024, 25/2024 e 27/2024 foram baixadas e processadas ao vivo; os respectivos jobs concluíram com 27, 27 e 25 dispositivos.
-- A Lei SAPL 115/1949, publicada em 05/01/1949, foi hidratada em produção. A versão tem 6 nós, 4 artigos extraídos e 1.165 caracteres estruturados. A auditoria registra 241.460 caracteres extraíveis da fonte e marca a estrutura review_required; não certifica que a transcrição contenha todo o PDF. A fonte original segue ligada.
-- O histórico da Lei 115/1949 foi consultado com job succeeded. O SAPL não retornou relações oficiais para essa norma. A interface mostra que ausência de relação não comprova que nunca houve alteração.
+## Histórico e texto
 
-## Validação executada
+- `GET /api/laws/11340-2006/history` responde com 65 eventos: três comparações textuais verificadas e 62 relações oficiais sem redações suficientes para diff. O estado é `partial`, sem job ativo; a tela não fica presa em “está sendo preparado”.
+- O histórico de onze outras leis-semente também já foi consultado e retorna `partial`; o CTN, a Constituição e a LAI estavam em nova tentativa/na fila na última verificação. O job da LAI 12.527/2011 foi registrado como `9c4f20d9-6aa1-453d-b037-780fd0cc0937`.
+- A Lei SAPL 115/1949 foi processada com seis nós e quatro artigos extraídos. A auditoria de 241.460 caracteres da fonte a mantém em `review_required`; isso não certifica que o texto extraído reproduza o PDF integral.
+- O backfill captura texto publicado e estrutura artigos quando a fonte disponibiliza documento legível. A relação oficial de alteração sem texto antigo e novo não basta para inventar um diff.
 
-- Suíte Python completa: 88 testes passaram, com 3 avisos de depreciação.
-- Playwright local: 4 E2E passaram — busca LGDP/LGPD, diff oficial no histórico, hidratação sob demanda e ambiguidade na busca por artigo.
-- O teste E2E usou banco SQLite descartável separado; o arquivo .e2e.db existente foi preservado.
-- Railway web e worker estão em SUCCESS e /api/health retorna 200.
+## Trabalho executado no próximo PR
 
-## Estado por tarefa do plano
+- Acrescenta 312 fontes municipais SAPL após nova tentativa em 640 hosts que antes falhavam. 427 passaram a responder; 312 tinham API paginada válida, total positivo e host/cidade/UF coincidentes com o IBGE. A página inicial identificou explicitamente Câmara e município em 287; nos outros 25 o título era genérico ou a página estava indisponível, mas o hostname legislativo e a API conferida coincidem exatamente com o cadastro IBGE.
+- Somadas às 246 inclusões do lote anterior, são 558 novas fontes municipais. Elas anunciam 1.169.606 registros nos snapshots; contagens de fontes podem se sobrepor e não constituem denominador nacional. O total de configurações passará a 581 municípios e oito assembleias SAPL estaduais.
+- A sincronização SAPL passa a persistir hash e limites de cada página, conferir a página de fronteira ao retomar, verificar IDs numericamente crescentes dentro e entre páginas, rejeitar página truncada e repetir 404 transitório.
+- O backfill subnacional alterna as fontes entre lotes quando há mais fontes do que vagas, evitando que os primeiros nomes do catálogo monopolizem a fila.
+- Foi incluído um serviço de backup isolado para gerar `pg_dump` customizado, validar uma restauração local e enviar dump/manifesto para S3 compatível com checksum e retenção. O container de backup ainda precisa ser criado/configurado no Railway e sua execução restaurável precisa ser observada antes de marcar T01 como concluída.
 
-| Tarefas | Estado | Evidência e lacuna atual |
+## Verificações
+
+- Suíte Python completa: 114 testes passaram, com três avisos de depreciação.
+- Playwright local: os quatro fluxos E2E já passaram na revisão anterior (busca, diff verificado, hidratação e consulta ambígua).
+- `py_compile` e `git diff --check` passaram.
+- A primeira construção Docker local do container de backup bateu no certificado TLS de interceptação do ambiente ao baixar `boto3` do PyPI. É uma condição da rede de desenvolvimento; a construção Railway ainda precisa confirmar a imagem.
+
+## Estado por tarefa
+
+| Tarefa | Estado atual | Evidência e próximo passo |
 |---|---|---|
-| T00 — linha de base | concluído | Repositório, serviços Railway, migrations, fontes e APIs auditados. |
-| T01 — backup restaurável e staging | bloqueado por plano/acesso | Railway Hobby informa maxBackupsCount=0; o conector não oferece shell/execução SQL/pg_dump/restore. Não há backup restaurável demonstrado. |
-| T02 — estados de job e cobertura | implementado | Busca, hidratação e histórico têm estados próprios; falha ou texto ausente não fica mascarado como job em andamento. |
-| T03 — fila durável e recuperação | implementado | Outbox, Redis Streams, ACK após processamento e recuperação de mensagens. Pedidos interativos têm prioridade sobre o backfill. |
-| T04 — arquivo bruto e proveniência | implementado para fontes conectadas | Captura, checksums e referência à publicação original são preservados; reprocessamento não substitui silenciosamente a origem. |
-| T05 — identidade e parser | implementado nos formatos cobertos | Identidade oficial é verificada; o parser não inventa número, vigência ou origem. DOU e SAPL têm casos de exceção testados. |
-| T06 — PDF, tabelas, anexos e OCR | parcial por fonte | PDF/OCR/DOCX estão cobertos em algumas integrações; documentos sem anexo precisam de outra fonte oficial. |
-| T07 — auditoria de completude | parcial | Auditoria detecta divergências, mas não certifica sozinha a validade jurídica. A Lei 115/1949 ficou review_required. |
-| T08 — leitor progressivo | parcial | Busca, navegação por dispositivo e estados de hidratação funcionam; faltam modelos e anexos de fontes não integradas. |
-| T09 — inventário territorial | parcial | IBGE fornece 27 UFs e 5.571 localidades, mas isso não equivale a catálogo legislativo dessas jurisdições. |
-| T10 — sincronização retomável | implementado nas quatro fontes conectadas | Senado, ALESP, SINJ-DF e SAPL/Manaus registram escopo, paginação, checkpoints e status. |
-| T11 — catálogo federal | parcial | Senado enumera seis tipos; falta reconciliar outros atos federais e integrar a Câmara dos Deputados. |
-| T12 — LexML | bloqueio de acesso observado | O probe SRU recebeu HTML de desafio anti-automação, sem resultados utilizáveis nesta sessão. |
-| T13 — ALESP e SINJ-DF | enumeração concluída | SP: 181.172; DF: 125.478 no snapshot gravado. O backfill de texto continua. |
-| T14 — SAPL/municípios | Manaus enumerada por completo | 9.846 registros da API oficial no banco; outros municípios não são cobertos pelo adapter Manaus. |
-| T15 — demais estados e municípios | não concluído; trabalho executável | Não existe denominador nacional oficial demonstrado nem adapters validados para as demais UFs e milhares de Câmaras. A falta de integração não é impossibilidade técnica comprovada. |
-| T16 — busca | implementada sobre os dados armazenados | A busca opera sobre o catálogo conectado; não encontra registros fora dele. |
-| T17 — relações e histórico | implementado para Planalto, Senado, ALESP, SINJ-DF e SAPL; conteúdo parcial | Só gera diff quando os dois textos e a identidade do dispositivo foram verificados. |
-| T18/T19 — vigência e reconstrução temporal | parcial | Vigência por dispositivo e redações para intervalos históricos não são inferidas sem prova oficial. |
-| T20 — timeline e diff | parcial, baseado em evidência | Diff é exposto quando existe comparação textual verificada; outras relações aparecem como referência. |
-| T21 — autoria e atribuição | parcial | Alguns metadados de autoria existem; autoria por dispositivo e cadeia política completa não são inferidas. |
-| T22 — backfill nacional | ativo, incompleto | Há 5.205 jobs ativos na medição e dezenas de milhares de textos pendentes. O worker agora aceita 16 jobs concorrentes; o processo segue em lotes e depende das fontes. |
-| T23/T24 — proposições, emendas e votos | não concluído | Falta ligar com confiança cada alteração a proposição, relatoria, autoria e votos individuais. |
-| T25 — atualização e frescor | parcial | Catálogos conectados atualizam periodicamente; faltam alertas e SLAs por jurisdição/fonte. |
-| T26 — Railway | publicado e saudável | Deploy web/worker SUCCESS; API health 200. |
-| T27 — documentação | atualizado nesta revisão | Este relatório registra evidências, limites comprovados e trabalho ainda executável. |
+| T00 — linha de base | concluído | Repositório, APIs, banco e serviços Railway inspecionados. |
+| T01 — backup e restauração | em execução | Código do backup pronto; provisionar bucket e serviço agendado no Railway, fazer uma cópia e validar a restauração antes de configurar retenção diária. |
+| T02 — estados de job e cobertura | implementado | Job persistido governa o estado; falha, espera e texto ausente não aparecem como preparo eterno. |
+| T03 — fila durável | implementado | Outbox, Redis Streams, recuperação de mensagens e prioridade interativa. |
+| T04 — proveniência | implementado para fontes integradas | Snapshot bruto, checksum e referência oficial são preservados. |
+| T05 — identidade e parsing | implementado nos formatos cobertos | Dados ausentes não viram número, vigência ou status jurídico presumido. |
+| T06 — PDF, OCR, DOCX e tabelas | parcial por fonte | Extração funciona nas fontes cobertas; portais sem anexo requerem outro repositório oficial. |
+| T07 — auditoria de completude | parcial | Detecta divergências; não substitui revisão jurídica/documental. |
+| T08 — leitor progressivo | implementado sobre os dados disponíveis | Busca, navegação, origem, histórico e estado do job funcionam; faltam documentos de fontes não integradas. |
+| T09 — inventário territorial | diretório IBGE concluído; leis parciais | 27 UFs e 5.571 localidades são conhecidas; jurisdição conhecida não significa acervo legal importado. |
+| T10 — sincronização retomável | parcial até o deploy deste PR | Os quatro adapters anteriores têm checkpoints; a mudança acrescenta retoma por página ao SAPL multi-instância. |
+| T11 — catálogo federal | parcial | Senado lista 24 tipos no adapter e enumera classes em atualização; cobertura do Senado não prova que todo ato federal esteja representado. |
+| T12 — LexML | acesso automatizado bloqueado nesta sessão | SRU devolveu página anti-automação em HTTP 200, não resultados. Seguir com fontes oficiais diretas e obter rota de colheita permitida. |
+| T13 — ALESP e SINJ-DF | enumeração do snapshot concluída; texto em backfill | SP: 181.172; DF: 125.478. |
+| T14 — SAPL/municípios | expansão publicada após merge pendente | 581 municípios configurados; API de cada fonte ainda será enumerada pelo worker. |
+| T15 — demais UFs e municípios | trabalho de integração ativo | A lista descoberta não oferece denominador legislativo oficial; muitas Casas usam portais diferentes de SAPL. |
+| T16 — busca | implementado sobre o catálogo indexado | Resultados fora do acervo importado não aparecem. |
+| T17 — histórico | parcial e baseado em prova | Relações aparecem sem diff quando faltam textos comparáveis; Maria da Penha já retorna eventos e não fica em preparo. |
+| T18/T19 — vigência e versões históricas | parcial | Não inferir vigência por dispositivo sem publicação, redação e data eficaz demonstráveis. |
+| T20 — timeline/diff | parcial | Diff só aparece com as duas redações verificadas. |
+| T21 — autoria por dispositivo | parcial | Autoria de alterações e cadeia política exigem ligar com segurança proposição, relatoria, emenda e dispositivo. |
+| T22 — backfill de textos | ativo | Senado, ALESP, SINJ e SAPL continuam em lotes; priorização e alternância reduzem starvation, mas anexos dependem dos portais. |
+| T23/T24 — proposições, emendas e votos | não concluído | Requer um adapter oficial da Câmara e reconciliação independente de IDs entre Casas. |
+| T25 — frescor/alertas | parcial | Há refresh periódico; ainda faltam alertas e metas de frescor por fonte. |
+| T26 — Railway | saudável | Web e worker em SUCCESS e endpoints públicos respondendo. |
+| T27 — documentação | em atualização | Este relatório e o inventário de fontes serão atualizados após deploy e medição. |
 
-## Limitações externas comprovadas
+## Limites que dependem de terceiros ou de evidência
 
-1. **Backup e restore:** o plano Railway Hobby não disponibiliza backups gerenciados (maxBackupsCount=0). As ferramentas conectadas também não oferecem uma sessão SQL/container para executar e validar pg_dump/restore. Por isso não foi possível demonstrar recuperação nem staging a partir de backup nesta sessão.
-2. **LexML SRU:** a rota consultada respondeu um desafio HTML anti-automação em HTTP 200, em vez de registros. Não havia credencial ou rota alternativa autenticada disponível pelo conector.
-3. **Anexos SINJ-DF:** 5.184 registros do snapshot anterior não declaravam arquivo textual. A busca de acervos oficiais alternativos ainda é necessária para esses casos.
-4. **Redações históricas:** relação de alteração sem redações anterior/posterior ou vigência por dispositivo não permite produzir um diff jurídico confiável. A interface mostra essa relação sem inventar o texto.
-5. **Classificação jurídica da fonte:** Normas.leg.br identifica algumas transcrições/compilações como não oficiais; LeiAberta mantém essa classificação.
+1. O plano Hobby não oferece backup gerenciado; será substituído por cópia própria ao bucket Railway, mas a restauração ainda tem de ser executada e observada.
+2. O endpoint SRU consultado no LexML bloqueou automação com desafio HTML. Não se tentou contornar a proteção.
+3. Alguns registros SINJ, Senado ou municipais não têm texto/anexo disponível na API. A lacuna só fecha com publicação em outro acervo oficial.
+4. Relações sem versões anterior/posterior ou data de eficácia não permitem reconstrução histórica completa; o sistema publica a relação e marca a comparação ausente.
+5. Não foi demonstrado um endpoint nacional único com o conjunto de normas de todas as Casas. 581 municípios e nove estados mais o DF têm pelo menos uma fonte conectada após a expansão; o restante ainda requer pesquisa e integração. Isso é trabalho incompleto, não impossibilidade técnica comprovada.
 
-## Trabalho que não deve ser chamado de impossibilidade técnica
-
-O Brasil não tem um único endpoint oficial nacional demonstrado com todas as normas de todas as Casas Legislativas. Isso torna a integração federada extensa: cada fonte precisa ser descoberta, ligada ao domínio oficial, paginada, reconciliada e validada. Não prova que os adapters ausentes sejam impossíveis. As demais UFs, os outros municípios, tipos federais adicionais, proposições/votos e a auditoria completa continuam fora da cobertura e exigem trabalho de integração.
-
-Também não terminou o backfill de texto: 4.397 de 363.826 registros estavam materializados na medição. O worker continua ativo; o saldo depende de resposta dos portais, existência de anexos, qualidade do OCR e validação documental.
+O sistema ainda não contém “todas as leis”. A medição atual tem 584.446 registros indexados e 11.402 com texto estruturado; o total também não é um denominador nacional. O próximo marco verificável é publicar as novas fontes, confirmar contagens por instalação, concluir a cópia/restauração no Railway e manter o backfill ativo sem classificar lacunas como cobertura completa.

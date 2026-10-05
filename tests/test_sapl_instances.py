@@ -67,6 +67,19 @@ def test_new_official_sapl_municipalities_have_stable_ibge_and_source_identity()
         assert item.authority_url.startswith("https://")
 
 
+def test_expanded_sapl_directory_has_unique_identity_for_all_configured_municipalities():
+    municipalities = [item for item in SAPL_INSTANCES if item.scope_kind == "municipality"]
+    assert len(municipalities) == 581
+    assert len({item.ibge_code for item in municipalities}) == 581
+    assert len({item.source_id for item in SAPL_INSTANCES}) == len(SAPL_INSTANCES)
+    assert len({item.host for item in SAPL_INSTANCES}) == len(SAPL_INSTANCES)
+    assert len({item.source_name for item in SAPL_INSTANCES}) == len(SAPL_INSTANCES)
+
+    recovered = next(item for item in municipalities if item.ibge_code == "1101708")
+    assert recovered.host == "https://sapl.urupa.ro.leg.br"
+    assert recovered.source_id == "municipality:1101708:sapl"
+
+
 def test_verified_installation_sync_keeps_catalog_rows_separate_by_municipality(db_session):
     db_session.add_all([
         Jurisdiction(id="state:GO", kind="state", name="Goiás", uf="GO", source_url="https://go.gov.br/"),
@@ -253,3 +266,116 @@ def test_sapl_catalog_pages_use_stable_primary_key_order(monkeypatch):
     assert parse_qs(urlparse(final_url).query) == {
         "page_size": ["100"], "page": ["43"], "o": ["id"],
     }
+
+
+def test_sapl_reader_retries_transient_page_404(monkeypatch):
+    import io
+    import json
+    from urllib.error import HTTPError
+
+    from app.catalog_sync import sapl as sapl_catalog
+
+    instance = next(item for item in SAPL_INSTANCES if item.ibge_code == "2507507")
+    url = instance.norms_url + "?page_size=100&page=91&o=id"
+    payload = {"results": [], "pagination": {"page": 91, "total_entries": 22097, "total_pages": 221}}
+    calls = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def geturl(self):
+            return url
+
+    def fake_urlopen(request, timeout):
+        calls.append(request.full_url)
+        if len(calls) == 1:
+            raise HTTPError(url, 404, "temporary page routing miss", {}, io.BytesIO())
+        return Response(json.dumps(payload).encode())
+
+    monkeypatch.setattr(sapl_catalog.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(sapl_catalog.time, "sleep", lambda _seconds: None)
+
+    result, final_url = sapl_catalog._get_json(url, timeout=5, instance=instance)
+
+    assert result == payload
+    assert final_url == url
+    assert calls == [url, url]
+
+
+def test_sapl_page_checkpoints_reject_nonascending_ids():
+    from app.catalog_sync.sapl import _page_checkpoint
+
+    try:
+        _page_checkpoint([
+            type("Norm", (), {"remote_id": "11"})(),
+            type("Norm", (), {"remote_id": "10"})(),
+        ])
+    except ValueError as exc:
+        assert "ordem estritamente crescente" in str(exc)
+    else:
+        raise AssertionError("A SAPL page checkpoint accepted descending IDs")
+
+
+def test_sapl_catalog_sync_resumes_after_last_committed_page(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+    from app.models import SourceRegistry
+
+    instance = SaplInstance(
+        ibge_code="9900001", municipality="Cidade de Teste", state_code="ZZ",
+        host="https://sapl.teste.zz.leg.br", source_id="municipality:9900001:sapl",
+        source_name="Câmara Municipal de Teste — SAPL", authority_url="https://camara.teste.zz/",
+    )
+    monkeypatch.setattr(sapl_catalog, "PAGE_SIZE", 2)
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    monkeypatch.setattr(sapl_catalog, "fetch_type_names", lambda **_kwargs: {"1": "Lei"})
+
+    rows = {
+        1: [(1, "Lei 1"), (2, "Lei 2")],
+        2: [(3, "Lei 3"), (4, "Lei 4")],
+    }
+    calls = []
+    fail_second_page_once = True
+
+    def fetch_page(page, **_kwargs):
+        nonlocal fail_second_page_once
+        calls.append(page)
+        if page == 2 and fail_second_page_once:
+            fail_second_page_once = False
+            raise RuntimeError("interrupção de teste")
+        payload = {"pagination": {"page": page, "total_entries": 4, "total_pages": 2}, "results": []}
+        for remote_id, title in rows[page]:
+            payload["results"].append({
+                "id": remote_id, "__str__": title, "tipo": 1, "numero": str(remote_id),
+                "ano": 2024, "esfera_federacao": "M", "data": "2024-01-01",
+                "data_publicacao": None, "ementa": title,
+            })
+        return payload, instance.norms_url
+
+    monkeypatch.setattr(sapl_catalog, "fetch_catalog_page", fetch_page)
+
+    import pytest
+    with pytest.raises(RuntimeError, match="interrupção de teste"):
+        sapl_catalog.sync_sapl_catalog(instance, force=True)
+
+    registry = db_session.get(SourceRegistry, instance.source_id)
+    assert registry.status == "failed"
+    assert registry.scope["last_page"] == 1
+    assert registry.scope["records_enumerated"] == 2
+    assert len(registry.scope["page_checkpoints"]) == 1
+
+    result = sapl_catalog.sync_sapl_catalog(instance)
+
+    assert result["records"] == result["expected"] == 4
+    assert result["added"] == 2
+    assert calls == [1, 2, 1, 2]
+    assert db_session.query(Law).filter_by(source_name=instance.source_name).count() == 4
+    db_session.expire_all()
+    registry = db_session.get(SourceRegistry, instance.source_id)
+    assert registry.status == "enumerated"
+    assert registry.scope["records_enumerated"] == 4
+    assert registry.scope["catalog_ids_digest_algorithm"] == "sha256-of-ordered-page-sha256s-v1"

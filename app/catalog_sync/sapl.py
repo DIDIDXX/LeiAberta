@@ -10,6 +10,7 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from sqlalchemy import func, select, text
@@ -74,7 +75,7 @@ class SaplInstance:
         return f"sapl-{self.ibge_code}"
 
 
-SAPL_INSTANCES = (
+_CORE_SAPL_INSTANCES = (
     SaplInstance(
         ibge_code="2301000", municipality="Aquiraz", state_code="CE",
         host="https://sapl.aquiraz.ce.leg.br", source_id="municipality:2301000:sapl",
@@ -258,10 +259,18 @@ SAPL_INSTANCES = (
         authority_url="https://www.al.pi.leg.br/", scope_kind="state", federation_scope_filter="E",
     ),
 )
+
+_DISCOVERED_SAPL_INSTANCES = tuple(
+    SaplInstance(**item)
+    for item in json.loads(
+        Path(__file__).with_name("sapl_municipal_sources.json").read_text(encoding="utf-8")
+    )
+)
+SAPL_INSTANCES = _CORE_SAPL_INSTANCES + _DISCOVERED_SAPL_INSTANCES
 SAPL_INSTANCES_BY_SOURCE = {item.source_id: item for item in SAPL_INSTANCES}
 SAPL_INSTANCES_BY_HOST = {urllib.parse.urlparse(item.host).hostname: item for item in SAPL_INSTANCES}
 SAPL_SOURCE_NAMES = frozenset(item.source_name for item in SAPL_INSTANCES)
-DEFAULT_SAPL_INSTANCE = SAPL_INSTANCES[0]
+DEFAULT_SAPL_INSTANCE = next(item for item in SAPL_INSTANCES if item.ibge_code == "1302603")
 
 # Compatibility aliases for existing callers and fixtures.
 SAPL_HOST = DEFAULT_SAPL_INSTANCE.host
@@ -331,7 +340,9 @@ def _get_json(url: str, *, timeout: int = 45,
                 raise ValueError(f"A API SAPL de {instance.source_name} retornou objeto inesperado.")
             return payload, final_url
         except HTTPError as exc:
-            if exc.code in RETRYABLE_HTTP_CODES and attempt < 2:
+            # Some SAPL installations briefly return 404 for a valid page while
+            # their API workers refresh; retry the exact same bounded request.
+            if (exc.code in RETRYABLE_HTTP_CODES or exc.code == 404) and attempt < 2:
                 time.sleep(0.5 * (2 ** attempt))
                 continue
             raise ValueError(f"O SAPL de {instance.source_name} respondeu HTTP {exc.code}.") from exc
@@ -464,6 +475,56 @@ def parse_catalog_page(payload: dict, type_names: dict[str, str], *,
     return records
 
 
+def _page_checkpoint(records: list[SaplCatalogNorm]) -> dict:
+    ids = [item.remote_id for item in records]
+    if not ids:
+        raise ValueError("Página SAPL vazia durante a enumeração do catálogo.")
+    numeric_ids = [int(remote_id) for remote_id in ids]
+    if any(left >= right for left, right in zip(numeric_ids, numeric_ids[1:])):
+        raise ValueError("A página SAPL não está em ordem estritamente crescente de id.")
+    return {
+        "sha256": hashlib.sha256("\n".join(ids).encode()).hexdigest(),
+        "count": len(ids), "first_id": ids[0], "last_id": ids[-1],
+    }
+
+
+def _catalog_ids_digest(page_checkpoints: list[dict]) -> str:
+    """Return a resumable digest over the ordered per-page ID digests."""
+    ordered_page_digests = "\n".join(str(page["sha256"]) for page in page_checkpoints)
+    return hashlib.sha256(ordered_page_digests.encode()).hexdigest()
+
+
+def _usable_checkpoint(scope: dict, *, total: int, pages: int) -> tuple[list[dict], dict[str, int]] | None:
+    if scope.get("checkpoint_format") != "sapl-page-checkpoints-v1":
+        return None
+    if scope.get("records_expected") != total or scope.get("pages_expected") != pages:
+        return None
+    checkpoints = scope.get("page_checkpoints")
+    if not isinstance(checkpoints, list) or not checkpoints or len(checkpoints) > pages:
+        return None
+    if any(not isinstance(item, dict) or not item.get("sha256") or not item.get("first_id")
+           or not item.get("last_id") for item in checkpoints):
+        return None
+    for index, item in enumerate(checkpoints):
+        expected_count = min(PAGE_SIZE, total - index * PAGE_SIZE)
+        try:
+            first_id, last_id = int(item["first_id"]), int(item["last_id"])
+        except (TypeError, ValueError):
+            return None
+        if item.get("count") != expected_count or first_id > last_id:
+            return None
+        if index and int(checkpoints[index - 1]["last_id"]) >= first_id:
+            return None
+    expected_enumerated = min(len(checkpoints) * PAGE_SIZE, total)
+    if sum(item["count"] for item in checkpoints) != expected_enumerated:
+        return None
+    counts = scope.get("records_by_federation_scope")
+    keys = ("M", "E", "F", "not_declared")
+    if not isinstance(counts, dict) or sum(counts.get(key, 0) for key in keys) != expected_enumerated:
+        return None
+    return checkpoints, {key: int(counts.get(key, 0)) for key in keys}
+
+
 def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, observed_at: datetime,
                      instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> dict:
     if not records:
@@ -579,11 +640,14 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
     scope = {"universe": f"Registros normajuridica publicados na instalação SAPL oficial da {instance.source_name}; a esfera declarada por registro é preservada.",
              "records_expected": total, "pages_expected": pages, "page_size": PAGE_SIZE,
              "type_count": len(types), "federation_scope_filter": instance.federation_scope_filter,
-             "records_enumerated": 0, "started_at": observed_at.isoformat()}
+             "records_enumerated": 0, "started_at": observed_at.isoformat(),
+             "checkpoint_format": "sapl-page-checkpoints-v1", "page_checkpoints": []}
     if instance.scope_kind == "municipality":
         scope["municipality_ibge_code"] = instance.ibge_code
     else:
         scope["state_ibge_code"] = instance.ibge_code
+    previous_scope: dict = {}
+    previous_status = None
     with SessionLocal() as session:
         registry = session.get(SourceRegistry, instance.source_id)
         if registry is None:
@@ -591,18 +655,57 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                                       adapter="sapl_catalog", base_url=instance.norms_url,
                                       evidence_url=instance.authority_url, status="syncing", scope={})
             session.add(registry)
+        else:
+            previous_scope = dict(registry.scope or {})
+            previous_status = registry.status
         registry.jurisdiction_id = instance.jurisdiction_id if session.get(Jurisdiction, instance.jurisdiction_id) else None
         registry.name, registry.adapter, registry.base_url = instance.source_name, "sapl_catalog", catalog_url
-        registry.evidence_url, registry.status, registry.scope, registry.last_error = instance.authority_url, "syncing", scope, ""
+        registry.evidence_url, registry.status = instance.authority_url, "syncing"
+        registry.scope = {**previous_scope, **scope,
+                         "page_checkpoints": previous_scope.get("page_checkpoints", [])}
+        registry.last_error = ""
         registry.last_checked_at = observed_at
         session.commit()
 
-    seen: set[str] = set()
-    digest = hashlib.sha256()
-    added = refreshed = enumerated = 0
+    added = refreshed = 0
     federation_counts = {"M": 0, "E": 0, "F": 0, "not_declared": 0}
+    page_checkpoints: list[dict] = []
+    start_page = 1
+    can_resume = not force and previous_status in {"failed", "syncing"}
+    checkpoint_state = _usable_checkpoint(previous_scope, total=total, pages=pages) if can_resume else None
+    if checkpoint_state is not None:
+        candidate_pages, candidate_counts = checkpoint_state
+        boundary_page = len(candidate_pages)
+        try:
+            boundary_payload = first if boundary_page == 1 else fetch_catalog_page(boundary_page, instance=instance)[0]
+            boundary_pagination = boundary_payload["pagination"]
+            boundary_records = parse_catalog_page(boundary_payload, types, instance=instance)
+            actual_boundary = _page_checkpoint(boundary_records)
+            if (boundary_pagination["total_entries"] == total
+                    and boundary_pagination["total_pages"] == pages
+                    and actual_boundary == candidate_pages[-1]):
+                page_checkpoints = candidate_pages
+                federation_counts = candidate_counts
+                start_page = boundary_page + 1
+                logger.info("sapl_catalog_checkpoint_resumed source_id=%s last_page=%s records=%s",
+                            instance.source_id, boundary_page,
+                            sum(item["count"] for item in page_checkpoints))
+            else:
+                logger.info("sapl_catalog_checkpoint_rejected source_id=%s last_page=%s reason=boundary_changed",
+                            instance.source_id, boundary_page)
+        except Exception as exc:
+            logger.info("sapl_catalog_checkpoint_rejected source_id=%s last_page=%s reason=%s",
+                        instance.source_id, boundary_page, str(exc)[:200])
+    if not page_checkpoints:
+        with SessionLocal() as session:
+            registry = session.get(SourceRegistry, instance.source_id)
+            registry.scope = {**scope, "checkpoint_format": "sapl-page-checkpoints-v1", "page_checkpoints": []}
+            session.commit()
+
+    enumerated = sum(item["count"] for item in page_checkpoints)
+    previous_remote_id = page_checkpoints[-1]["last_id"] if page_checkpoints else None
     try:
-        for page in range(1, pages + 1):
+        for page in range(start_page, pages + 1):
             logger.info("sapl_catalog_page_fetch_started page=%s total_pages=%s", page, pages)
             payload = first if page == 1 else fetch_catalog_page(page, instance=instance)[0]
             current = payload["pagination"]
@@ -610,14 +713,12 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 raise ValueError("O total SAPL mudou durante a paginação.")
             records = parse_catalog_page(payload, types, instance=instance)
             logger.info("sapl_catalog_page_fetched page=%s records=%s", page, len(records))
-            if page < pages and len(records) != PAGE_SIZE:
-                raise ValueError(f"Página SAPL truncada {page}: {len(records)} de {PAGE_SIZE}.")
-            for item in records:
-                if item.remote_id in seen:
-                    raise ValueError(f"Identificador SAPL repetido entre páginas: {item.remote_id}.")
-                seen.add(item.remote_id)
-                digest.update(item.remote_id.encode() + b"\n")
-                federation_counts[item.federation_scope or "not_declared"] += 1
+            expected_page_count = min(PAGE_SIZE, total - (page - 1) * PAGE_SIZE)
+            if len(records) != expected_page_count:
+                raise ValueError(f"Página SAPL truncada {page}: {len(records)} de {expected_page_count}.")
+            page_state = _page_checkpoint(records)
+            if previous_remote_id is not None and int(page_state["first_id"]) <= int(previous_remote_id):
+                raise ValueError("A paginação SAPL não manteve ordem crescente de id entre páginas.")
             with SessionLocal() as session:
                 # Bound waits so one stalled write cannot strand the source
                 # registry in "syncing" indefinitely.
@@ -628,16 +729,27 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 session.flush()
                 logger.info("sapl_catalog_page_rows_flushed page=%s added=%s refreshed=%s",
                             page, counts["added"], counts["refreshed"])
-                added += counts["added"]
-                refreshed += counts["refreshed"]
-                enumerated += len(records)
+                next_page_checkpoints = [*page_checkpoints, page_state]
+                next_federation_counts = dict(federation_counts)
+                for item in records:
+                    next_federation_counts[item.federation_scope or "not_declared"] += 1
+                next_enumerated = enumerated + len(records)
                 registry = session.get(SourceRegistry, instance.source_id)
-                registry.scope = {**scope, "records_enumerated": enumerated, "last_page": page,
-                                  "records_by_federation_scope": dict(federation_counts),
-                                  "catalog_ids_sha256_partial": digest.hexdigest()}
+                registry.scope = {**scope, "records_enumerated": next_enumerated, "last_page": page,
+                                  "records_by_federation_scope": next_federation_counts,
+                                  "checkpoint_format": "sapl-page-checkpoints-v1",
+                                  "page_checkpoints": next_page_checkpoints,
+                                  "catalog_ids_sha256_partial": _catalog_ids_digest(next_page_checkpoints),
+                                  "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1"}
                 registry.last_checked_at = observed_at
                 logger.info("sapl_catalog_page_commit_started page=%s enumerated=%s", page, enumerated)
                 session.commit()
+            added += counts["added"]
+            refreshed += counts["refreshed"]
+            enumerated = next_enumerated
+            federation_counts = next_federation_counts
+            page_checkpoints = next_page_checkpoints
+            previous_remote_id = page_state["last_id"]
             logger.info("sapl_catalog_page_committed page=%s enumerated=%s", page, enumerated)
     except Exception as exc:
         with SessionLocal() as session:
@@ -646,13 +758,14 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 registry.status, registry.last_error = "failed", str(exc)[:1000]
                 registry.scope = {**(registry.scope or {}), "records_enumerated": enumerated,
                                   "records_by_federation_scope": dict(federation_counts),
-                                  "last_page": max(0, len(seen) // PAGE_SIZE),
+                                  "last_page": len(page_checkpoints),
                                   "last_attempt_at": datetime.now(timezone.utc).isoformat()}
                 registry.last_checked_at = datetime.now(timezone.utc)
                 session.commit()
         raise
-    if enumerated != total or len(seen) != total:
+    if enumerated != total or len(page_checkpoints) != pages:
         raise ValueError(f"Catálogo SAPL incompleto: {enumerated} de {total} registros.")
+    final_digest = _catalog_ids_digest(page_checkpoints)
     with SessionLocal() as session:
         external_prefix = f"sapl:{instance.external_namespace}:%"
         db_total = session.scalar(select(func.count()).select_from(Law).where(Law.external_source_id.like(external_prefix))) or 0
@@ -660,13 +773,16 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         registry.status = "enumerated"
         registry.scope = {**scope, "records_enumerated": enumerated, "records_in_database": db_total,
                           "records_by_federation_scope": dict(federation_counts),
-                          "last_page": pages, "catalog_ids_sha256": digest.hexdigest(),
+                          "last_page": pages, "checkpoint_format": "sapl-page-checkpoints-v1",
+                          "page_checkpoints": page_checkpoints,
+                          "catalog_ids_sha256": final_digest,
+                          "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1",
                           "observed_at": datetime.now(timezone.utc).isoformat()}
         registry.last_checked_at = datetime.now(timezone.utc)
         registry.last_error = ""
         session.commit()
     return {"source_id": instance.source_id, "records": enumerated, "expected": total, "pages": pages, "added": added,
-            "refreshed": refreshed, "catalog_ids_sha256": digest.hexdigest()}
+            "refreshed": refreshed, "catalog_ids_sha256": final_digest}
 
 
 def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:

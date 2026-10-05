@@ -139,3 +139,42 @@ def test_subnational_text_backfill_is_fair_and_skips_unpublished_text(db_session
     assert db_session.query(HydrationJob).filter_by(job_type="hydrate").count() == 3
     assert db_session.query(JobOutbox).count() == 3
     assert db_session.get(Law, "df-sinj-a").materialization_status == "catalog"
+
+
+def test_subnational_backfill_rotates_when_source_count_exceeds_batch_limit(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app import jobs
+    from app.catalog_sync import sapl
+    from app.catalog_sync.sapl import SaplInstance
+
+    instances = tuple(SaplInstance(
+        ibge_code=f"990000{i}", municipality=f"Cidade {i}", state_code="ZZ",
+        host=f"https://sapl.cidade{i}.zz.leg.br", source_id=f"municipality:990000{i}:sapl",
+        source_name=f"Câmara Municipal de Cidade {i} — SAPL",
+        authority_url=f"https://sapl.cidade{i}.zz.leg.br/",
+    ) for i in range(1, 5))
+    monkeypatch.setattr(sapl, "SAPL_INSTANCES", instances)
+    monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_CURSORS", {})
+    monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_SOURCE_CURSOR", None)
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+
+    for index, instance in enumerate(instances, 1):
+        db_session.add(Law(
+            slug=f"municipality-{index}-law", jurisdiction="municipality", state_code="ZZ",
+            municipality=instance.municipality, law_type="Lei", number=str(index), year=2024,
+            title=f"Lei {index}", description="", status="Não verificado", aliases=[],
+            source_name=instance.source_name, source_url=instance.host + "/law",
+            fetch_url=instance.host + "/law", hot=False, materialization_status="catalog",
+            coverage={"text_url_in_catalog": True},
+        ))
+    db_session.commit()
+
+    first = jobs.queue_subnational_text_batch(limit=2)
+    second = jobs.queue_subnational_text_batch(limit=2)
+
+    assert first["queued_count"] == second["queued_count"] == 2
+    assert {item["source"] for item in first["jobs"] + second["jobs"]} == {
+        item.source_name for item in instances
+    }
