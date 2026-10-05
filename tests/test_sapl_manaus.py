@@ -27,6 +27,30 @@ def test_sapl_catalog_parser_captures_municipal_identity_and_attachment():
     assert item.text_url.endswith("/1949/1/lei.pdf")
 
 
+def test_sapl_page_transaction_timeouts_are_applied_only_to_postgres():
+    class SessionStub:
+        def __init__(self, dialect):
+            self.dialect = dialect
+            self.statements = []
+
+        def get_bind(self):
+            return type("Bind", (), {"dialect": type("Dialect", (), {"name": self.dialect})()})()
+
+        def execute(self, statement):
+            self.statements.append(str(statement))
+
+    postgres = SessionStub("postgresql")
+    sapl_catalog._limit_catalog_page_transaction(postgres)
+    assert postgres.statements == [
+        "SET LOCAL lock_timeout = '15s'",
+        "SET LOCAL statement_timeout = '90s'",
+    ]
+
+    sqlite = SessionStub("sqlite")
+    sapl_catalog._limit_catalog_page_transaction(sqlite)
+    assert sqlite.statements == []
+
+
 def test_sapl_json_reader_retries_response_body_timeout(monkeypatch):
     import io
     import json
