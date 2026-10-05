@@ -884,7 +884,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
                     message=(
                         "Texto integral disponível; estrutura jurídica não reconhecida, revisão necessária"
                         if any(node.node_type == "document" for node in nodes) else
-                        "Texto e dispositivos disponíveis; transcrição do DOU com cobertura parcial" if source_metadata else
+                        "Texto e dispositivos disponíveis; cobertura estrutural parcial" if source_metadata else
                         "Texto e dispositivos disponíveis"
                     ))
         session.commit()
