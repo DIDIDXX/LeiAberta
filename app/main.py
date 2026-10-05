@@ -14,9 +14,9 @@ from xml.sax.saxutils import escape
 
 from app.db import get_session
 from app.audit import audit_archived_document
-from app.jobs import queue_history, queue_hydration
+from app.jobs import queue_history, queue_hydration, queue_provenance
 from app.catalog_sync.sapl import SAPL_SOURCE_NAMES
-from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SourceRegistry, SourceSnapshot
+from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SenateProceeding, SourceRegistry, SourceSnapshot
 from app.search import search_laws
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
@@ -296,6 +296,47 @@ def prepare_history(slug: str, session: Session = Depends(get_session)):
         job = queue_history(law)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Não foi possível registrar o job de histórico.") from exc
+    return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": job.message,
+            "job_type": job.job_type, "attempts": job.attempts}
+
+
+@app.get("/api/laws/{slug}/proceedings")
+def law_proceedings(slug: str, session: Session = Depends(get_session)):
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    active_job = session.scalar(select(HydrationJob).where(
+        HydrationJob.law_slug == slug, HydrationJob.job_type == "provenance",
+        HydrationJob.status.in_(["queued", "running"]),
+    ).order_by(HydrationJob.created_at.desc()).limit(1))
+    dossier = session.get(SenateProceeding, slug)
+    status = active_job.status if active_job else (dossier.status if dossier else "not_requested")
+    return {
+        "law": _law_summary(law),
+        "status": status,
+        "checked_at": dossier.checked_at.isoformat() if dossier and dossier.checked_at else None,
+        "error": dossier.error if dossier and dossier.error else (law.coverage or {}).get("senate_provenance_error"),
+        "job": {"id": active_job.id, "status": active_job.status, "stage": active_job.stage_name,
+                "message": active_job.message, "attempts": active_job.attempts} if active_job else None,
+        "processes": (dossier.data or {}).get("processes", []) if dossier else [],
+        "notice": (dossier.data or {}).get("notice") if dossier else None,
+        "matching_processes_found": (dossier.data or {}).get("matching_processes_found", 0) if dossier else 0,
+        "truncated": (dossier.data or {}).get("truncated", False) if dossier else False,
+    }
+
+
+@app.post("/api/laws/{slug}/proceedings/prepare", status_code=202)
+def prepare_law_proceedings(slug: str, refresh: bool = Query(False), session: Session = Depends(get_session)):
+    law = session.get(Law, slug)
+    if not law:
+        raise HTTPException(status_code=404, detail="Norma não encontrada no catálogo.")
+    from app.sources.senado import TYPE_CODES
+    if law.jurisdiction != "federal" or law.law_type not in TYPE_CODES:
+        raise HTTPException(status_code=409, detail="A consulta de tramitação está disponível para normas federais com identidade compatível com o Senado.")
+    try:
+        job = queue_provenance(law, refresh=refresh)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Não foi possível registrar o job de tramitação.") from exc
     return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": job.message,
             "job_type": job.job_type, "attempts": job.attempts}
 

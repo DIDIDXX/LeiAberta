@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.models import HydrationJob, Jurisdiction, Law, LawVersion, LegalNode, SourceSnapshot
+from app.models import HydrationJob, Jurisdiction, Law, LawVersion, LegalNode, SenateProceeding, SourceSnapshot
 
 
 def test_search_endpoint_handles_typo(db_session, add_law):
@@ -61,6 +61,59 @@ def test_history_is_explicitly_not_requested_until_a_real_job_exists(db_session,
     payload = response.json()
     assert payload["status"] == "not_requested"
     assert payload["job"] is None
+
+
+def test_senate_proceedings_endpoint_returns_persisted_official_dossier(db_session, add_law):
+    law = add_law()
+    db_session.add(law)
+    db_session.flush()
+    db_session.add(SenateProceeding(
+        law_slug=law.slug, status="complete", checked_at=datetime.now(timezone.utc),
+        data={"status": "complete", "matching_processes_found": 1,
+              "processes": [{"process": {"identificacao": "PL 1604/2022"}, "amendments": [],
+                             "committee_votes": [], "plenary_votes": [], "source_urls": []}]},
+    ))
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get(f"/api/laws/{law.slug}/proceedings")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "complete"
+    assert payload["matching_processes_found"] == 1
+    assert payload["processes"][0]["process"]["identificacao"] == "PL 1604/2022"
+
+
+def test_senate_proceedings_prepare_queues_a_durable_priority_job(db_session, add_law, monkeypatch):
+    from types import SimpleNamespace
+
+    law = add_law()
+    db_session.add(law)
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    monkeypatch.setattr("app.main.queue_provenance", lambda stored_law, refresh=False: SimpleNamespace(
+        id="senate-provenance-job", status="queued", stage_name="queued", message="Aguardando worker",
+        job_type="provenance", attempts=0,
+    ))
+    try:
+        response = TestClient(app).post(f"/api/laws/{law.slug}/proceedings/prepare")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 202
+    assert response.json()["id"] == "senate-provenance-job"
+    assert response.json()["job_type"] == "provenance"
 
 
 def test_queued_text_hydration_does_not_claim_history_is_being_prepared(db_session, add_law):

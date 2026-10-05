@@ -165,6 +165,19 @@ class HistoryEvent(Base):
     law: Mapped[Law] = relationship()
 
 
+class SenateProceeding(Base):
+    """Cached Senate process dossier linked to one enacted federal norm."""
+    __tablename__ = "senate_proceedings"
+
+    law_slug: Mapped[str] = mapped_column(ForeignKey("laws.slug", ondelete="CASCADE"), primary_key=True)
+    status: Mapped[str] = mapped_column(String(24), default="not_requested", index=True)
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+
+    law: Mapped[Law] = relationship()
+
+
 class HydrationJob(Base):
     __tablename__ = "hydration_jobs"
 
