@@ -229,3 +229,27 @@ def test_alagoas_state_sapl_keeps_only_verified_state_records():
         assert "abrangência verificável" in str(exc)
     else:
         raise AssertionError("The Alagoas state catalog accepted a municipal record")
+
+
+def test_sapl_catalog_pages_use_stable_primary_key_order(monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from app.catalog_sync import sapl as sapl_catalog
+
+    sao_joao = next(item for item in SAPL_INSTANCES if item.ibge_code == "3549102")
+    payload = {"results": [], "pagination": {"page": 43, "total_entries": 12086, "total_pages": 121}}
+    requested = {}
+
+    def fake_get_json(url, *, timeout, instance):
+        requested.update(url=url, timeout=timeout, instance=instance)
+        return payload, url
+
+    monkeypatch.setattr(sapl_catalog, "_get_json", fake_get_json)
+    result, final_url = sapl_catalog.fetch_catalog_page(43, instance=sao_joao)
+
+    assert result is payload
+    assert final_url == requested["url"]
+    assert requested["instance"] is sao_joao
+    assert parse_qs(urlparse(final_url).query) == {
+        "page_size": ["100"], "page": ["43"], "o": ["id"],
+    }
