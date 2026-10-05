@@ -16,6 +16,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -613,6 +614,16 @@ def _limit_catalog_page_transaction(session: Session) -> None:
     session.execute(text("SET LOCAL statement_timeout = '90s'"))
 
 
+def _is_retryable_catalog_lock(exc: OperationalError) -> bool:
+    """Recognize PostgreSQL lock timeouts/deadlocks that roll back one page."""
+    original = getattr(exc, "orig", None)
+    sqlstate = getattr(original, "sqlstate", None) or getattr(original, "pgcode", None)
+    if sqlstate in {"55P03", "40P01"}:
+        return True
+    message = str(exc).lower()
+    return "canceling statement due to lock timeout" in message or "deadlock detected" in message
+
+
 def _source_is_fresh(instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> bool:
     with SessionLocal() as session:
         registry = session.get(SourceRegistry, instance.source_id)
@@ -721,31 +732,43 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
             page_state = _page_checkpoint(records)
             if previous_remote_id is not None and int(page_state["first_id"]) <= int(previous_remote_id):
                 raise ValueError("A paginação SAPL não manteve ordem crescente de id entre páginas.")
-            with SessionLocal() as session:
-                # Bound waits so one stalled write cannot strand the source
-                # registry in "syncing" indefinitely.
-                _limit_catalog_page_transaction(session)
-                logger.info("sapl_catalog_page_persist_started page=%s records=%s", page, len(records))
-                counts = sync_catalog_page(session, records, observed_at=observed_at, instance=instance)
-                logger.info("sapl_catalog_page_flush_started page=%s", page)
-                session.flush()
-                logger.info("sapl_catalog_page_rows_flushed page=%s added=%s refreshed=%s",
-                            page, counts["added"], counts["refreshed"])
-                next_page_checkpoints = [*page_checkpoints, page_state]
-                next_federation_counts = dict(federation_counts)
-                for item in records:
-                    next_federation_counts[item.federation_scope or "not_declared"] += 1
-                next_enumerated = enumerated + len(records)
-                registry = session.get(SourceRegistry, instance.source_id)
-                registry.scope = {**scope, "records_enumerated": next_enumerated, "last_page": page,
-                                  "records_by_federation_scope": next_federation_counts,
-                                  "checkpoint_format": "sapl-page-checkpoints-v1",
-                                  "page_checkpoints": next_page_checkpoints,
-                                  "catalog_ids_sha256_partial": _catalog_ids_digest(next_page_checkpoints),
-                                  "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1"}
-                registry.last_checked_at = observed_at
-                logger.info("sapl_catalog_page_commit_started page=%s enumerated=%s", page, enumerated)
-                session.commit()
+            for attempt in range(1, 4):
+                try:
+                    with SessionLocal() as session:
+                        # Bound waits so one stalled write cannot strand the source
+                        # registry in "syncing" indefinitely.
+                        _limit_catalog_page_transaction(session)
+                        logger.info("sapl_catalog_page_persist_started page=%s records=%s attempt=%s",
+                                    page, len(records), attempt)
+                        counts = sync_catalog_page(session, records, observed_at=observed_at, instance=instance)
+                        logger.info("sapl_catalog_page_flush_started page=%s attempt=%s", page, attempt)
+                        session.flush()
+                        logger.info("sapl_catalog_page_rows_flushed page=%s added=%s refreshed=%s",
+                                    page, counts["added"], counts["refreshed"])
+                        next_page_checkpoints = [*page_checkpoints, page_state]
+                        next_federation_counts = dict(federation_counts)
+                        for item in records:
+                            next_federation_counts[item.federation_scope or "not_declared"] += 1
+                        next_enumerated = enumerated + len(records)
+                        registry = session.get(SourceRegistry, instance.source_id)
+                        registry.scope = {**scope, "records_enumerated": next_enumerated, "last_page": page,
+                                          "records_by_federation_scope": next_federation_counts,
+                                          "checkpoint_format": "sapl-page-checkpoints-v1",
+                                          "page_checkpoints": next_page_checkpoints,
+                                          "catalog_ids_sha256_partial": _catalog_ids_digest(next_page_checkpoints),
+                                          "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1"}
+                        registry.last_checked_at = observed_at
+                        logger.info("sapl_catalog_page_commit_started page=%s enumerated=%s attempt=%s",
+                                    page, enumerated, attempt)
+                        session.commit()
+                    break
+                except OperationalError as exc:
+                    if not _is_retryable_catalog_lock(exc) or attempt == 3:
+                        raise
+                    delay = 2 ** attempt
+                    logger.warning("sapl_catalog_page_lock_retry page=%s attempt=%s delay_seconds=%s",
+                                   page, attempt, delay)
+                    time.sleep(delay)
             added += counts["added"]
             refreshed += counts["refreshed"]
             enumerated = next_enumerated

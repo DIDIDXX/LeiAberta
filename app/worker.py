@@ -18,11 +18,17 @@ from app.jobs import (
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
 MAX_HYDRATION_CONCURRENCY = MAX_INTERACTIVE_JOB_BATCH
+MAX_CATALOG_CONCURRENCY = 4
 
 
 def hydration_concurrency() -> int:
     """Allow the network-bound worker to use measured Railway headroom."""
     return min(MAX_HYDRATION_CONCURRENCY, max(1, int(os.getenv("HYDRATION_CONCURRENCY", "8"))))
+
+
+def catalog_concurrency() -> int:
+    """Serialize catalog writers by default; raise this only after measuring DB headroom."""
+    return min(MAX_CATALOG_CONCURRENCY, max(1, int(os.getenv("CATALOG_SYNC_CONCURRENCY", "1"))))
 
 
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
@@ -109,8 +115,11 @@ def run() -> None:
     logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
                 QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
-    # Keep catalog work bounded while the large state and district catalogs sync.
-    catalog_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="catalog-sync")
+    # Catalog adapters write the same primary-key index; serialize them by default
+    # to prevent concurrent index-page contention during large imports.
+    catalog_workers = catalog_concurrency()
+    logger.info("catalog_worker_started concurrency=%s", catalog_workers)
+    catalog_executor = ThreadPoolExecutor(max_workers=catalog_workers, thread_name_prefix="catalog-sync")
     senado_sync_future = None
     alesp_sync_future = None
     sinj_sync_future = None

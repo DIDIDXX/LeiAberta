@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 import app.db
 import app.worker as worker
-from app.worker import hydration_concurrency, wait_for_database_schema
+from app.worker import catalog_concurrency, hydration_concurrency, wait_for_database_schema
 
 
 def test_worker_waits_for_the_current_alembic_head(db_session, monkeypatch):
@@ -28,6 +28,15 @@ def test_hydration_concurrency_can_scale_to_twenty_four_but_stays_bounded(monkey
     assert hydration_concurrency() == 24
     monkeypatch.setenv("HYDRATION_CONCURRENCY", "0")
     assert hydration_concurrency() == 1
+
+
+def test_catalog_writers_are_serial_by_default_and_can_be_bounded(monkeypatch):
+    monkeypatch.delenv("CATALOG_SYNC_CONCURRENCY", raising=False)
+    assert catalog_concurrency() == 1
+    monkeypatch.setenv("CATALOG_SYNC_CONCURRENCY", "3")
+    assert catalog_concurrency() == 3
+    monkeypatch.setenv("CATALOG_SYNC_CONCURRENCY", "20")
+    assert catalog_concurrency() == 4
 
 
 def test_worker_processes_independent_jobs_concurrently_and_acks_afterwards(monkeypatch):

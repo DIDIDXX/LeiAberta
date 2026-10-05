@@ -1,12 +1,29 @@
 from datetime import date, datetime, timezone
 
-from app.catalog_sync.sapl import SAPL_INSTANCES, parse_catalog_page, sync_catalog_page
+from sqlalchemy.exc import OperationalError
+
+from app.catalog_sync.sapl import (
+    SAPL_INSTANCES,
+    _is_retryable_catalog_lock,
+    parse_catalog_page,
+    sync_catalog_page,
+)
 from app.models import Jurisdiction, Law
 from app.sources import sapl
 
 
 ANAPOLIS = next(item for item in SAPL_INSTANCES if item.ibge_code == "5201108")
 CAMPINA_GRANDE = next(item for item in SAPL_INSTANCES if item.ibge_code == "2504009")
+
+
+def test_sapl_catalog_retries_only_transient_postgres_lock_errors():
+    lock_timeout = OperationalError("insert", {}, Exception("lock timeout"))
+    lock_timeout.orig.sqlstate = "55P03"
+    unique_violation = OperationalError("insert", {}, Exception("duplicate key"))
+    unique_violation.orig.sqlstate = "23505"
+
+    assert _is_retryable_catalog_lock(lock_timeout)
+    assert not _is_retryable_catalog_lock(unique_violation)
 
 
 def test_verified_installations_parse_their_own_urls_and_ids():
