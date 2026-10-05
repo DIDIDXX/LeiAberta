@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError, URLError
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -234,6 +234,13 @@ def sync_catalog_page(session: Session, records: list[SaplCatalogNorm], *, obser
     return {"added": added, "refreshed": refreshed}
 
 
+def _limit_catalog_page_transaction(session: Session) -> None:
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    session.execute(text("SET LOCAL lock_timeout = '15s'"))
+    session.execute(text("SET LOCAL statement_timeout = '90s'"))
+
+
 def _source_is_fresh() -> bool:
     with SessionLocal() as session:
         registry = session.get(SourceRegistry, SOURCE_ID)
@@ -293,7 +300,15 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
                 seen.add(item.remote_id)
                 digest.update(item.remote_id.encode() + b"\n")
             with SessionLocal() as session:
+                # Bound waits so one stalled write cannot strand the source
+                # registry in "syncing" indefinitely.
+                _limit_catalog_page_transaction(session)
+                logger.info("sapl_catalog_page_persist_started page=%s records=%s", page, len(records))
                 counts = sync_catalog_page(session, records, observed_at=observed_at)
+                logger.info("sapl_catalog_page_flush_started page=%s", page)
+                session.flush()
+                logger.info("sapl_catalog_page_rows_flushed page=%s added=%s refreshed=%s",
+                            page, counts["added"], counts["refreshed"])
                 added += counts["added"]
                 refreshed += counts["refreshed"]
                 enumerated += len(records)
@@ -301,6 +316,7 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
                 registry.scope = {**scope, "records_enumerated": enumerated, "last_page": page,
                                   "catalog_ids_sha256_partial": digest.hexdigest()}
                 registry.last_checked_at = observed_at
+                logger.info("sapl_catalog_page_commit_started page=%s enumerated=%s", page, enumerated)
                 session.commit()
             logger.info("sapl_catalog_page_committed page=%s enumerated=%s", page, enumerated)
     except Exception as exc:
