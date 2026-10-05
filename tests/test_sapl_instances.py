@@ -25,6 +25,34 @@ def test_verified_installations_parse_their_own_urls_and_ids():
     )
 
 
+def test_sapl_preserves_declared_scope_and_allows_legacy_missing_scope():
+    legacy = {"results": [{
+        "id": 6156, "__str__": "Lei Complementar nº 379, de 21 de junho de 2018", "tipo": 2,
+        "texto_integral": "http://sapl.anapolis.go.leg.br/media/sapl/public/normajuridica/2018/6156/6156_texto_integral.pdf",
+        "numero": "379", "ano": 2018, "esfera_federacao": "", "data": "2018-06-21",
+        "ementa": "Altera norma municipal.",
+    }]}
+    [item] = parse_catalog_page(legacy, {"2": "Lei Complementar"}, instance=ANAPOLIS)
+    assert item.remote_id == "6156"
+    assert item.federation_scope == ""
+
+    state_rows = {"results": [{**legacy["results"][0], "id": 1449, "esfera_federacao": "E"}]}
+    [state_law] = parse_catalog_page(state_rows, {"2": "Lei Complementar"}, instance=ANAPOLIS)
+    assert state_law.federation_scope == "E"
+
+    federal_rows = {"results": [{**legacy["results"][0], "id": 1448, "esfera_federacao": "F"}]}
+    [federal_law] = parse_catalog_page(federal_rows, {"2": "Lei Complementar"}, instance=ANAPOLIS)
+    assert federal_law.federation_scope == "F"
+
+    invalid_scope = {"results": [{**legacy["results"][0], "esfera_federacao": "X"}]}
+    try:
+        parse_catalog_page(invalid_scope, {"2": "Lei Complementar"}, instance=ANAPOLIS)
+    except ValueError as exc:
+        assert "abrangência verificável" in str(exc)
+    else:
+        raise AssertionError("The SAPL connector accepted an unknown federation scope")
+
+
 def test_new_official_sapl_municipalities_have_stable_ibge_and_source_identity():
     by_code = {item.ibge_code: item for item in SAPL_INSTANCES}
     expected = {
@@ -62,6 +90,30 @@ def test_verified_installation_sync_keeps_catalog_rows_separate_by_municipality(
     assert (law.state_code, law.municipality, law.source_name) == (
         "GO", "Anápolis", "Câmara Municipal de Anápolis — SAPL",
     )
+
+    state_item = parse_catalog_page({"results": [{
+        "id": 1449, "__str__": "Lei nº 2.726, de 05 de abril de 2001", "tipo": 2,
+        "texto_integral": "http://sapl.anapolis.go.leg.br/media/sapl/public/normajuridica/2001/1449/1449_texto_integral.pdf",
+        "numero": "2726", "ano": 2001, "esfera_federacao": "E", "data": "2001-04-05",
+        "data_publicacao": None, "ementa": "Norma estadual publicada nesta instalação SAPL.",
+    }]}, {"2": "Lei Complementar"}, instance=ANAPOLIS)[0]
+    sync_catalog_page(db_session, [state_item], observed_at=datetime.now(timezone.utc), instance=ANAPOLIS)
+    db_session.commit()
+    state_law = db_session.get(Law, "sapl-5201108-1449")
+    assert (state_law.jurisdiction, state_law.state_code, state_law.municipality) == ("state", "GO", None)
+    assert state_law.coverage["sapl_federation_scope"] == "E"
+
+    federal_item = parse_catalog_page({"results": [{
+        "id": 1448, "__str__": "Lei Federal nº 100, de 05 de abril de 2001", "tipo": 1,
+        "texto_integral": "http://sapl.anapolis.go.leg.br/media/sapl/public/normajuridica/2001/1448/lei.pdf",
+        "numero": "100", "ano": 2001, "esfera_federacao": "F", "data": "2001-04-05",
+        "data_publicacao": None, "ementa": "Norma federal publicada nesta instalação SAPL.",
+    }]}, {"1": "Lei"}, instance=ANAPOLIS)[0]
+    sync_catalog_page(db_session, [federal_item], observed_at=datetime.now(timezone.utc), instance=ANAPOLIS)
+    db_session.commit()
+    federal_law = db_session.get(Law, "sapl-5201108-1448")
+    assert (federal_law.jurisdiction, federal_law.state_code, federal_law.municipality) == ("federal", None, None)
+    assert federal_law.coverage["sapl_federation_scope"] == "F"
 
 
 def test_media_urls_are_canonicalized_only_within_the_configured_sapl_instance():

@@ -103,12 +103,13 @@ def test_sapl_catalog_preserves_designation_year_when_signature_is_next_year():
     assert item.signed_at == date(1995, 2, 21)
 
 
-def test_sapl_catalog_rejects_wrong_federation_and_untrusted_attachment():
+def test_sapl_catalog_preserves_federation_scope_and_rejects_untrusted_attachment():
     payload = _catalog_payload("https://attacker.example/law.pdf")
     assert parse_catalog_page(payload, {"2": "Lei Ordinária"})[0].text_url is None
     payload["results"][0]["esfera_federacao"] = "E"
-    with pytest.raises(ValueError, match="identidade municipal"):
-        parse_catalog_page(payload, {"2": "Lei Ordinária"})
+    [item] = parse_catalog_page(payload, {"2": "Lei Ordinária"})
+    assert item.federation_scope == "E"
+    assert item.text_url is None
 
 
 def test_sapl_catalog_page_sync_is_idempotent_and_scoped_to_manaus(db_session):
