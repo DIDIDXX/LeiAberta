@@ -700,6 +700,14 @@ def sources(jurisdiction_id: str | None = None, status: str | None = None,
     freshness = {"senado": 86400, "senado_catalog": 86400, "ibge_localities": 86400,
                  "ibge_jurisdictions": 86400,
                  "alesp_catalog": 604800, "sinj_df_catalog": 604800, "sapl_catalog": 604800}
+    request_policies = {
+        "senado_catalog": {"max_response_bytes": 20_000_000, "timeout_seconds": 60, "max_attempts": 3},
+        "alesp_catalog": {"page_size": 5000, "max_response_bytes": 20_000_000, "timeout_seconds": 60},
+        "sinj_df_catalog": {"page_size": 5000, "max_response_bytes": 25_000_000, "timeout_seconds": 60},
+        "sapl_catalog": {"page_size": 100, "max_response_bytes": 10_000_000, "timeout_seconds": 45, "max_attempts": 3},
+        "ibge_localities": {"timeout_seconds": 45},
+        "ibge_jurisdictions": {"timeout_seconds": 45},
+    }
     now = datetime.now(timezone.utc)
     items = []
     for row in rows:
@@ -728,6 +736,7 @@ def sources(jurisdiction_id: str | None = None, status: str | None = None,
             "last_success_semantics": "Última enumeração concluída registrada" if last_success else None,
             "freshness_seconds": max_age,
             "freshness_status": freshness_status,
+            "request_policy": request_policies.get(row.adapter),
             "cataloged_laws": source_counts["cataloged_laws"], "with_text": source_counts["with_text"],
             "new_records": scope.get("new_records"), "updated_records": scope.get("updated_records"),
             "failed_records": scope.get("failed_records"),

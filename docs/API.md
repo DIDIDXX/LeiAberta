@@ -27,7 +27,7 @@ curl 'https://web-production-12e95.up.railway.app/api/laws/11340-2006/nodes/art%
 | GET | `/api/laws/{slug}/nodes/{node_id}/provenance` | Texto atual, alteração verificada mais recente e relações do dispositivo |
 | GET | `/api/changes/{change_id}` | Antes/depois, marcadores e nível de evidência |
 | GET | `/api/laws/{slug}/proceedings` | Dossiê processual, se consultado/disponível |
-| GET | `/api/sources` | Estado, freshness, contagens observadas e erros por fonte |
+| GET | `/api/sources` | Estado, freshness, limites de consulta, contagens observadas e erros por fonte |
 | GET | `/api/laws/{slug}/coverage` | Estado de cobertura de uma norma |
 | GET | `/api/jurisdictions` | Diretório territorial, não equivalente à cobertura legislativa |
 
@@ -45,6 +45,7 @@ Os GET de busca e detalhe usam budgets Redis por janela. Rotas de preparação P
 - `not_identified`: as fontes consultadas não permitiram atribuir com segurança a origem do dispositivo. Não quer dizer que nunca houve alteração.
 - Uma relação oficial sem before/after continua sendo relação, não diff.
 - `last_checked_at` é a tentativa mais recente. `last_success_at` é a última enumeração concluída registrada; contagens delta podem estar ausentes em registros antigos até a próxima sincronização.
+- `request_policy` expõe page size, byte cap, timeout e tentativas máximas onde o adapter define esses limites; um registro sem política publicada não tem adapter de catálogo ativo.
 - `retrieved_at` é captura, não vigência. Autoria da proposição/emenda/relatoria não é autoria de cada linha do texto aprovado.
 
 ## Estados de dados e erros

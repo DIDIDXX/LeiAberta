@@ -126,3 +126,4 @@ def test_sources_api_exposes_success_freshness_and_delta_fields(db_session):
     assert item["last_success_at"] == old.isoformat()
     assert item["freshness_status"] == "stale"
     assert (item["new_records"], item["updated_records"], item["failed_records"], item["sync_failures"]) == (4, 2, None, 1)
+    assert item["request_policy"]["page_size"] == 100
