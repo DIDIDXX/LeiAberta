@@ -6,8 +6,6 @@ import sys
 
 from sqlalchemy import create_engine, text
 
-from app.db import normalize_database_url
-
 
 # This identity came from pg_stat_activity after repeated migration failures.
 # Every field is matched so a future process reusing this PID is left alone.
@@ -20,6 +18,15 @@ STALE_BACKEND = {
     "state_change": "2026-10-05 04:04:03.826407+00:00",
     "xact_start": "2026-10-05 04:04:02.859806+00:00",
 }
+
+
+def normalize_database_url(value: str) -> str:
+    if value.startswith("postgres://"):
+        return value.replace("postgres://", "postgresql+psycopg://", 1)
+    if value.startswith("postgresql://"):
+        return value.replace("postgresql://", "postgresql+psycopg://", 1)
+    return value
+
 
 MATCH_STALE_BACKEND = text("""
     SELECT a.pid
