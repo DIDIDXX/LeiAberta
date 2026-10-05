@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from threading import Barrier
 
 from alembic.config import Config
@@ -65,3 +66,15 @@ def test_worker_processes_independent_jobs_concurrently_and_acks_afterwards(monk
 
     assert set(completed) == {"law-1", "law-2"}
     assert {message_id for _, _, message_id in redis.acked} == {"message-1", "message-2"}
+
+
+def test_worker_publishes_expiring_heartbeat():
+    class FakeRedis:
+        def set(self, key, value, ex):
+            self.record = (key, value, ex)
+
+    redis = FakeRedis()
+    now = datetime(2026, 10, 5, 17, 0, tzinfo=timezone.utc)
+    timestamp = worker.publish_worker_heartbeat(redis, "worker-test", 8, now)
+    assert redis.record == ("leiaberta:worker:heartbeat", timestamp, 90)
+    assert timestamp == "2026-10-05T17:00:00+00:00"
