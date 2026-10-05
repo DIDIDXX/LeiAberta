@@ -32,6 +32,25 @@ _HISTORY_BACKFILL_EXHAUSTED: set[str] = set()
 _HISTORY_BACKFILL_RESCAN_AT: datetime | None = None
 
 
+def _bounded_backfill_limit(session, requested: int, *, job_type: str, source_names: tuple[str, ...],
+                            env_name: str, default: int) -> tuple[int, int, int]:
+    """Bound background work to a queue depth the worker can actually drain."""
+    try:
+        active_limit = int(os.getenv(env_name, str(default)))
+    except ValueError as exc:
+        raise ValueError(f"{env_name} must be an integer") from exc
+    if not 0 <= active_limit <= 10_000:
+        raise ValueError(f"{env_name} must be between 0 and 10000")
+    active_jobs = int(session.scalar(
+        select(func.count()).select_from(HydrationJob)
+        .join(Law, Law.slug == HydrationJob.law_slug)
+        .where(HydrationJob.job_type == job_type,
+               HydrationJob.status.in_(ACTIVE_STATUSES),
+               Law.source_name.in_(source_names))
+    ) or 0)
+    return min(requested, max(0, active_limit - active_jobs)), active_jobs, active_limit
+
+
 def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: bool = False) -> HydrationJob:
     if job_type not in {"hydrate", "history"}:
         raise ValueError("Tipo de job desconhecido.")
@@ -101,6 +120,15 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
     session = SessionLocal()
     jobs: list[dict] = []
     try:
+        batch_limit, active_jobs, active_limit = _bounded_backfill_limit(
+            session, limit, job_type="hydrate",
+            source_names=("Senado Federal — Dados Abertos Legislativos",),
+            env_name="SENADO_TEXT_BACKFILL_MAX_ACTIVE_JOBS", default=600,
+        )
+        if batch_limit == 0:
+            return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                    "active_jobs": active_jobs, "active_job_limit": active_limit,
+                    "capacity_reached": True, "jobs": jobs}
         latest_hydration_id = (
             select(HydrationJob.id)
             .where(HydrationJob.law_slug == Law.slug, HydrationJob.job_type == "hydrate")
@@ -139,7 +167,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
                 or_(no_prior_job, retry_after_repair),
             )
             .order_by(Law.slug)
-            .limit(limit)
+            .limit(batch_limit)
         ))
         now = datetime.now(timezone.utc)
         for law in laws:
@@ -163,7 +191,9 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
             dispatch_outbox()
         except Exception as exc:
             logger.warning("senado_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
-    return {"queued_count": len(jobs), "limit": limit, "jobs": jobs}
+    return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
+            "active_jobs": active_jobs, "active_job_limit": active_limit,
+            "capacity_reached": False, "jobs": jobs}
 
 
 def queue_subnational_text_batch(*, limit: int = 100) -> dict:
@@ -186,12 +216,20 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
             select(Law.source_name).where(Law.source_name.in_(supported_source_names)).distinct()
         ))
         source_names = tuple(sorted(name for name in supported_source_names if name in available_sources))
+        batch_limit, active_jobs, active_limit = _bounded_backfill_limit(
+            session, limit, job_type="hydrate", source_names=source_names,
+            env_name="SUBNATIONAL_TEXT_BACKFILL_MAX_ACTIVE_JOBS", default=400,
+        )
+        if batch_limit == 0:
+            return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                    "active_jobs": active_jobs, "active_job_limit": active_limit,
+                    "capacity_reached": True, "queued_by_source": {}, "jobs": jobs}
         queued_counts = {name: 0 for name in source_names}
         now = datetime.now(timezone.utc)
         if source_names and _SUBNATIONAL_BACKFILL_SOURCE_CURSOR in source_names:
             start = (source_names.index(_SUBNATIONAL_BACKFILL_SOURCE_CURSOR) + 1) % len(source_names)
             source_names = source_names[start:] + source_names[:start]
-        remaining = limit
+        remaining = batch_limit
         for source_index, source_name in enumerate(source_names):
             if remaining < 1:
                 break
@@ -266,7 +304,9 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
             dispatch_outbox()
         except Exception as exc:
             logger.warning("subnational_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
-    return {"queued_count": len(jobs), "limit": limit, "queued_by_source": queued_by_source, "jobs": jobs}
+    return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
+            "active_jobs": active_jobs, "active_job_limit": active_limit,
+            "capacity_reached": False, "queued_by_source": queued_by_source, "jobs": jobs}
 
 
 def queue_official_history_batch(*, limit: int = 500) -> dict:
@@ -300,11 +340,19 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
             name for name in supported_source_names
             if name in available_sources and name not in _HISTORY_BACKFILL_EXHAUSTED
         ))
+        batch_limit, active_jobs, active_limit = _bounded_backfill_limit(
+            session, limit, job_type="history", source_names=source_names,
+            env_name="HISTORY_BACKFILL_MAX_ACTIVE_JOBS", default=400,
+        )
+        if batch_limit == 0:
+            return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                    "active_jobs": active_jobs, "active_job_limit": active_limit,
+                    "capacity_reached": True, "queued_by_source": {}, "jobs": jobs}
         if source_names and _HISTORY_BACKFILL_SOURCE_CURSOR in source_names:
             start = (source_names.index(_HISTORY_BACKFILL_SOURCE_CURSOR) + 1) % len(source_names)
             source_names = source_names[start:] + source_names[:start]
 
-        remaining = limit
+        remaining = batch_limit
         for source_index, source_name in enumerate(source_names):
             if remaining < 1:
                 break
@@ -387,7 +435,9 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
             dispatch_outbox()
         except Exception as exc:
             logger.warning("official_history_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
-    return {"queued_count": len(jobs), "limit": limit, "queued_by_source": queued_by_source, "jobs": jobs}
+    return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
+            "active_jobs": active_jobs, "active_job_limit": active_limit,
+            "capacity_reached": False, "queued_by_source": queued_by_source, "jobs": jobs}
 
 
 def queue_history(law: Law) -> HydrationJob:

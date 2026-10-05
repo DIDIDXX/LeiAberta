@@ -98,6 +98,42 @@ def test_senado_text_batch_is_bounded_idempotent_and_persists_outbox(db_session,
     assert db_session.get(Law, "planalto-3").materialization_status == "catalog"
 
 
+def test_senado_text_backfill_stops_at_active_queue_cap(db_session, monkeypatch):
+    from datetime import datetime, timezone
+    from sqlalchemy.orm import sessionmaker
+
+    from app import jobs
+    from app.models import HydrationJob
+
+    common = dict(jurisdiction="federal", law_type="Lei", year=2024, number="1",
+                  description="", status="Não verificado", aliases=[],
+                  source_name="Senado Federal — Dados Abertos Legislativos",
+                  source_url="https://legis.senado.leg.br/dadosabertos/legislacao/12345",
+                  fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/12345",
+                  hot=False, materialization_status="catalog")
+    db_session.add_all([
+        Law(slug="senado-active-cap-1", title="Fila 1", **common),
+        Law(slug="senado-pending-cap-2", title="Pendente 2", **common),
+    ])
+    now = datetime.now(timezone.utc)
+    db_session.add(HydrationJob(
+        id="senado-active-cap-job", law_slug="senado-active-cap-1", job_type="hydrate",
+        status="queued", attempts=0, error="", stage_name="queued", message="Aguardando captura",
+        created_at=now, updated_at=now,
+    ))
+    db_session.commit()
+    monkeypatch.setenv("SENADO_TEXT_BACKFILL_MAX_ACTIVE_JOBS", "1")
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+
+    result = jobs.queue_senado_text_batch(limit=500)
+
+    assert result["queued_count"] == 0
+    assert result["capacity_reached"] is True
+    assert result["active_jobs"] == result["active_job_limit"] == 1
+    assert db_session.query(HydrationJob).filter_by(law_slug="senado-pending-cap-2").count() == 0
+
+
 def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, monkeypatch):
     from datetime import datetime, timezone
 
