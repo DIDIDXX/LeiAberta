@@ -180,6 +180,9 @@ def run() -> None:
                     if result["queued_count"]:
                         logger.info("senado_text_backfill_enqueued count=%s batch_limit=%s",
                                     result["queued_count"], senado_batch_size)
+                    elif result.get("capacity_reached"):
+                        logger.info("senado_text_backfill_paused active_jobs=%s active_limit=%s",
+                                    result["active_jobs"], result["active_job_limit"])
                 except Exception:
                     logger.exception("senado_text_backfill_enqueue_failed")
             if time.monotonic() >= next_subnational_batch:
@@ -191,6 +194,9 @@ def run() -> None:
                     if result["queued_count"]:
                         logger.info("subnational_text_backfill_enqueued count=%s by_source=%s",
                                     result["queued_count"], result["queued_by_source"])
+                    elif result.get("capacity_reached"):
+                        logger.info("subnational_text_backfill_paused active_jobs=%s active_limit=%s",
+                                    result["active_jobs"], result["active_job_limit"])
                 except Exception:
                     logger.exception("subnational_text_backfill_enqueue_failed")
             if time.monotonic() >= next_history_batch:
@@ -200,6 +206,9 @@ def run() -> None:
                     if result["queued_count"]:
                         logger.info("official_history_backfill_enqueued count=%s by_source=%s",
                                     result["queued_count"], result["queued_by_source"])
+                    elif result.get("capacity_reached"):
+                        logger.info("official_history_backfill_paused active_jobs=%s active_limit=%s",
+                                    result["active_jobs"], result["active_job_limit"])
                 except Exception:
                     logger.exception("official_history_backfill_enqueue_failed")
             if time.monotonic() >= next_refresh_check:

@@ -53,6 +53,23 @@ def test_sapl_preserves_declared_scope_and_allows_legacy_missing_scope():
         raise AssertionError("The SAPL connector accepted an unknown federation scope")
 
 
+def test_sapl_keeps_catalog_records_when_the_official_signature_date_is_missing():
+    campo_largo = next(item for item in SAPL_INSTANCES if item.ibge_code == "4104204")
+    payload = {"results": [{
+        "id": 198, "__str__": "Lei nº 99, de ", "tipo": 1,
+        "texto_integral": "http://sapl.campolargo.pr.leg.br/media/sapl/public/normajuridica/1967/198/198_texto_integral.html",
+        "numero": "99", "ano": 1967, "esfera_federacao": "", "data": None,
+        "data_publicacao": None, "ementa": "Dispõe sobre os cemitérios públicos municipais.",
+    }]}
+
+    [item] = parse_catalog_page(payload, {"1": "Lei"}, instance=campo_largo)
+
+    assert item.remote_id == "198"
+    assert item.year == 1967
+    assert item.signed_at is None
+    assert item.number == "99"
+
+
 def test_new_official_sapl_municipalities_have_stable_ibge_and_source_identity():
     by_code = {item.ibge_code: item for item in SAPL_INSTANCES}
     expected = {

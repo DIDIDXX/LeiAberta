@@ -298,7 +298,7 @@ class SaplCatalogNorm:
     law_type: str
     number: str
     year: int
-    signed_at: date
+    signed_at: date | None
     published_at: date | None
     title: str
     description: str
@@ -458,7 +458,7 @@ def parse_catalog_page(payload: dict, type_names: dict[str, str], *,
         # Municipal SAPL installations can publish other spheres, while state
         # installations can expose municipal records without municipality
         # identity. Keep only records matching a configured API scope filter.
-        if (not remote_id.isdigit() or len(remote_id) > 24 or not law_type or signed_at is None
+        if (not remote_id.isdigit() or len(remote_id) > 24 or not law_type
                 or federation_scope not in {"", "M", "E", "F"} or len(number) > 96
                 or (instance.federation_scope_filter and federation_scope != instance.federation_scope_filter)):
             raise ValueError(f"Registro SAPL sem identidade ou abrangência verificável: id={remote_id!r}.")
