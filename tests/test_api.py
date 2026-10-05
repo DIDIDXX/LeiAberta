@@ -94,6 +94,27 @@ def test_law_page_has_canonical_metadata_and_no_script_content(db_session, add_l
     assert "https://www.planalto.gov.br/" in response.text
 
 
+def test_law_page_canonical_uses_forwarded_https_when_config_is_absent(db_session, add_law, monkeypatch):
+    db_session.add(add_law())
+    db_session.commit()
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get(
+            "/lei/13709-2018",
+            headers={"x-forwarded-proto": "https", "x-forwarded-host": "leiaberta.example"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert 'href="https://leiaberta.example/lei/13709-2018"' in response.text
+
+
 def test_stats_reports_aggregated_catalog_counts(db_session, add_law):
     law = add_law()
     db_session.add(law)
