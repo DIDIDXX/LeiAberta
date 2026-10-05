@@ -9,6 +9,13 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if op.get_bind().dialect.name == "postgresql":
+        # Creating this foreign key briefly locks the referenced laws table.
+        # Keep startup migrations bounded so the web process can retry instead
+        # of sitting behind a long catalog/hydration transaction until Railway
+        # kills the container's healthcheck.
+        op.execute("SET LOCAL lock_timeout = '2s'")
+        op.execute("SET LOCAL statement_timeout = '30s'")
     op.create_table(
         "senate_proceedings",
         sa.Column("law_slug", sa.String(length=96), sa.ForeignKey("laws.slug", ondelete="CASCADE"), primary_key=True),
