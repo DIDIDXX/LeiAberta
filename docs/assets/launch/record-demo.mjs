@@ -19,10 +19,12 @@ async function capture(path, name, viewport = { width: 1440, height: 1000 }, ful
 
 await capture("/", "01-home.png");
 await capture("/buscar?q=LGDP", "02-search-typo.png");
-await capture("/lei/10406-2002/artigo/389", "03-law-reader.png");
-await capture("/lei/10406-2002/blame?node=art%3A389", "04-why-this-text.png");
+// Full-act and 250-row Blame pages are intentionally viewport captures; the
+// statute has thousands of provisions and a full-page bitmap exceeds browser limits.
+await capture("/lei/10406-2002/artigo/389", "03-law-reader.png", { width: 1440, height: 1000 }, false);
+await capture("/lei/10406-2002/blame?node=art%3A389", "04-why-this-text.png", { width: 1440, height: 1000 }, false);
 await capture("/diff/be3a1531-edaa-5a78-94ca-70c6544e3853", "05-diff.png");
-await capture("/lei/10406-2002/blame", "06-blame.png");
+await capture("/lei/10406-2002/blame", "06-blame.png", { width: 1440, height: 1000 }, false);
 await capture("/cobertura", "07-coverage.png");
 // The production source registry has hundreds of entries; a viewport capture
 // keeps this asset representative without producing a multi-megabyte page image.

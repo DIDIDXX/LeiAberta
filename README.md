@@ -80,7 +80,7 @@ Abra `http://localhost:8000`. `LOCAL_INLINE_JOBS=1` habilita jobs inline locais.
 ```bash
 curl 'https://web-production-12e95.up.railway.app/api/search?q=LGDP'
 curl 'https://web-production-12e95.up.railway.app/api/laws/13709-2018/history'
-curl 'https://web-production-12e95.up.railway.app/api/laws/11340-2006/blame?limit=20'
+curl 'https://web-production-12e95.up.railway.app/api/laws/10406-2002/blame?limit=20'
 ```
 
 Veja [docs/API.md](docs/API.md) para endpoints, paginação, rate limits e semântica de evidência. O OpenAPI está disponível em `/openapi.json`.

@@ -45,3 +45,20 @@
 2. Merge, esperar web/worker Railway em `SUCCESS` e conferir SHA.
 3. Smoke de APIs/páginas, browser em 390/430/768/1440 px e performance amostral.
 4. Capturar screenshots reais do deploy final, atualizar README/FACTS/relatório e decidir release se houver suporte disponível.
+
+
+## Fechamento — comparação real e kit de lançamento (05/10/2026)
+
+A solicitação de demo foi refinada para usar uma lei que já existia antes da alteração e, portanto, exibir os dois lados. O hero mudou para o art. 389 do Código Civil (Lei 10.406/2002), associado à Lei 14.905/2024. O registro do Normas.leg.br contém redações anteriores e posteriores; o site expõe que a transcrição é valor jurídico não oficial, separa o link para o texto consolidado do Planalto e não chama a data do registro de vigência. A inclusão do art. 19, § 4º, da LMP permanece como exemplo complementar.
+
+- PR #71 (polish), #72 (overflow mobile) e #73 (hero com before/after existente) foram integrados; o código do hero foi validado em produção no SHA `c66c0138f03b1a83310c07089c265654785706ae`.
+- Railway web, worker e backup `SUCCESS`; PostgreSQL e Redis online. Health, readiness e worker-health 200.
+- Validação registrada: 150 testes Python, 2 E2E, CI Python/imagem/E2E verde, 36 combinações de browser (9 páginas × 4 larguras) e smoke de rotas/APIs em produção. As amostras de latência em `FACTS.md` não são benchmark estatístico.
+- A demo foi gravada novamente contra a produção: 9 screenshots, PNG OG, screenshot dedicado de diff e vídeo WebM. O script de captura limita páginas enormes à viewport por limite de renderização de screenshot full-page do navegador.
+- README, roteiro, fact sheet, posts (não publicados), checklist e relatório final compõem o kit. A criação de release v0.1.0 deve ser tentada após integrar os assets.
+- Atualização de descrição/homepage/topics tentou usar a integração GitHub e recebeu 403 `Resource not accessible by integration`; requer escopo administrativo.
+- O patch Railway destrutivo preexistente para remover `pg-diagnostic` não foi aceito nem misturado com o deploy do app.
+
+## Limites reais restantes
+
+A cobertura de texto e histórico não é completa para todas as normas brasileiras. O worker atualiza somente fontes com adapters implementados; fazer cobertura nacional integral exige novos portais/adapters e auditoria fonte por fonte. O serviço já oferece busca, leitor, histórico e diffs verificáveis para os dados presentes. Domínio próprio, publicação social e análise de fatura são ações externas/opcionais; a URL Railway funciona.
