@@ -1,0 +1,15 @@
+FROM postgres:18-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/backup-venv \
+    && /opt/backup-venv/bin/pip install --no-cache-dir boto3
+
+WORKDIR /app
+COPY scripts/backup_postgres_to_s3.py /app/backup_postgres_to_s3.py
+ENV PATH="/opt/backup-venv/bin:${PATH}"
+CMD ["python3", "/app/backup_postgres_to_s3.py"]
