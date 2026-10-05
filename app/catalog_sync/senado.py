@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from urllib.error import HTTPError
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Jurisdiction, Law, SourceRegistry
@@ -209,7 +209,24 @@ def sync_law_catalog(session: Session, records: list[SenadoCatalogLaw], *,
     if type_code not in TYPE_LABELS or codes != {type_code}:
         raise ValueError("Os registros não correspondem ao tipo normativo solicitado.")
     catalog_url = catalog_url or f"{SENATE_LIST_BASE}?tipo={type_code}"
-    laws = list(session.scalars(select(Law)))
+    remote_ids = [record.remote_id for record in records]
+    record_years = {record.year for record in records}
+    record_types = {record.law_type.casefold() for record in records}
+    identity_numbers = {record.number for record in records}
+    identity_numbers.update(re.sub(r"\D", "", record.number) for record in records
+                            if re.search(r"\d", record.number))
+    laws_by_slug = {
+        law.slug: law
+        for law in session.scalars(select(Law).where(or_(
+            Law.external_source_id.in_(remote_ids),
+            # Include only possible identity collisions. The Python check below
+            # still compares normalized number digits before attaching a seed.
+            (func.lower(Law.law_type).in_(record_types)
+             & Law.year.in_(record_years)
+             & Law.number.in_(identity_numbers)),
+        )))
+    }
+    laws = list(laws_by_slug.values())
     by_remote = {law.external_source_id: law for law in laws if law.external_source_id}
     by_identity: dict[tuple[str, str, int], list[Law]] = {}
     for law in laws:
