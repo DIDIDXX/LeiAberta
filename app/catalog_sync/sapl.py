@@ -75,6 +75,13 @@ class SaplInstance:
 
 
 SAPL_INSTANCES = (
+    # Verified from the Assembly's official site, which links to this SAPL instance.
+    SaplInstance(
+        ibge_code="27", municipality="", state_code="AL",
+        host="https://sapl.al.al.leg.br", source_id="state:AL:sapl",
+        source_name="Assembleia Legislativa do Estado de Alagoas — SAPL",
+        authority_url="https://www.al.al.leg.br/", scope_kind="state", federation_scope_filter="E",
+    ),
     SaplInstance(
         ibge_code="1302603", municipality="Manaus", state_code="AM",
         host="https://sapl.cmm.am.gov.br", source_id="municipality:1302603:sapl",
