@@ -79,6 +79,27 @@ def test_readiness_rejects_missing_alembic_schema(db_session):
     assert response.status_code == 503
 
 
+def test_public_rate_limit_returns_429_and_retry_after(monkeypatch):
+    from app import main
+
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_consume_rate_budget", lambda *_args: (601, 17))
+    response = TestClient(app).get("/api/search?q=anything")
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "17"
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip():
+    from app.main import _rate_limit_policy
+
+    assert _rate_limit_policy("GET", "/api/search") == ("search", 600, 60)
+    assert _rate_limit_policy("GET", "/api/laws/13709-2018/nodes") == ("law-detail", 240, 60)
+    assert _rate_limit_policy("POST", "/api/laws/11340-2006/history/prepare") == ("job-prepare", 60, 60)
+    assert _rate_limit_policy("POST", "/api/laws/13709-2018/hydrate") == ("job-prepare", 60, 60)
+    assert _rate_limit_policy("GET", "/api/stats") is None
+
+
 def test_planalto_fetch_rejects_oversized_response(monkeypatch):
     from app.sources import planalto
 
