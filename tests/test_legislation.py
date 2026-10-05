@@ -273,8 +273,9 @@ def test_normas_accepts_urn_only_response_as_confirmed_missing_text(monkeypatch)
 def test_senado_text_adapter_falls_back_to_exact_official_dou_publication(monkeypatch):
     import io
     import json
+    import re
 
-    from app.sources.normas import fetch_senado_document
+    from app.sources.normas import SourceDocumentUnavailable, fetch_senado_document
 
     fixture_dir = Path(__file__).parent / "fixtures/official"
     manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text())
@@ -327,6 +328,41 @@ def test_senado_text_adapter_falls_back_to_exact_official_dou_publication(monkey
     assert "página 1" in document.notice
     assert any(node.node_id == "art:1" for node in nodes)
     assert len(calls) == 4
+
+    # The current DOU feed labels Senate resolutions generically, but retains
+    # the Senate hierarchy and exact page/date/content identity.
+    reader_text = reader.decode()
+    script = re.search(r'(<script[^>]+id="params"[^>]*>)(.*?)(</script>)', reader_text, re.S)
+    assert script
+    edition = json.loads(script.group(2))
+    senate_entry = next(
+        item for item in edition["jsonArray"]
+        if item.get("artType") == "Resolução do Senado Federal"
+        and item.get("numberPage") == "1"
+        and "Nº 31, DE 2018" in item.get("content", "")
+    )
+    senate_entry["artType"] = "Resolução"
+    reader = (reader_text[:script.start(2)] + json.dumps(edition, ensure_ascii=False)
+              + reader_text[script.end(2):]).encode()
+    generic_type_document = fetch_senado_document(
+        manifest["urls"]["senado_detail"], "Resolução do Senado Federal", "31", 2018,
+    )
+    assert generic_type_document.source_url == manifest["urls"]["dou_article"]
+    assert len(calls) == 8
+
+    # A generic resolution from another hierarchy must still fail closed.
+    senate_entry["hierarchyStr"] = "Atos do Poder Executivo"
+    reader = (reader_text[:script.start(2)] + json.dumps(edition, ensure_ascii=False)
+              + reader_text[script.end(2):]).encode()
+    try:
+        fetch_senado_document(
+            manifest["urls"]["senado_detail"], "Resolução do Senado Federal", "31", 2018,
+        )
+    except SourceDocumentUnavailable as exc:
+        assert "não contém uma correspondência única" in str(exc)
+    else:
+        raise AssertionError("O fallback aceitou uma resolução fora da seção do Senado.")
+    assert len(calls) == 11
 
 
 def test_dou_fallback_fails_closed_when_exact_resolution_is_absent(monkeypatch):
