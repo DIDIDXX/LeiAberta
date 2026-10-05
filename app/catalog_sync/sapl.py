@@ -79,7 +79,7 @@ SAPL_INSTANCES = (
         ibge_code="2301000", municipality="Aquiraz", state_code="CE",
         host="https://sapl.aquiraz.ce.leg.br", source_id="municipality:2301000:sapl",
         source_name="Câmara Municipal de Aquiraz — SAPL",
-        authority_url="https://sapl.aquiraz.ce.leg.br/", 
+        authority_url="https://sapl.aquiraz.ce.leg.br/",
     ),
     SaplInstance(
         ibge_code="2302800", municipality="Canindé", state_code="CE",
