@@ -184,6 +184,24 @@ def readiness(session: Session = Depends(get_session)):
     return {"status": "ready", "service": "leiaberta-api"}
 
 
+@app.get("/worker-health", include_in_schema=False)
+def worker_health():
+    redis_url = os.getenv("REDIS_URL")
+    if not redis_url:
+        raise HTTPException(status_code=503, detail="Worker heartbeat is unavailable")
+    try:
+        heartbeat = _rate_limit_redis(redis_url).get("leiaberta:worker:heartbeat")
+    except RedisError as exc:
+        raise HTTPException(status_code=503, detail="Worker heartbeat is unavailable") from exc
+    try:
+        heartbeat_at = datetime.fromisoformat(heartbeat) if heartbeat else None
+    except ValueError:
+        heartbeat_at = None
+    if heartbeat_at is None or (datetime.now(timezone.utc) - heartbeat_at).total_seconds() > 90:
+        raise HTTPException(status_code=503, detail="Worker heartbeat is stale")
+    return {"status": "ok", "service": "leiaberta-worker", "heartbeat_at": heartbeat_at.isoformat()}
+
+
 @app.get("/api/health")
 def api_health(session: Session = Depends(get_session)):
     return health(session)

@@ -100,6 +100,27 @@ def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip()
     assert _rate_limit_policy("GET", "/api/stats") is None
 
 
+def test_worker_health_reports_fresh_and_stale_heartbeat(monkeypatch):
+    from datetime import timedelta
+    from app import main
+
+    class FakeRedis:
+        heartbeat = None
+
+        def get(self, _key):
+            return self.heartbeat
+
+    fake = FakeRedis()
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_rate_limit_redis", lambda _url: fake)
+    fake.heartbeat = datetime.now(timezone.utc).isoformat()
+    response = TestClient(app).get("/worker-health")
+    assert response.status_code == 200
+    fake.heartbeat = (datetime.now(timezone.utc) - timedelta(seconds=91)).isoformat()
+    response = TestClient(app).get("/worker-health")
+    assert response.status_code == 503
+
+
 def test_planalto_fetch_rejects_oversized_response(monkeypatch):
     from app.sources import planalto
 
