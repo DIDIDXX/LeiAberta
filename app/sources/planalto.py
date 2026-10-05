@@ -66,7 +66,7 @@ def fetch_official_html(url: str) -> tuple[bytes, str]:
         raise ValueError("A URL precisa pertencer ao domínio HTTPS oficial do Planalto.")
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "LeiAberta/1.0 (+https://github.com/DIDIDXX/LeiAberta)",
+        headers={"User-Agent": "Mozilla/5.0",
                  "Accept": "text/html,application/xhtml+xml"},
     )
     opener = urllib.request.build_opener(_PlanAltoRedirectHandler())
