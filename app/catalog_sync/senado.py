@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
@@ -16,10 +18,13 @@ from app.models import Jurisdiction, Law, SourceRegistry
 SENATE_LIST_BASE = "https://legis.senado.leg.br/dadosabertos/legislacao/lista"
 MAX_CATALOG_BYTES = 20_000_000
 CATALOG_MAX_AGE = timedelta(hours=24)
+SENADO_DECRETO_START_YEAR = 1800
+YEAR_PARTITIONED_TYPES = frozenset({"DEC-n"})
+logger = logging.getLogger(__name__)
 
-# These exact type codes were confirmed against the official Senate API. This is
-# a broad federal catalog, not a claim that the Senate endpoint covers every
-# executive or subnational act.
+# These exact type codes were confirmed against the official Senate API. The
+# endpoint also exposes administrative documents and subnational categories;
+# this list limits ingestion to enacted federal norms and constituent acts.
 TYPE_LABELS = {
     "LEI": "Lei",
     "LCP": "Lei Complementar",
@@ -27,8 +32,32 @@ TYPE_LABELS = {
     "MPV": "Medida Provisória",
     "DLG": "Decreto Legislativo",
     "RSF": "Resolução do Senado Federal",
+    "DEL": "Decreto-Lei",
+    "LCT": "Lei Constitucional",
+    "LDL": "Lei Delegada",
+    "RCN": "Resolução do Congresso Nacional",
+    "RCD": "Resolução da Câmara dos Deputados",
+    "RRC": "Resolução da Revisão Constitucional",
+    "EMR": "Emenda Constitucional de Revisão",
+    "ACP": "Ato Complementar",
+    "DEC-n": "Decreto",
+    "DEC-sn": "Decreto não Numerado",
+    "DLN": "Decreto Legislativo do Congresso Nacional",
+    "CON-v": "Constituição Federal vigente",
+    "CON-nv": "Constituição Federal anterior",
+    "ADCT": "Ato das Disposições Constitucionais Transitórias",
+    "RAC": "Regimento Interno da Assembleia Constituinte",
+    "RISF": "Regimento Interno do Senado Federal",
+    "AILEI": "Ato Internacional com Força de Lei",
+    "AIEMC": "Ato Internacional com Força de Emenda Constitucional",
 }
-MINIMUM_RECORDS = {"LEI": 1_000, "LCP": 100, "EMC": 100, "MPV": 1_000, "DLG": 5_000, "RSF": 1_000}
+MINIMUM_RECORDS = {
+    "LEI": 1_000, "LCP": 100, "EMC": 100, "MPV": 1_000, "DLG": 5_000, "RSF": 1_000,
+    "DEL": 10_000, "LCT": 15, "LDL": 10, "RCN": 60, "RCD": 1_500,
+    "RRC": 2, "EMR": 4, "ACP": 80, "DEC-n": 0, "DEC-sn": 10_000,
+    "DLN": 150, "CON-v": 1, "CON-nv": 5, "ADCT": 1, "RAC": 2,
+    "RISF": 1, "AILEI": 800, "AIEMC": 4,
+}
 
 
 @dataclass(frozen=True)
@@ -74,10 +103,16 @@ def _source_id(type_code: str) -> str:
     return "federal:senado:leis" if type_code == "LEI" else f"federal:senado:{type_code.casefold()}"
 
 
-def fetch_law_catalog(type_code: str = "LEI", *, timeout: int = 60) -> tuple[bytes, str]:
+def fetch_law_catalog(type_code: str = "LEI", *, year: int | None = None,
+                      timeout: int = 60) -> tuple[bytes, str]:
     if type_code not in TYPE_LABELS:
         raise ValueError(f"Tipo do catálogo Senado não validado: {type_code}")
-    url = f"{SENATE_LIST_BASE}?tipo={type_code}"
+    query = {"tipo": type_code}
+    if year is not None:
+        if not 1800 <= year <= datetime.now(timezone.utc).year:
+            raise ValueError(f"Ano de partição do Senado fora do intervalo suportado: {year}")
+        query["ano"] = str(year)
+    url = f"{SENATE_LIST_BASE}?" + urllib.parse.urlencode(query)
     request = urllib.request.Request(
         url,
         headers={"Accept": "application/xml", "User-Agent": "LeiAberta/0.3 (+fontes oficiais)"},
@@ -91,7 +126,8 @@ def fetch_law_catalog(type_code: str = "LEI", *, timeout: int = 60) -> tuple[byt
 
 def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
                       base_url: str = "https://legis.senado.leg.br/dadosabertos",
-                      minimum_records: int | None = None) -> list[SenadoCatalogLaw]:
+                      minimum_records: int | None = None, expected_year: int | None = None,
+                      allow_empty: bool = False) -> list[SenadoCatalogLaw]:
     if type_code not in TYPE_LABELS:
         raise ValueError(f"Tipo do catálogo Senado não validado: {type_code}")
     minimum_records = MINIMUM_RECORDS[type_code] if minimum_records is None else minimum_records
@@ -114,6 +150,8 @@ def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
         title = (entry.findtext("normaNome") or "").strip()
         if not remote_id.isdigit() or year is None or not 1800 <= year <= 2200 or not title:
             raise ValueError(f"O catálogo Senado contém um registro sem identidade mínima: id={remote_id!r} ano={year_text!r}")
+        if expected_year is not None and year != expected_year:
+            raise ValueError(f"A partição Senado de {expected_year} contém registro de {year} (id={remote_id}).")
         if remote_id in seen:
             raise ValueError(f"Identificador Senado duplicado no catálogo: {remote_id}")
         seen.add(remote_id)
@@ -125,7 +163,7 @@ def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
             title=title[:300], description=(entry.findtext("ementa") or "").strip(),
             source_url=f"{base_url.rstrip('/')}/legislacao/{remote_id}", source_urn=source_urn,
         ))
-    if not results:
+    if not results and not allow_empty:
         raise ValueError("Nenhuma lei do Senado tinha identidade mínima válida.")
     return results
 
@@ -265,9 +303,40 @@ def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *,
             skipped.append(type_code)
             continue
         try:
-            body, url = fetch_law_catalog(type_code)
-            records = parse_law_catalog(body, type_code=type_code,
-                                        base_url="https://legis.senado.leg.br/dadosabertos")
+            partition_years: list[int] = []
+            if type_code in YEAR_PARTITIONED_TYPES:
+                first_year = SENADO_DECRETO_START_YEAR
+                last_year = datetime.now(timezone.utc).year
+                records = []
+                partition_digests = []
+                seen_remote_ids = set()
+                for year in range(first_year, last_year + 1):
+                    body, _partition_url = fetch_law_catalog(type_code, year=year)
+                    year_records = parse_law_catalog(
+                        body, type_code=type_code,
+                        base_url="https://legis.senado.leg.br/dadosabertos",
+                        minimum_records=0, expected_year=year, allow_empty=True,
+                    )
+                    for record in year_records:
+                        if record.remote_id in seen_remote_ids:
+                            raise ValueError(f"Identificador Senado repetido entre partições anuais: {record.remote_id}")
+                        seen_remote_ids.add(record.remote_id)
+                    records.extend(year_records)
+                    partition_years.append(year)
+                    partition_digests.append(f"{year}:{hashlib.sha256(body).hexdigest()}")
+                    if year % 10 == 0 or year == last_year:
+                        logger.info("senado_catalog_year_partition_finished type=%s year=%s records=%s",
+                                    type_code, year, len(year_records))
+                if not records:
+                    raise ValueError(f"O catálogo Senado não retornou registros para tipo={type_code}.")
+                records.sort(key=lambda item: (item.year, item.remote_id))
+                url = f"{SENATE_LIST_BASE}?tipo={type_code}"
+                source_response_sha256 = hashlib.sha256("\n".join(partition_digests).encode()).hexdigest()
+            else:
+                body, url = fetch_law_catalog(type_code)
+                records = parse_law_catalog(body, type_code=type_code,
+                                            base_url="https://legis.senado.leg.br/dadosabertos")
+                source_response_sha256 = hashlib.sha256(body).hexdigest()
             counts = {"added": 0, "attached_to_seed": 0, "refreshed": 0}
             chunk_size = 1_000
             for start in range(0, len(records), chunk_size):
@@ -284,7 +353,25 @@ def sync_senado_law_catalog(type_codes: tuple[str, ...] = tuple(TYPE_LABELS), *,
             result.update(counts)
             result["listed"] = len(records)
             result["catalog_ids_sha256"] = hashlib.sha256("\n".join(item.remote_id for item in records).encode()).hexdigest()
-            result["source_response_sha256"] = hashlib.sha256(body).hexdigest()
+            result["source_response_sha256"] = source_response_sha256
+            if partition_years:
+                result["partition_year_start"] = partition_years[0]
+                result["partition_year_end"] = partition_years[-1]
+                result["partitions_completed"] = len(partition_years)
+                with SessionLocal() as session:
+                    registry = session.get(SourceRegistry, _source_id(type_code))
+                    if registry:
+                        scope = dict(registry.scope or {})
+                        scope.update({
+                            "partition_strategy": "signature_year",
+                            "partition_year_start": partition_years[0],
+                            "partition_year_end": partition_years[-1],
+                            "partitions_completed": len(partition_years),
+                            "catalog_ids_sha256": result["catalog_ids_sha256"],
+                            "source_responses_sha256": source_response_sha256,
+                        })
+                        registry.scope = scope
+                        session.commit()
             results.append(result)
         except Exception as exc:
             error = str(exc)[:300]
