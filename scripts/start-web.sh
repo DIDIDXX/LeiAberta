@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+if ! python scripts/recover_stale_law_lock.py; then
+  echo "Could not reclaim the specifically identified stale laws-table lock; continuing with migrations" >&2
+fi
+
 attempt=0
 until alembic upgrade head; do
   attempt=$((attempt + 1))
