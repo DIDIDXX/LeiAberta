@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 from datetime import date
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
@@ -41,6 +42,14 @@ def test_interactive_queue_selection_skips_bulk_and_delayed_retry_jobs(db_sessio
     assert jobs.queued_interactive_job_ids(limit=16) == [
         jobs_by_name["manual-hydrate"], jobs_by_name["manual-history"],
     ]
+    assert jobs.queued_interactive_job_ids(limit=24) == [
+        jobs_by_name["manual-hydrate"], jobs_by_name["manual-history"],
+    ]
+
+
+def test_interactive_queue_rejects_batches_above_worker_capacity():
+    with pytest.raises(ValueError, match="1 a 24 jobs"):
+        jobs.queued_interactive_job_ids(limit=25)
 
 
 def test_reparse_creates_immutable_representation_and_keeps_old_nodes(db_session, add_law, monkeypatch):

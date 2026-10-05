@@ -695,7 +695,7 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 - Normalizar campos, deduplicar com evidência e preservar situação literal.
 - Planalto enriquece texto; Câmara originais; Senado relações/publicações.
 - Saída: catálogo federal fora das 14 sementes, manifestos de partições e normas recentes/antigas/revogadas encontráveis.
-- Implementação em curso: o catálogo do Senado usa 24 classes normativas validadas, partições anuais para DEC-n e deduplicação somente quando linhas repetidas têm metadados idênticos. A Câmara continua fora da enumeração integrada; as fontes locais não provam totalidade federal.
+- Implementação em produção: o catálogo do Senado usa 24 classes normativas validadas, partições anuais para DEC-n e deduplicação somente quando linhas repetidas têm metadados idênticos. A reconciliação continua necessária; na coleta de 05/10, AIEMC falhava porque seu rótulo oficial excede 48 caracteres e DEC-n recebeu XML truncado. A migração para `law_type` de 128 caracteres e o retry validado de respostas incompletas estão preparados para publicação. A Câmara continua fora da enumeração integrada; as fontes locais não provam totalidade federal.
 
 **T12 — LexML complementar.** Depende T10; não bloqueia T11/T13.
 
@@ -715,7 +715,7 @@ Executar na ordem abaixo. Cada item tem commit revisável, evidência em `docs/r
 - Descobrir portais reais de Campinas/Piracicaba; integrar suas famílias adequadas.
 - Incluir instalações SAPL oficiais variadas, não assumir campos/permissões iguais.
 - Saída: enumeração completa das fontes piloto e resolver municipal funcionando.
-- Execução 05/10/2026: adapter reutilizável validado em Manaus, Anápolis, Campina Grande, Unaí, São João da Boa Vista e Natal. As seis APIs informaram 62.031 registros agregados na consulta; páginas, tipos, identificadores, anexos PDF e endereços oficiais foram conferidos. O campo SAPL de esfera pode declarar Município/Estado/Federal ou ficar vazio; cada lei mantém essa evidência e a jurisdição é atribuída segundo o campo, inferindo a localidade do portal apenas quando ele está vazio. A sincronização total dos cinco novos municípios ainda depende do worker Railway após o deploy desta revisão.
+- Execução 05/10/2026: adapter reutilizável validado em Manaus, Anápolis, Campina Grande, Unaí, São João da Boa Vista e Natal. As seis APIs informaram 62.031 registros agregados na consulta; páginas, tipos, identificadores, anexos PDF e endereços oficiais foram conferidos. O campo SAPL de esfera pode declarar Município/Estado/Federal ou ficar vazio; cada lei mantém essa evidência e a jurisdição é atribuída segundo o campo, inferindo a localidade do portal apenas quando ele está vazio. Após o deploy, Manaus (9.846), Anápolis (8.173) e Natal (9.353) já foram enumeradas; Campina Grande retomou a sincronização em páginas persistidas. Unaí e São João da Boa Vista precisam completar nova tentativa sob o parser de esfera publicado. Acompanhar `/api/sources` até todas as seis registrarem `enumerated`.
 
 **T15 — Expansão dos 26 estados e localidades.** Depende T11/T13/T14.
 

@@ -5,11 +5,18 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app.jobs import QUEUE_GROUP, QUEUE_NAME, dispatch_outbox, process_hydration_job, queued_interactive_job_ids
+from app.jobs import (
+    MAX_INTERACTIVE_JOB_BATCH,
+    QUEUE_GROUP,
+    QUEUE_NAME,
+    dispatch_outbox,
+    process_hydration_job,
+    queued_interactive_job_ids,
+)
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
-MAX_HYDRATION_CONCURRENCY = 24
+MAX_HYDRATION_CONCURRENCY = MAX_INTERACTIVE_JOB_BATCH
 
 
 def hydration_concurrency() -> int:

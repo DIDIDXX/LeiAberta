@@ -1,4 +1,6 @@
 from pathlib import Path
+import http.client
+import urllib.request
 
 from app.catalog_sync.senado import parse_law_catalog, sync_law_catalog
 from app.models import Law, SourceRegistry
@@ -28,6 +30,52 @@ def test_senado_list_parser_preserves_official_identity_and_signature_date():
     assert record.source_url.endswith("/legislacao/36981001")
     assert record.type_code == "LEI"
     assert record.law_type == "Lei"
+
+
+def test_senado_catalog_retries_incomplete_xml_response(monkeypatch):
+    from app.catalog_sync.senado import fetch_law_catalog
+
+    attempts = []
+
+    class Response:
+        status = 200
+
+        def __init__(self, incomplete=False):
+            self.incomplete = incomplete
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            if self.incomplete:
+                raise http.client.IncompleteRead(b"<documentos>")
+            return b"<documentos />"
+
+        def geturl(self):
+            return "https://legis.senado.leg.br/dadosabertos/legislacao/lista?tipo=LCP"
+
+    def open_once(_request, timeout):
+        attempts.append(timeout)
+        return Response(incomplete=len(attempts) == 1)
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_once)
+    monkeypatch.setattr("app.catalog_sync.senado.time.sleep", lambda _delay: None)
+    body, url = fetch_law_catalog("LCP", timeout=7)
+    assert body == b"<documentos />"
+    assert url.endswith("tipo=LCP")
+    assert attempts == [7, 7]
+
+
+def test_senado_long_normative_class_is_stored_with_its_official_label(db_session):
+    record = parse_law_catalog(_senado_list_record(), type_code="AIEMC", minimum_records=1)[0]
+    assert len(record.law_type) > 48
+    result = sync_law_catalog(db_session, [record], type_code="AIEMC")
+    imported = db_session.get(Law, f"senado-{record.remote_id}")
+    assert result["added"] == 1
+    assert imported.law_type == "Ato Internacional com Força de Emenda Constitucional"
 
 
 def test_senado_catalog_deduplicates_exact_duplicate_rows_but_rejects_conflicts():

@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import http.client
 import logging
 import re
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from urllib.error import HTTPError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -117,11 +120,30 @@ def fetch_law_catalog(type_code: str = "LEI", *, year: int | None = None,
         url,
         headers={"Accept": "application/xml", "User-Agent": "LeiAberta/0.3 (+fontes oficiais)"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        body = response.read(MAX_CATALOG_BYTES + 1)
-        if response.status != 200 or len(body) > MAX_CATALOG_BYTES:
-            raise ValueError("A lista federal do Senado excedeu o limite de tamanho ou falhou.")
-        return body, response.geturl()
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                body = response.read(MAX_CATALOG_BYTES + 1)
+                final_url = response.geturl()
+                status = response.status
+            if status != 200 or len(body) > MAX_CATALOG_BYTES:
+                raise ValueError("A lista federal do Senado excedeu o limite de tamanho ou falhou.")
+            try:
+                ET.fromstring(body)
+            except ET.ParseError as exc:
+                if attempt == 2:
+                    raise ValueError("O Senado retornou XML incompleto ou inválido após três tentativas.") from exc
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            return body, final_url
+        except HTTPError as exc:
+            if exc.code not in {408, 425, 429, 500, 502, 503, 504} or attempt == 2:
+                raise ValueError(f"A lista federal do Senado respondeu HTTP {exc.code}.") from exc
+        except (http.client.HTTPException, TimeoutError, ConnectionError, OSError) as exc:
+            if attempt == 2:
+                raise ValueError(f"Resposta incompleta da lista federal do Senado após três tentativas: {str(exc)[:240]}") from exc
+        time.sleep(0.5 * (2 ** attempt))
+    raise ValueError("A lista federal do Senado não respondeu após três tentativas.")
 
 
 def parse_law_catalog(body: bytes, *, type_code: str = "LEI",
