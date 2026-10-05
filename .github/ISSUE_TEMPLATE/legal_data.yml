@@ -1,0 +1,41 @@
+name: Problema com dado jurídico
+description: Reporte erro em texto, identificação, vigência, histórico ou provenance.
+body:
+  - type: input
+    id: law
+    attributes:
+      label: Norma, jurisdição e identificador
+    validations:
+      required: true
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Tipo de problema
+      options:
+        - Texto integral ou artigo
+        - Identidade/número/ano
+        - Vigência/status
+        - Histórico/diff
+        - Tramitação/autoria/votação
+        - Fonte indisponível
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: URL oficial e identificador da fonte
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidência observada e resultado esperado
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Dados sensíveis
+      options:
+        - label: Não incluí credenciais, dados pessoais ou dumps de produção.
+          required: true

@@ -1,0 +1,30 @@
+name: Nova fonte ou adapter
+description: Proponha a integração de um acervo legislativo oficial.
+body:
+  - type: input
+    id: institution
+    attributes:
+      label: Órgão, jurisdição e família do sistema
+    validations:
+      required: true
+  - type: input
+    id: official_portal
+    attributes:
+      label: Portal oficial/API/documentação
+    validations:
+      required: true
+  - type: input
+    id: catalog_denominator
+    attributes:
+      label: Endpoint/consulta que enumera atos e contagem total
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Amostras de identidade, texto, histórico e licença/termos
+      description: Forneça URLs e identificadores públicos; não anexe dumps pessoais ou segredos.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Paginação, limites, formatos, redirects e atualização
