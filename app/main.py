@@ -53,8 +53,8 @@ async def baseline_security_headers(request: Request, call_next):
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: https:; connect-src 'self'; font-src 'self' data:; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "img-src 'self' data: https:; connect-src 'self'; font-src 'self' data: https://fonts.gstatic.com; "
         "object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
     )
     if request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip() == "https":

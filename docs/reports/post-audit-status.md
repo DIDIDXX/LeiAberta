@@ -20,7 +20,7 @@ Data: 2026-10-05. Repositório: `DIDIDXX/LeiAberta`. URL pública: https://web-p
 
 ## Hardening complementar em andamento
 
-Uma branch/PR subsequente contém CSP same-origin, `/ready` (DB + Alembic heads), limite de 25 MB para fetch do Planalto e testes. No momento deste registro ainda precisa CI, merge, deploy e smoke; não contar como funcionalidade publicada até completar esse ciclo.
+O hardening PR #63 (`f31a06e`) já está implantado: CSP, `/ready` (DB + Alembic heads) e limite Planalto 25 MB. Browser encontrou o Google Fonts bloqueado pela CSP; PR #64 ajusta a política para permitir somente `fonts.googleapis.com` e `fonts.gstatic.com` em estilos/fontes. A validação final desse ajuste ainda precisa CI, deploy e novo smoke sem erros.
 
 ## Pendências reais e limites
 
