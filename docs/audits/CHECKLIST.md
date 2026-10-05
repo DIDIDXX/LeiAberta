@@ -104,7 +104,7 @@ Estados: `[ ]` não iniciado, `[~]` em andamento, `[x]` concluído, `[!]` bloque
 - [~] Testes locais verdes, sem migration; backup verificado em execução anterior e rollback documentado.
 - [~] PRs #47–#62 integrados; PRs #63 (readiness/CSP/cap Planalto) e #64 (fontes CSP necessárias) integrados e implantados.
 - [x] PR #62 integrado como `81982a28d36836563acf83b7115af355b31ea830`; deploy web/worker/backup SUCCESS confirmado. Hardening final em `b2054b00aa934a1eea94f5cd5428dbac2e97fcb9` implantado.
-- [~] Serviços Railway online; `/ready` 200 validado em produção; worker heartbeat de aplicação continua ausente. Worker heartbeat app-level continua ausente.
+- [~] Serviços Railway online; `/ready` 200 validado em produção; heartbeat Redis do worker e `/worker-health` 200/503 implementados/testados localmente; CI/deploy pendentes.
 - [x] Baseline smoke cobre health, LGDP, Lei 13709, art. 7, Maria da Penha/history e proceedings; art. 121 passou em E2E local.
 - [x] Playwright de produção passou em 390px/1440px, sem overflow nem erros JS/rede; LGDP abriu Art. 7.
 
