@@ -39,14 +39,14 @@ Read-only Railway measurements for project `ac5c9188-a792-4d4a-99d6-512740aec73e
 | Postgres, web, Redis regions | `asia-southeast1-eqsg3a` | Railway environment inventory |
 | Worker region | `us-east4-eqdc4a` | Cross-region; no migration/cutover performed by this agent |
 
-At initial inspection, production had a pre-existing staged delete for service `pg-diagnostic-8187f5d5-103d-45b9-992c-d60926ae3276`. The coordinator subsequently discarded that staged delete without touching the live service, then staged a volume-only increase for `postgres-volume` from 5,000 MB to 6,500 MB (`destructive=false`). The resize remains staged and is not live because Railway requires 2FA to commit it. This agent did not stage, accept, or otherwise apply either Railway change.
+At initial inspection, production had a pre-existing staged delete for service `pg-diagnostic-8187f5d5-103d-45b9-992c-d60926ae3276`. The coordinator discarded that staged delete without touching the live service, then staged a volume-only increase for `postgres-volume` from 5,000 MB to 6,500 MB (`destructive=false`). A later `accept-deploy` attempt cleared the patch without applying it; there are now no staged changes, and live capacity remains 5,000 MB. Applying a resize requires the production owner's Railway dashboard/2FA. This agent did not stage, accept, or otherwise apply either Railway change.
 
 ## Decisions
 
 - Do not run `VACUUM FULL`, `REINDEX`, `TRUNCATE`, `DELETE`, migrations, or volume resizing from this worktree/agent. The Alembic revision and batch script are committed as code only; neither was run against production.
 - Do not infer the largest table from the model alone. `source_snapshots.raw_body` is a plausible high-volume source because it stores complete fetched responses, but only live relation/TOAST sizing can establish that.
 - The outage leaves only ~3.49 MB nominal free. With no measured safe deletion set, a minimum coordinated volume increase is the only immediately supportable way to recover filesystem headroom without dropping legal evidence. The production owner must determine the smallest allowed increase, its price, and apply it.
-- The coordinator's staged 6,500 MB capacity is consistent with the headroom recommendation: 1.5 GB nominal additional capacity; at the observed usage, roughly 1.50 GB or 23.1% free. It is not active until the coordinator completes Railway 2FA and commits the staged patch.
+- The attempted 6,500 MB capacity is consistent with the headroom recommendation: 1.5 GB nominal additional capacity; at the observed usage, roughly 1.50 GB or 23.1% free. That resize was not applied, its patch was cleared by the accept-deploy attempt, and no changes are currently staged. The production owner must make any new resize through the Railway dashboard with 2FA; live capacity remains 5,000 MB.
 - The new snapshot storage foundation is optional: with all `SOURCE_SNAPSHOT_S3_*` settings absent it stays database-only. Do not create a bucket, set secrets, apply migrations, or invoke `--apply` until the coordinator authorizes a post-recovery rollout.
 - After database service recovery, use the protected read-only inventory below before selecting cleanup or claiming expected capacity savings.
 - Keep the existing known-good backup until a newer backup has both verified upload and isolated restore. `SUCCESS` on the scheduled backup deployment is insufficient.
@@ -125,7 +125,7 @@ After access returns, separately measure `source_snapshots` row count and `octet
 ## Production impact
 
 - This work had no production write, deploy, migration, bucket, or secret impact.
-- Production remains at risk until the staged resize is applied after 2FA, Postgres recovers, and readiness/core route checks pass. The resize is only staged; live capacity remains 5,000 MB and this agent did not mutate the live service.
+- Production remains at risk: the 6,500 MB resize attempt did not apply, its patch was cleared, no changes are staged, and live capacity remains 5,000 MB. The production owner must apply any new resize through the Railway dashboard with 2FA, then verify Postgres recovery and readiness/core routes. This agent did not mutate the live service.
 - Existing last known-good backup metadata is evidence of a prior successful restore test only; it is not proof of the current bucket object, current recoverability, or a post-incident backup.
 
 ## Migration impact
@@ -154,7 +154,7 @@ After access returns, separately measure `source_snapshots` row count and `octet
 ## Rollback
 
 - Runtime rollback: disable/remove the new `SOURCE_SNAPSHOT_S3_*` configuration or revert application code; the DB `raw_body` fallback stays available. The content objects are left untouched.
-- The coordinator can leave the resize staged if 2FA is unavailable; no live capacity change has occurred. If committed, treat the increase as durable/non-shrinkable under Railway volume behavior.
+- No resize patch is currently staged: the prior accept-deploy attempt cleared it without effect. Any later resize must be staged/applied by the production owner through the Railway dashboard with 2FA. No live capacity change has occurred; if an increase is eventually committed, treat it as durable/non-shrinkable under Railway volume behavior.
 - For a future object migration, roll back the application read path to `raw_body` while retaining both the additive pointer fields and verified objects. Never delete source payloads in the same rollout that switches readers.
 - A Railway volume increase is generally not shrinkable; treat it as a durable cost decision and contain future growth through measured retention/storage redesign.
 
