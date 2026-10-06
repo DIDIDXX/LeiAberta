@@ -25,7 +25,12 @@ test("real existing article: home to before/after comparison and device evidence
   await expect(page.getByRole("link", { name: /Versão da comparação no Normas.leg.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
   await page.getByRole("link", { name: /Ver evidências deste dispositivo/ }).click();
   await expect(page).toHaveURL(/\/lei\/10406-2002\/blame\?node=/);
-  await expect(page.getByText(/O ato abaixo tem comparação de texto registrada/)).toBeVisible();
+  await expect(page.getByText(/A comparação está registrada na versão citada do Normas\.leg\.br/)).toBeVisible();
+  await expect(page.getByText(/valor jurídico não oficial/)).toBeVisible();
+  await expect(page.getByText(/em fonte oficial/)).toHaveCount(0);
+  await expect(page.getByText(/Última comparação registrada/)).toBeVisible();
+  await expect(page.getByText(/Última alteração verificada/)).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Abrir versão da comparação no Normas\.leg\.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
   await expect(page.getByRole("link", { name: /Ver antes e depois/ })).toBeVisible();
 });
 
@@ -71,9 +76,13 @@ test("federal article, history, recorded before/after, official source and prove
   await page.locator("#article-389").getByRole("link", { name: /Por que este artigo está assim/ }).click();
   await expect(page).toHaveURL(/\/lei\/10406-2002\/blame\?node=art%3A389/);
   await expect(page.getByRole("heading", { name: "Quem responde pelo texto?" })).toBeVisible();
-  await expect(page.getByText(/O ato abaixo tem comparação de texto registrada/)).toBeVisible();
+  await expect(page.getByText(/A comparação está registrada na versão citada do Normas\.leg\.br/)).toBeVisible();
+  await expect(page.getByText(/valor jurídico não oficial/)).toBeVisible();
+  await expect(page.getByText(/em fonte oficial/)).toHaveCount(0);
+  await expect(page.getByText(/Última comparação registrada/)).toBeVisible();
+  await expect(page.getByText(/Última alteração verificada/)).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Ver antes e depois/ })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Abrir norma modificadora oficial/ })).toHaveAttribute("href", /normas\.leg\.br/);
+  await expect(page.getByRole("link", { name: /Abrir versão da comparação no Normas\.leg\.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
 
   await page.goto("/lei/10406-2002/historico");
   await expect(page.getByRole("status")).toContainText(/referência\(s\) oficial\(is\)|alterações ligadas/i);

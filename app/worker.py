@@ -304,9 +304,23 @@ def run() -> None:
             if sapl_sync_future is not None and sapl_sync_future.done():
                 try:
                     result = sapl_sync_future.result()
-                    logger.info("sapl_catalog_sync_finished records=%s sources=%s errors=%s skipped_fresh=%s",
+                    logger.info("sapl_catalog_sync_finished records=%s sources=%s errors=%s skipped_fresh=%s incremental_probes=%s full_pages=%s full_scans_incomplete=%s cycle_budget_seconds=%s",
                                 result.get("records", 0), len(result.get("synced", [])),
-                                len(result.get("errors", [])), result.get("skipped_fresh", 0))
+                                len(result.get("errors", [])), result.get("skipped_fresh", 0),
+                                result.get("incremental_probes", 0), result.get("full_pages_processed", 0),
+                                result.get("full_scans_incomplete", 0), result.get("cycle_budget_seconds", 0))
+                    for source_result in result.get("synced", []):
+                        if source_result.get("complete") is False:
+                            logger.info("sapl_catalog_full_scan_progress source_id=%s records=%s expected=%s progress_pct=%.1f pages=%s pages_processed=%s",
+                                        source_result.get("source_id", "unknown"),
+                                        source_result.get("records", 0), source_result.get("expected", 0),
+                                        100 * float(source_result.get("progress", 0)),
+                                        source_result.get("pages", 0), source_result.get("pages_processed", 0))
+                        elif source_result.get("incremental"):
+                            logger.info("sapl_catalog_incremental_probe source_id=%s new_records=%s added=%s backlog=%s",
+                                        source_result.get("source_id", "unknown"),
+                                        source_result.get("new_records", 0), source_result.get("added", 0),
+                                        source_result.get("incremental_backlog", False))
                     if result.get("errors"):
                         next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 except Exception:

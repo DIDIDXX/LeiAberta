@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import tempfile
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,12 @@ def _libpq_url(database_url: str) -> str:
 
 
 def _run_postgres(args: list[str], *, timeout: int, database_url: str | None = None) -> subprocess.CompletedProcess:
+    def redact(detail: str) -> str:
+        if database_url:
+            detail = detail.replace(database_url, "[DATABASE_URL]")
+            detail = detail.replace(_libpq_url(database_url), "[DATABASE_URL]")
+        return detail
+
     try:
         result = subprocess.run(args, check=False, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
@@ -41,14 +48,12 @@ def _run_postgres(args: list[str], *, timeout: int, database_url: str | None = N
         if isinstance(detail, bytes):
             detail = detail.decode("utf-8", errors="replace")
         detail = str(detail).strip()
-        if database_url:
-            detail = detail.replace(database_url, "[DATABASE_URL]")
+        detail = redact(detail)
         suffix = f": {detail[:1000]}" if detail else ""
         raise RuntimeError(f"{Path(args[0]).name} timed out after {timeout} seconds{suffix}") from None
     if result.returncode:
         detail = result.stderr.strip()
-        if database_url:
-            detail = detail.replace(database_url, "[DATABASE_URL]")
+        detail = redact(detail)
         raise RuntimeError(f"{Path(args[0]).name} failed with exit code {result.returncode}: {detail[:1000]}")
     return result
 
@@ -97,19 +102,77 @@ def _db_metadata(database_url: str) -> dict:
         ") AS grouped_outbox"
         "), '{}'::json), "
         "'alembic_versions', COALESCE((SELECT json_agg(version_num ORDER BY version_num) "
-        "FROM public.alembic_version), '[]'::json))::text"
+        "FROM public.alembic_version), '[]'::json), "
+        "'schema_inventory', json_build_object("
+        "'columns', COALESCE((SELECT json_agg(json_build_object("
+        "'table', table_name, 'column', column_name, 'ordinal', ordinal_position, "
+        "'data_type', data_type, 'udt_name', udt_name, 'nullable', is_nullable, "
+        "'default', column_default, 'identity', is_identity, "
+        "'generation', generation_expression) ORDER BY table_name, ordinal_position) "
+        "FROM information_schema.columns WHERE table_schema = 'public'), '[]'::json), "
+        "'constraints', COALESCE((SELECT json_agg(json_build_object("
+        "'table', rel.relname, 'name', con.conname, 'type', con.contype, "
+        "'validated', con.convalidated, 'definition', pg_get_constraintdef(con.oid, true)) "
+        "ORDER BY rel.relname, con.conname) FROM pg_constraint con "
+        "JOIN pg_class rel ON rel.oid = con.conrelid "
+        "JOIN pg_namespace ns ON ns.oid = rel.relnamespace "
+        "WHERE ns.nspname = 'public'), '[]'::json), "
+        "'indexes', COALESCE((SELECT json_agg(json_build_object("
+        "'table', tablename, 'name', indexname, 'definition', indexdef) "
+        "ORDER BY tablename, indexname) FROM pg_indexes WHERE schemaname = 'public'), '[]'::json), "
+        "'triggers', COALESCE((SELECT json_agg(json_build_object("
+        "'table', rel.relname, 'name', trg.tgname, 'definition', pg_get_triggerdef(trg.oid, true)) "
+        "ORDER BY rel.relname, trg.tgname) FROM pg_trigger trg "
+        "JOIN pg_class rel ON rel.oid = trg.tgrelid "
+        "JOIN pg_namespace ns ON ns.oid = rel.relnamespace "
+        "WHERE ns.nspname = 'public' AND NOT trg.tgisinternal), '[]'::json), "
+        "'sequences', COALESCE((SELECT json_agg(json_build_object("
+        "'name', sequencename, 'data_type', data_type, 'start', start_value, "
+        "'minimum', min_value, 'maximum', max_value, 'increment', increment_by, "
+        "'cycle', cycle, 'cache', cache_size) ORDER BY sequencename) "
+        "FROM pg_sequences WHERE schemaname = 'public'), '[]'::json), "
+        "'views', COALESCE((SELECT json_agg(json_build_object('name', viewname, 'definition', definition) "
+        "ORDER BY viewname) FROM pg_views WHERE schemaname = 'public'), '[]'::json), "
+        "'types', COALESCE((SELECT json_agg(json_build_object("
+        "'name', typ.typname, 'kind', typ.typtype, 'enum_labels', (SELECT json_agg(val.enumlabel "
+        "ORDER BY val.enumsortorder) FROM pg_enum val WHERE val.enumtypid = typ.oid)) "
+        "ORDER BY typ.typname) FROM pg_type typ JOIN pg_namespace ns ON ns.oid = typ.typnamespace "
+        "WHERE ns.nspname = 'public' AND typ.typtype = 'e'), '[]'::json), "
+        "'extensions', COALESCE((SELECT json_agg(json_build_object('name', extname, 'version', extversion) "
+        "ORDER BY extname) FROM pg_extension), '[]'::json))"
+        ")::text"
     )
     result = _run_postgres(
         ["psql", "--no-psqlrc", "--tuples-only", "--no-align", "--dbname", _libpq_url(database_url), "--command", query],
         timeout=180, database_url=database_url,
     )
-    return json.loads(result.stdout.strip())
+    metadata = json.loads(result.stdout.strip())
+    metadata["schema_signature"] = _schema_signature(metadata["schema_inventory"])
+    return metadata
+
+
+def _schema_signature(schema_inventory: dict) -> str:
+    """Return a stable digest over schema structure, excluding data and ownership."""
+    canonical = json.dumps(schema_inventory, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def _available_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+def _validate_restore_metadata(restored: dict, expected: dict) -> None:
+    if restored["row_counts"] != expected["row_counts"]:
+        raise RuntimeError(
+            "Restore validation failed: row counts differ "
+            f"(source={expected['row_counts']}, restored={restored['row_counts']})"
+        )
+    if restored["alembic_versions"] != expected["alembic_versions"]:
+        raise RuntimeError("Restore validation failed: database migration versions differ")
+    if restored.get("schema_signature") != expected.get("schema_signature"):
+        raise RuntimeError("Restore validation failed: public schema signature differs")
 
 
 def _verify_restore(dump_path: Path, expected: dict) -> dict:
@@ -139,19 +202,16 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
         )
         server_started = True
         local_url = f"postgresql://postgres@127.0.0.1:{port}/postgres"
+        restore_started = time.monotonic()
         _run_postgres(
             ["pg_restore", "--jobs=2", "--exit-on-error", "--no-owner", "--no-privileges",
              "--dbname", local_url, str(dump_path)],
             timeout=3600,
         )
+        restore_duration_seconds = round(time.monotonic() - restore_started, 3)
         restored = _db_metadata(local_url)
-        if restored["row_counts"] != expected["row_counts"]:
-            raise RuntimeError(
-                "Restore validation failed: row counts differ "
-                f"(source={expected['row_counts']}, restored={restored['row_counts']})"
-            )
-        if restored["alembic_versions"] != expected["alembic_versions"]:
-            raise RuntimeError("Restore validation failed: database migration versions differ")
+        _validate_restore_metadata(restored, expected)
+        restored["restore_duration_seconds"] = restore_duration_seconds
         return restored
     except Exception as exc:
         detail = server_log.read_text(encoding="utf-8", errors="replace")[-4000:] if server_log.exists() else ""
@@ -159,10 +219,20 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
             raise RuntimeError(f"{exc}; local PostgreSQL startup log: {detail}") from exc
         raise
     finally:
+        cleanup_safe = True
         if server_started or (data_dir / "postmaster.pid").exists():
-            subprocess.run([pg_ctl, "--pgdata", str(data_dir), "--mode=fast", "--wait", "stop"],
-                           check=False, capture_output=True, text=True, timeout=30)
-        shutil.rmtree(temp_root, ignore_errors=True)
+            try:
+                stopped = subprocess.run(
+                    [pg_ctl, "--pgdata", str(data_dir), "--mode=fast", "--wait", "stop"],
+                    check=False, capture_output=True, text=True, timeout=60,
+                )
+                cleanup_safe = stopped.returncode == 0 and not (data_dir / "postmaster.pid").exists()
+            except subprocess.TimeoutExpired:
+                cleanup_safe = False
+        if cleanup_safe:
+            shutil.rmtree(temp_root, ignore_errors=True)
+        else:
+            logger.error("isolated_restore_cleanup_incomplete temp_path=%s", temp_root)
 
 
 def _s3_client():
@@ -191,6 +261,51 @@ def _apply_retention(client, bucket: str, prefix: str, retention_days: int, now:
     return removed
 
 
+def _verify_uploaded_dump(client, bucket: str, key: str, expected_size: int, expected_sha256: str) -> dict:
+    """Read the uploaded object sequentially and verify its actual bytes, not only ETag/metadata."""
+    head = client.head_object(Bucket=bucket, Key=key)
+    actual_size = int(head.get("ContentLength", -1))
+    if actual_size != expected_size:
+        raise RuntimeError(f"Uploaded dump size mismatch: expected {expected_size}, received {actual_size}")
+    metadata_sha = (head.get("Metadata") or {}).get("sha256")
+    if metadata_sha and metadata_sha != expected_sha256:
+        raise RuntimeError("Uploaded dump checksum metadata mismatch")
+    response = client.get_object(Bucket=bucket, Key=key)
+    body = response["Body"]
+    digest = hashlib.sha256()
+    read_size = 0
+    try:
+        while chunk := body.read(1024 * 1024):
+            digest.update(chunk)
+            read_size += len(chunk)
+    finally:
+        close = getattr(body, "close", None)
+        if close:
+            close()
+    actual_sha = digest.hexdigest()
+    if read_size != expected_size or actual_sha != expected_sha256:
+        raise RuntimeError(
+            f"Uploaded dump byte verification failed: expected {expected_size}/{expected_sha256}, "
+            f"received {read_size}/{actual_sha}"
+        )
+    return {"size_bytes": read_size, "sha256": actual_sha}
+
+
+def _verify_uploaded_manifest(client, bucket: str, key: str, expected_bytes: bytes) -> str:
+    response = client.get_object(Bucket=bucket, Key=key)
+    body = response["Body"]
+    try:
+        actual_bytes = body.read()
+    finally:
+        close = getattr(body, "close", None)
+        if close:
+            close()
+    expected_sha = hashlib.sha256(expected_bytes).hexdigest()
+    if actual_bytes != expected_bytes:
+        raise RuntimeError("Uploaded backup manifest read-back mismatch")
+    return expected_sha
+
+
 def run_backup() -> dict:
     database_url = _required_env("DATABASE_URL")
     bucket = _required_env("BACKUP_S3_BUCKET")
@@ -206,29 +321,47 @@ def run_backup() -> dict:
     expected = _db_metadata(database_url)
     with tempfile.TemporaryDirectory(prefix="leiaberta-pg-backup-") as temp_dir:
         dump_path = Path(temp_dir) / "leiaberta.dump"
-        subprocess.run(
+        _run_postgres(
             ["pg_dump", "--format=custom", "--compress=6", "--no-owner", "--no-privileges",
              "--dbname", _libpq_url(database_url), "--file", str(dump_path)],
-            check=True, capture_output=True, text=True, timeout=7200,
+            timeout=7200, database_url=database_url,
         )
         checksum = _sha256_file(dump_path)
         restored = _verify_restore(dump_path, expected) if verify_restore else None
         client = _s3_client()
         client.upload_file(str(dump_path), bucket, dump_key,
-                           ExtraArgs={"ContentType": "application/vnd.postgresql.custom"})
+                           ExtraArgs={"ContentType": "application/vnd.postgresql.custom",
+                                      "Metadata": {"sha256": checksum}})
+        uploaded = _verify_uploaded_dump(client, bucket, dump_key, dump_path.stat().st_size, checksum)
         manifest = {
             "created_at": now.isoformat(), "database": "leiaberta-production",
             "dump_key": dump_key, "size_bytes": dump_path.stat().st_size,
             "sha256": checksum, "source": expected,
             "restore_verified": restored is not None,
             "restore_validation": restored,
+            "uploaded_object_verified": True,
+            "uploaded_object_sha256": uploaded["sha256"],
         }
+        manifest_bytes = json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode()
         client.put_object(Bucket=bucket, Key=manifest_key,
-                          Body=json.dumps(manifest, ensure_ascii=False, sort_keys=True).encode(),
+                          Body=manifest_bytes,
                           ContentType="application/json")
-    removed = _apply_retention(client, bucket, prefix, retention_days, now)
-    logger.info("postgres_backup_finished key=%s bytes=%s sha256=%s restore_verified=%s expired_objects_removed=%s",
-                dump_key, manifest["size_bytes"], checksum, manifest["restore_verified"], removed)
+        manifest_sha256 = _verify_uploaded_manifest(client, bucket, manifest_key, manifest_bytes)
+    # Retention is destructive. Never prune known-good history based on a run that
+    # has not passed an isolated restore drill.
+    if restored is not None:
+        removed = _apply_retention(client, bucket, prefix, retention_days, now)
+        retention_skipped = False
+    else:
+        removed = 0
+        retention_skipped = True
+    manifest["manifest_sha256"] = manifest_sha256
+    logger.info(
+        "postgres_backup_finished key=%s bytes=%s sha256=%s manifest_sha256=%s "
+        "restore_verified=%s uploaded_object_verified=true expired_objects_removed=%s retention_skipped=%s",
+        dump_key, manifest["size_bytes"], checksum, manifest_sha256,
+        manifest["restore_verified"], removed, retention_skipped,
+    )
     return manifest
 
 
