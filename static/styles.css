@@ -209,6 +209,12 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .diff-layout { max-width: 990px; padding-top: 28px; }
 .diff-title { margin: 0 0 5px; font-family: var(--serif); font-size: 30px; font-weight: 400; }
 .diff-subtitle { margin: 0; color: #78837b; font-size: 12px; }
+.copy-link-control { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 11px 0; }
+.copy-link-button { min-height: 36px; padding: 8px 12px; border: 1px solid #c9d7cb; border-radius: 5px; color: #315d43; background: #f6f8f4; cursor: pointer; font: 600 11px var(--sans); }
+.copy-link-button:hover { background: #edf3ed; }
+.copy-link-button:focus-visible { outline: 3px solid #44795b; outline-offset: 2px; }
+.copy-link-status { color: #53655a; font-size: 11px; }
+.diff-article-link { margin: 8px 0 14px; }
 .diff-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 20px 0 22px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); color: #758078; font-size: 11px; }
 .diff-meta a { color: var(--green); font-weight: 600; }
 .diff-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -228,6 +234,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .footer-inner p { max-width: 510px; margin: 0 auto 0 0; color: #818a83; font-size: 10px; line-height: 1.6; }
 .footer-inner > a:last-child { color: #657269; font-size: 10px; white-space: nowrap; }
 .footer-inner > a:last-child span { color: var(--green); }
+.footer-support-link { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; border: 1px solid #d9e1d8; border-radius: 5px; color: #55745d; background: #fafbf8; font-size: 10px; text-decoration: none; white-space: nowrap; }
+.footer-support-link:hover { color: #315d43; background: #eef3ed; }
+.footer-support-link:focus-visible { outline: 3px solid #44795b; outline-offset: 2px; }
 .error-banner { margin: 20px 0; padding: 13px 15px; border: 1px solid #ead3cf; border-radius: 7px; color: #84544e; background: #fff7f5; font-size: 12px; }
 .text-button { margin-left: 7px; padding: 0; border: 0; color: #8c524a; background: transparent; cursor: pointer; font-size: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
 
