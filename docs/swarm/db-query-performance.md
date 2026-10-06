@@ -11,14 +11,17 @@
 ## Changes in this branch
 
 - Added conservative global Redis budgets for stats (30/min), law listing (120/min), and search (300/min; previously 600/min).
+- Added a separate shared budget for history, proceedings, coverage, and audit GETs (90/min) after review identified repeated history polling as another DB-heavy path.
 - Added a bounded per-process fixed-window limiter for those same requests when Redis is unavailable. Reads continue to work until the local budget is exhausted; excess returns HTTP 429 with `Retry-After`. This is deliberately not represented as a globally coordinated fallback: each web process has its own counter.
 - Added short cache headers to successful GETs for `/api/stats`, `/api/laws`, and `/api/search`, permitting browser and shared-cache reuse without claiming long freshness.
 - Downgraded search query/result logging to DEBUG and removed the raw query from the application log line.
+- Made `/health` and `/api/health` pure process liveness checks; `/ready` remains a database plus schema check and returns 503 on connection failure or schema mismatch.
+- Mapped only SQLAlchemy `OperationalError` from application requests to a generic 503 with `Retry-After` and `no-store`. Readiness keeps its explicit 503 path. Other SQLAlchemy exceptions are not normalized as outages. Database outage logs are rate-limited to one per 30 seconds and aggregate suppressed failures without printing driver exception details.
 - No migration, schema/index, Railway setting, production data, or secret was changed.
 
 ## Validation
 
-- `pytest -q tests/test_api.py tests/test_search.py`: 37 passed (one upstream Starlette/httpx deprecation warning).
+- `pytest -q`: 157 passed (one upstream Starlette/httpx deprecation warning).
 - These are unit/API tests with SQLite fixtures; they do not establish query plans or production PostgreSQL capacity.
 
 ## Recommended follow-up after storage recovery
