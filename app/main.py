@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
-import time
 import threading
+import time
+from collections import OrderedDict
 from functools import lru_cache
 from html import escape as html_escape
 from datetime import datetime, timezone
@@ -11,6 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from anyio import to_thread
@@ -40,6 +44,110 @@ TEXT_SOURCE_NAMES = {
 } | set(SAPL_SOURCE_NAMES)
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+_READ_CACHE_TTL_SECONDS = 300
+_LOCAL_READ_CACHE_MAX_BYTES = 8 * 1024 * 1024
+_LOCAL_READ_CACHE_MAX_ENTRY_BYTES = 2 * 1024 * 1024
+_LOCAL_READ_CACHE_MAX_ENTRIES = 128
+_local_read_cache_lock = threading.Lock()
+_local_read_cache: OrderedDict[str, tuple[float, str]] = OrderedDict()
+_local_read_cache_bytes = 0
+
+
+def _sources_cache_key(jurisdiction_id: str | None, status: str | None) -> str:
+    """Hash optional filters so Redis keys never contain caller-provided values."""
+    params = json.dumps([jurisdiction_id, status], ensure_ascii=False, separators=(",", ":"))
+    digest = hashlib.sha256(params.encode("utf-8")).hexdigest()
+    return f"leiaberta:read-cache:v1:sources:{digest}"
+
+
+def _local_read_cache_get(key: str, now: float) -> str | None:
+    global _local_read_cache_bytes
+    with _local_read_cache_lock:
+        entry = _local_read_cache.get(key)
+        if entry is None:
+            return None
+        expires_at, value = entry
+        if expires_at <= now:
+            _local_read_cache_bytes -= len(value.encode("utf-8"))
+            _local_read_cache.pop(key, None)
+            return None
+        _local_read_cache.move_to_end(key)
+        return value
+
+
+def _local_read_cache_set(key: str, value: str, now: float, ttl_seconds: int = _READ_CACHE_TTL_SECONDS) -> None:
+    global _local_read_cache_bytes
+    value_size = len(value.encode("utf-8"))
+    if value_size > _LOCAL_READ_CACHE_MAX_ENTRY_BYTES:
+        return
+    with _local_read_cache_lock:
+        prior = _local_read_cache.pop(key, None)
+        if prior:
+            _local_read_cache_bytes -= len(prior[1].encode("utf-8"))
+        expired = [cache_key for cache_key, (expires_at, _) in _local_read_cache.items()
+                   if expires_at <= now]
+        for cache_key in expired:
+            _, stale_value = _local_read_cache.pop(cache_key)
+            _local_read_cache_bytes -= len(stale_value.encode("utf-8"))
+        while _local_read_cache and (
+            _local_read_cache_bytes + value_size > _LOCAL_READ_CACHE_MAX_BYTES
+            or len(_local_read_cache) >= _LOCAL_READ_CACHE_MAX_ENTRIES
+        ):
+            _, (_, evicted_value) = _local_read_cache.popitem(last=False)
+            _local_read_cache_bytes -= len(evicted_value.encode("utf-8"))
+        _local_read_cache[key] = (now + max(0, min(ttl_seconds, _READ_CACHE_TTL_SECONDS)), value)
+        _local_read_cache_bytes += value_size
+
+
+def _read_cached_json(key: str, scope: str, loader, now: float | None = None) -> tuple[dict, str]:
+    """Cache read-only JSON snapshots in Redis, with a bounded local outage fallback."""
+    current = time.monotonic() if now is None else now
+    redis_client = None
+    redis_url = os.getenv("REDIS_URL")
+    if redis_url:
+        try:
+            redis_client = _rate_limit_redis(redis_url)
+            cached = redis_client.get(key)
+        except RedisError:
+            redis_client = None
+            logger.debug("read_cache_store_unavailable scope=%s", scope)
+        else:
+            if cached is not None:
+                try:
+                    payload = json.loads(cached)
+                except (TypeError, ValueError):
+                    payload = None
+                if isinstance(payload, dict):
+                    try:
+                        remaining_ttl = redis_client.ttl(key)
+                    except RedisError:
+                        remaining_ttl = 0
+                    if isinstance(remaining_ttl, int) and 0 < remaining_ttl <= _READ_CACHE_TTL_SECONDS:
+                        encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+                        _local_read_cache_set(key, encoded, current, ttl_seconds=remaining_ttl)
+                    return payload, "redis-hit"
+
+    local_cached = _local_read_cache_get(key, current)
+    if local_cached is not None:
+        try:
+            payload = json.loads(local_cached)
+        except (TypeError, ValueError):
+            payload = None
+        if isinstance(payload, dict):
+            return payload, "local-hit"
+
+    payload = loader()
+    if not isinstance(payload, dict):
+        return payload, "miss"
+    encoded = json.dumps(jsonable_encoder(payload), ensure_ascii=False, separators=(",", ":"))
+    if redis_client is not None:
+        try:
+            redis_client.set(key, encoded, ex=_READ_CACHE_TTL_SECONDS)
+        except RedisError:
+            logger.debug("read_cache_store_unavailable scope=%s", scope)
+    _local_read_cache_set(key, encoded, current)
+    return payload, "miss"
 
 _db_failure_log_lock = threading.Lock()
 _last_db_failure_log_at: float | None = None
@@ -95,6 +203,8 @@ def _rate_limit_policy(method: str, path: str) -> tuple[str, int, int] | None:
         return "stats", 30, 60
     if method == "GET" and path == "/api/laws":
         return "law-list", 120, 60
+    if method == "GET" and path == "/api/sources":
+        return "source-list", 60, 60
     parts = path.strip("/").split("/")
     if method == "GET" and len(parts) == 4 and parts[:2] == ["api", "laws"]:
         if parts[3] in {"history", "proceedings", "coverage", "audit"}:
@@ -141,6 +251,8 @@ def _read_cache_policy(path: str) -> str | None:
         return "public, max-age=5, s-maxage=30, stale-while-revalidate=60"
     if path in {"/api/laws", "/api/search"}:
         return "public, max-age=5, s-maxage=15, stale-while-revalidate=30"
+    if path == "/api/sources":
+        return "public, max-age=5, s-maxage=30, stale-while-revalidate=60"
     return None
 
 
@@ -280,21 +392,46 @@ def readiness(session: Session = Depends(get_session)):
 
 
 @app.get("/worker-health", include_in_schema=False)
-def worker_health():
+def worker_health(session: Session = Depends(get_session)):
     redis_url = os.getenv("REDIS_URL")
-    if not redis_url:
-        raise HTTPException(status_code=503, detail="Worker heartbeat is unavailable")
+    heartbeat = None
     try:
-        heartbeat = _rate_limit_redis(redis_url).get("leiaberta:worker:heartbeat")
-    except RedisError as exc:
-        raise HTTPException(status_code=503, detail="Worker heartbeat is unavailable") from exc
+        if redis_url:
+            heartbeat = _rate_limit_redis(redis_url).get("leiaberta:worker:heartbeat")
+    except RedisError:
+        logger.debug("worker_heartbeat_store_unavailable")
     try:
         heartbeat_at = datetime.fromisoformat(heartbeat) if heartbeat else None
     except ValueError:
         heartbeat_at = None
-    if heartbeat_at is None or (datetime.now(timezone.utc) - heartbeat_at).total_seconds() > 90:
-        raise HTTPException(status_code=503, detail="Worker heartbeat is stale")
-    return {"status": "ok", "service": "leiaberta-worker", "heartbeat_at": heartbeat_at.isoformat()}
+    if heartbeat_at and heartbeat_at.tzinfo is None:
+        heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+    if heartbeat_at is None:
+        heartbeat_status = "unavailable"
+    elif (datetime.now(timezone.utc) - heartbeat_at).total_seconds() > 90:
+        heartbeat_status = "stale"
+    else:
+        heartbeat_status = "fresh"
+
+    try:
+        session.execute(text("SELECT 1"))
+        database_status = "ready"
+    except SQLAlchemyError:
+        database_status = "unavailable"
+        _log_database_failure()
+
+    processing_ready = heartbeat_status == "fresh" and database_status == "ready"
+    payload = {
+        "status": "ok" if processing_ready else "unavailable",
+        "service": "leiaberta-worker",
+        "heartbeat_status": heartbeat_status,
+        "database_status": database_status,
+        "processing_ready": processing_ready,
+        "heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
+    }
+    if not processing_ready:
+        return JSONResponse(payload, status_code=503, headers={"Cache-Control": "no-store"})
+    return payload
 
 
 @app.get("/api/health")
@@ -303,7 +440,16 @@ def api_health():
 
 
 @app.get("/api/stats")
-def stats(session: Session = Depends(get_session)):
+def stats(response: Response, session: Session = Depends(get_session)):
+    payload, cache_status = _read_cached_json(
+        "leiaberta:read-cache:v1:stats", "stats", lambda: _build_stats(session),
+    )
+    response.headers["X-Data-Cache"] = cache_status
+    response.headers["X-Data-Cache-TTL"] = str(_READ_CACHE_TTL_SECONDS)
+    return payload
+
+
+def _build_stats(session: Session) -> dict:
     # One grouped pass replaces one COUNT per discovered SAPL instance. With
     # hundreds of source registries, the old per-source loop rescanned the
     # large laws table hundreds of times and made this public endpoint stall.
@@ -747,8 +893,18 @@ def change_detail(change_id: str, session: Session = Depends(get_session)):
 
 
 @app.get("/api/sources")
-def sources(jurisdiction_id: str | None = None, status: str | None = None,
+def sources(response: Response, jurisdiction_id: str | None = None, status: str | None = None,
             session: Session = Depends(get_session)):
+    cache_key = _sources_cache_key(jurisdiction_id, status)
+    payload, cache_status = _read_cached_json(
+        cache_key, "sources", lambda: _build_sources(jurisdiction_id, status, session),
+    )
+    response.headers["X-Data-Cache"] = cache_status
+    response.headers["X-Data-Cache-TTL"] = str(_READ_CACHE_TTL_SECONDS)
+    return payload
+
+
+def _build_sources(jurisdiction_id: str | None, status: str | None, session: Session) -> dict:
     statement = select(SourceRegistry).order_by(SourceRegistry.jurisdiction_id, SourceRegistry.name)
     if jurisdiction_id:
         statement = statement.where(SourceRegistry.jurisdiction_id == jurisdiction_id)
