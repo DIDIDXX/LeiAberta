@@ -131,14 +131,17 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
         )
         _run_postgres(
             [pg_ctl, "--pgdata", str(data_dir), "--options",
-             f"-h 127.0.0.1 -p {port} -F -c shared_buffers=32MB -c max_connections=20",
+             f"-h 127.0.0.1 -p {port} -F -c shared_buffers=32MB -c max_connections=20 "
+             "-c checkpoint_timeout=1h -c max_wal_size=4GB "
+             "-c maintenance_work_mem=128MB -c synchronous_commit=off",
              "--log", str(server_log), "--timeout", "120", "--wait", "start"],
             timeout=180,
         )
         server_started = True
         local_url = f"postgresql://postgres@127.0.0.1:{port}/postgres"
         _run_postgres(
-            ["pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", local_url, str(dump_path)],
+            ["pg_restore", "--jobs=2", "--exit-on-error", "--no-owner", "--no-privileges",
+             "--dbname", local_url, str(dump_path)],
             timeout=3600,
         )
         restored = _db_metadata(local_url)
