@@ -51,7 +51,7 @@ def migrate_batch(*, session: Session, after_id: int = 0, batch_size: int = 25,
             result["verified"] += 1
             result["total_bytes"] += len(body)
             if apply:
-                object_ref = store.put_verified(body, snapshot.checksum)
+                object_ref = store.put_verified(body, snapshot.checksum, content_type=snapshot.raw_format)
                 # put_verified reads the object back and verifies the payload
                 # digest before this ORM row receives its pointer.
                 snapshot.storage_backend = object_ref.backend

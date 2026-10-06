@@ -14,7 +14,7 @@ Add an optional S3-compatible, content-addressed replica for raw source bytes. T
 
 The additive database metadata is nullable: `storage_backend`, `object_key`, and `size_bytes`. Object-store configuration is opt-in and uses a dedicated source-snapshot bucket separate from the database-backup bucket. Missing configuration keeps the existing database-only behavior.
 
-Object writes validate the source checksum, check whether the deterministic key already exists, and read object bytes back to verify SHA-256 before the application writes a database pointer. Readers verify external bytes against the snapshot checksum and fall back to retained `raw_body` on object errors. New captures also keep the raw body in PostgreSQL. Upload failures therefore preserve existing operation/evidence in the database; failed SQL commits can leave harmless reusable objects.
+Object writes validate the source checksum, check whether the deterministic key already exists, and read object bytes back to verify SHA-256 before the application writes a database pointer. HTML/XML/JSON and `text/*` use deterministic standard gzip; binary payloads remain uncompressed. The S3 object records the raw MIME type and `ContentEncoding`. Readers decompress when indicated, verify the original bytes against the snapshot checksum, and fall back to retained `raw_body` on object errors. New captures also keep the raw body in PostgreSQL. Upload failures therefore preserve existing operation/evidence in the database; failed SQL commits can leave harmless reusable objects.
 
 Existing rows are copied with a small restartable command. It is dry-run by default, processes at most 100 rows per invocation (default 25), validates each database body before upload, verifies each uploaded object before setting a pointer, and leaves source bytes untouched. A batch SQL failure rolls back its pointers; already uploaded objects are content-addressed and retryable. Rows with a pointer are skipped on subsequent runs.
 
@@ -27,12 +27,13 @@ Existing rows are copied with a small restartable command. It is dry-run by defa
 5. Start with the default dry run; review row count, byte count, checksum errors, and cursor. Apply small batches only with explicit `--apply` and coordinator authorization.
 6. Verify pointer coverage and object checksums, monitor object read/write fallback errors, and retain the database copy through the rollback window.
 7. Keep bucket retention non-expiring during the migration/rollback period. Do not automate object deletion.
+8. Do not implement job/outbox cleanup as part of this ADR. Preserve queued/running/leased jobs, all undispatched or Redis-pending outbox work, and the latest succeeded job for each `(law_slug, job_type)`. Failed jobs younger than 180 days are retained. Terminal rows older than 180 days are only candidates after a read-only size/status/age inventory, current checksum-verified and isolated-restored backup, dry-run report that rules out Redis PEL entries and latest-success markers, preserved audit summary, and explicit coordinator approval. The existing outbox has no ACK field (`dispatched_at` records `XADD`, not ACK), so pending state must be verified in Redis. No cleanup command is included.
 
 Removing `raw_body` is explicitly outside this ADR's implementation. It needs a separate decision after full pointer coverage and checksum verification, a current tested backup, reader monitoring, a restore/cutover plan, measured disk benefit, and explicit approval. A failed or unavailable object read must not become unrecoverable by prematurely deleting PostgreSQL bytes.
 
 ## Consequences
 
-- Before any later payload-removal migration, the system holds duplicate copies and can use more total storage and S3 requests/egress. This ADR does not free PostgreSQL space.
+- Before any later payload-removal migration, the system holds duplicate copies and can use more total storage and S3 requests/egress. Text object copies are gzip-compressed; DB bytes remain unchanged. This ADR does not free PostgreSQL space.
 - Verified object reads add network latency and depend on object-service availability; retained DB fallback preserves availability while the duplicate exists.
 - Content addressing supports deduplication and safe retries, but does not by itself enforce provider-side immutability. Restrict bucket write/delete permissions and consider provider versioning/object lock if supported and operationally appropriate.
 - Snapshot sizes, object pricing, egress, request rate, DB relation sizes, and net savings are not measured; no cost reduction is claimed.

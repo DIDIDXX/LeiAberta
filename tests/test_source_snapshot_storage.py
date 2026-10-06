@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import gzip
 from io import BytesIO
 
 import pytest
@@ -26,22 +27,26 @@ class FakeS3:
 
     def head_object(self, *, Bucket, Key):
         try:
-            body, metadata = self.objects[(Bucket, Key)]
+            obj = self.objects[(Bucket, Key)]
         except KeyError:
             raise FakeClientError()
-        return {"ContentLength": len(body), "Metadata": metadata}
+        return {"ContentLength": len(obj["body"]), "Metadata": obj["metadata"]}
 
-    def put_object(self, *, Bucket, Key, Body, ContentType, Metadata):
+    def put_object(self, *, Bucket, Key, Body, ContentType, Metadata, ContentEncoding=None):
         self.put_count += 1
-        self.objects[(Bucket, Key)] = (bytes(Body), dict(Metadata))
+        self.objects[(Bucket, Key)] = {
+            "body": bytes(Body), "metadata": dict(Metadata),
+            "content_type": ContentType, "content_encoding": ContentEncoding,
+        }
         return {"ETag": '"fake"'}
 
     def get_object(self, *, Bucket, Key):
         try:
-            body, _metadata = self.objects[(Bucket, Key)]
+            obj = self.objects[(Bucket, Key)]
         except KeyError:
             raise FakeClientError()
-        return {"Body": BytesIO(body)}
+        return {"Body": BytesIO(obj["body"]), "ContentType": obj["content_type"],
+                "ContentEncoding": obj["content_encoding"]}
 
 
 def _snapshot(law, body: bytes, **kwargs):
@@ -58,14 +63,36 @@ def test_object_store_deduplicates_identical_content_by_sha256():
     body = b"official source bytes"
     digest = hashlib.sha256(body).hexdigest()
 
-    first = store.put_verified(body, digest)
-    second = store.put_verified(body, digest)
+    first = store.put_verified(body, digest, content_type="text/html; charset=utf-8")
+    stored = client.objects[("snapshots", first.object_key)]
+    second = store.put_verified(body, digest, content_type="text/html; charset=utf-8")
 
     assert first == second
     assert first.backend == "s3"
     assert first.object_key == f"legal/sha256/{digest[:2]}/{digest}"
     assert first.size_bytes == len(body)
+    assert stored["body"] != body
+    assert stored["body"] == gzip.compress(body, compresslevel=6, mtime=0)
+    assert stored["content_type"] == "text/html; charset=utf-8"
+    assert stored["content_encoding"] == "gzip"
+    assert stored["metadata"]["sha256"] == digest
+    assert store.read_verified(first.object_key, digest) == body
     assert client.put_count == 1
+
+
+def test_binary_snapshot_is_stored_without_compression():
+    client = FakeS3()
+    store = SourceSnapshotObjectStore(client, "snapshots")
+    body = b"%PDF-1.7\x00\x80binary-content"
+    digest = hashlib.sha256(body).hexdigest()
+
+    ref = store.put_verified(body, digest, content_type="application/pdf")
+    stored = client.objects[("snapshots", ref.object_key)]
+
+    assert stored["body"] == body
+    assert stored["content_encoding"] is None
+    assert stored["metadata"]["compression"] == "none"
+    assert store.read_verified(ref.object_key, digest) == body
 
 
 def test_object_store_rejects_source_checksum_mismatch_without_upload():
@@ -85,13 +112,16 @@ def test_existing_corrupt_object_is_never_overwritten():
     body = b"the expected legal evidence"
     digest = hashlib.sha256(body).hexdigest()
     key = store.key_for(digest)
-    client.objects[("snapshots", key)] = (b"corrupt object", {"sha256": digest})
+    client.objects[("snapshots", key)] = {
+        "body": b"corrupt object", "metadata": {"sha256": digest},
+        "content_type": "application/octet-stream", "content_encoding": None,
+    }
 
     with pytest.raises(SnapshotObjectError, match="checksum mismatch"):
         store.put_verified(body, digest)
 
     assert client.put_count == 0
-    assert client.objects[("snapshots", key)][0] == b"corrupt object"
+    assert client.objects[("snapshots", key)]["body"] == b"corrupt object"
 
 
 def test_dual_read_verifies_object_and_falls_back_to_database_copy(db_session, add_law):
@@ -105,7 +135,7 @@ def test_dual_read_verifies_object_and_falls_back_to_database_copy(db_session, a
 
     assert read_source_snapshot(snapshot, store) == body
 
-    client.objects[("snapshots", ref.object_key)] = (b"corrupt object", {"sha256": digest})
+    client.objects[("snapshots", ref.object_key)]["body"] = b"corrupt object"
     assert read_source_snapshot(snapshot, store) == body
 
 

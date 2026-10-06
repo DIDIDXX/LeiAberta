@@ -497,7 +497,7 @@ def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_f
                 snapshot.version_id = version_id
             if not snapshot.object_key:
                 try:
-                    object_ref = archive_snapshot_object(snapshot.raw_body, snapshot.checksum)
+                    object_ref = archive_snapshot_object(snapshot.raw_body, snapshot.checksum, snapshot.raw_format)
                 except Exception as exc:
                     logger.warning("source_snapshot_object_write_failed id=%s error_type=%s; retaining database copy",
                                    snapshot.id, type(exc).__name__)
@@ -509,7 +509,7 @@ def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_f
             session.commit()
             return snapshot.id
         try:
-            object_ref = archive_snapshot_object(raw_body, checksum)
+            object_ref = archive_snapshot_object(raw_body, checksum, raw_format)
         except Exception as exc:
             # The retained PostgreSQL copy remains the system of record during
             # rollout; an unavailable object store must not drop source bytes.

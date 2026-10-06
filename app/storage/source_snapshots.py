@@ -7,8 +7,10 @@ interrupted database commits can leave harmless, reusable orphan objects.
 from __future__ import annotations
 
 import hashlib
+import gzip
 import logging
 import os
+import zlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -84,11 +86,18 @@ class SourceSnapshotObjectStore:
             raise SnapshotObjectError(f"Could not read source snapshot object {object_key}") from exc
         body = response["Body"]
         try:
-            payload = body.read()
+            stored_bytes = body.read()
         finally:
             close = getattr(body, "close", None)
             if close:
                 close()
+        content_encoding = str(response.get("ContentEncoding", "")).lower()
+        try:
+            payload = gzip.decompress(stored_bytes) if any(
+                item.strip() == "gzip" for item in content_encoding.split(",")
+            ) else stored_bytes
+        except (OSError, EOFError, zlib.error) as exc:
+            raise SnapshotObjectError(f"Could not decompress source snapshot object {object_key}") from exc
         actual = hashlib.sha256(payload).hexdigest()
         if actual != expected_sha256:
             raise SnapshotObjectError(
@@ -96,13 +105,23 @@ class SourceSnapshotObjectStore:
             )
         return payload
 
-    def put_verified(self, payload: bytes, expected_sha256: str) -> SnapshotObjectRef:
+    @staticmethod
+    def _compressible(content_type: str) -> bool:
+        mime_type = content_type.split(";", 1)[0].strip().lower()
+        return mime_type.startswith("text/") or mime_type in {
+            "application/xml", "application/xhtml+xml", "application/json", "application/ld+json",
+        }
+
+    def put_verified(self, payload: bytes, expected_sha256: str, *,
+                     content_type: str = "application/octet-stream") -> SnapshotObjectRef:
         actual = hashlib.sha256(payload).hexdigest()
         if actual != expected_sha256:
             raise SnapshotObjectError(
                 f"Database source snapshot checksum mismatch: expected {expected_sha256}, got {actual}"
             )
         key = self.key_for(expected_sha256)
+        compress = self._compressible(content_type)
+        stored_payload = gzip.compress(payload, compresslevel=6, mtime=0) if compress else payload
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
@@ -111,9 +130,14 @@ class SourceSnapshotObjectStore:
             self.client.put_object(
                 Bucket=self.bucket,
                 Key=key,
-                Body=payload,
-                ContentType="application/octet-stream",
-                Metadata={"sha256": expected_sha256, "size-bytes": str(len(payload))},
+                Body=stored_payload,
+                ContentType=content_type or "application/octet-stream",
+                **({"ContentEncoding": "gzip"} if compress else {}),
+                Metadata={
+                    "sha256": expected_sha256,
+                    "size-bytes": str(len(payload)),
+                    "compression": "gzip" if compress else "none",
+                },
             )
 
         # Verify actual object bytes rather than trusting user metadata, ETag
@@ -144,9 +168,9 @@ def read_source_snapshot(snapshot, store: SourceSnapshotObjectStore | None = Non
     return bytes(raw_body)
 
 
-def archive_snapshot_object(payload: bytes, checksum: str) -> SnapshotObjectRef | None:
+def archive_snapshot_object(payload: bytes, checksum: str, content_type: str = "application/octet-stream") -> SnapshotObjectRef | None:
     """Upload a new response when configured; no configuration means DB-only."""
     store = SourceSnapshotObjectStore.from_env()
     if store is None:
         return None
-    return store.put_verified(payload, checksum)
+    return store.put_verified(payload, checksum, content_type=content_type)

@@ -17,6 +17,8 @@ Agente 1 — db-emergency-storage
 - The application stores source response bytes in PostgreSQL: `SourceSnapshot.raw_body` is `LargeBinary` (`bytea` on PostgreSQL). Parsed legal text is also relational in `legal_nodes.text`; `law_versions` supplies version identity and checksums. These latter records and verified evidence are not cleanup candidates.
 - This agent's Railway connector offers infrastructure status, logs, and service metrics, but no SQL/query or volume filesystem interface. Railway CLI is not installed in this workspace. Therefore this run cannot honestly identify the largest relations, TOAST tables, indexes, dead tuples, retained job counts, replication/WAL usage, or open connections.
 - Relation-level size and state counts remain unavailable. I have implemented only an additive, reversible snapshot-storage foundation: it preserves every `raw_body`, dual-reads verified object bytes with a database fallback, and offers bounded dry-run-by-default migration batches. It does not establish that snapshots are the largest relation or that moving them will reclaim capacity.
+- A cautious job/outbox retention candidate policy is documented but no cleanup was implemented. `dispatched_at` records Redis `XADD`, not worker ACK; Redis pending state must be checked separately.
+- The scheduled backup manifest code now captures per-table total/heap/index bytes plus live/dead estimates from `pg_stat_user_tables`, and exact counts grouped by hydration-job status/type and outbox dispatch state. This produces no live measurements until reviewed code is deployed and a healthy backup completes.
 
 ## Measurements
 
@@ -52,9 +54,11 @@ At initial inspection, production had a pre-existing staged delete for service `
 ## Changes
 
 - Added an additive nullable Alembic revision for `storage_backend`, `object_key`, and `size_bytes`; it does not change `raw_body` nullability or contents.
-- Added content-addressed SHA-256 S3-compatible storage with read-after-write verification, duplicate-content reuse, checksum validation, and database fallback. New captures use the object store only when fully configured; a storage error leaves the DB copy as the source of truth.
+- Added content-addressed SHA-256 S3-compatible storage with read-after-write verification, duplicate-content reuse, checksum validation, and database fallback. HTML/XML/JSON and `text/*` objects use deterministic gzip; binaries stay uncompressed. S3 ContentType/ContentEncoding are set; reads decompress before validating the original checksum. New captures use the object store only when fully configured; a storage error leaves the DB copy as the source of truth.
 - Added a one-batch, max-100-row migrator, dry-run by default. `--apply` must be explicit; each object is read back and verified before pointers are committed. Failed SQL commits can leave reusable object orphans; batch retry skips committed pointers.
 - Updated source-document audit call sites to use the verified dual-read helper.
+- Added ADR-0002 and an operator runbook covering text-only gzip, integrity/backup gates, rollback, and conservative job/outbox retention. No destructive cleanup command was added.
+- Extended read-only backup manifest metadata with per-table sizes/tuple estimates and grouped job/outbox counts. It does not select or sum `raw_body` payloads or include raw job rows/secrets.
 - No application data, Railway configuration, production database, bucket, or secret was changed. No migration was run.
 
 ## Files touched
@@ -67,19 +71,23 @@ At initial inspection, production had a pre-existing staged delete for service `
 - `app/jobs.py`
 - `app/main.py`
 - `scripts/audit_archived_documents.py`
+- `scripts/backup_postgres_to_s3.py`
 - `scripts/migrate_source_snapshots_to_object_storage.py`
 - `migrations/versions/20261006_0011_source_snapshot_objects.py`
 - `tests/test_source_snapshot_storage.py`
+- `tests/test_backup_postgres_to_s3.py`
 - `requirements.txt`
 - `docs/runbooks/source-snapshot-object-storage.md`
 
 ## Tests
 
-- `pytest -q tests/test_source_snapshot_storage.py tests/test_jobs.py tests/test_api.py tests/test_audit.py`: 41 passed, one existing Starlette/httpx deprecation warning.
+- `pytest -q tests/test_source_snapshot_storage.py tests/test_jobs.py tests/test_api.py tests/test_audit.py tests/test_backup_postgres_to_s3.py`: 43 passed, one existing Starlette/httpx deprecation warning.
+- Focused tests cover duplicate-content reuse, deterministic gzip/text round trip and MIME, binary bytes without compression, checksum mismatch/corrupt object rejection, verified external read and DB fallback, dry-run without upload, small batches, resume, and idempotence.
+- Backup metadata unit test verifies per-table sizes/tuple estimates, grouped job/outbox counts, JSON parsing, and that the SQL does not select raw payloads or use `SELECT *`.
 - Local isolated SQLite migration check: `alembic upgrade head` adds all three nullable metadata columns; `alembic downgrade 20261005_0010` removes them and preserves the base schema.
 - `python -m compileall` passed for changed Python modules; `git diff --check` passed.
 - Read-only inspection performed via Railway environment inventory, 24-hour service metrics, and PostgreSQL/backup deployment logs.
-- No production SQL query or object-store call was run. Exact SQL requested from the coordinator is provided below; run only after the database can accept reads and through an approved read-only connection.
+- No production SQL query, backup run, or object-store call was run. After deploy and a healthy scheduled backup, its private S3 manifest will contain the requested read-only sizes/counts. Exact SQL requested from the coordinator is provided below for direct verification after database recovery.
 
 Read-only relation, TOAST and index sizing:
 
@@ -122,7 +130,8 @@ After access returns, separately measure `source_snapshots` row count and `octet
 ## Migration impact
 
 - Created but did not run Alembic revision `20261006_0011` (`down_revision=20261005_0010`). It adds three nullable columns only; downgrade drops only these columns. An isolated SQLite upgrade/downgrade check passed.
-- The batch migrator defaults to dry-run, processes <=100 rows/invocation (default 25), verifies the row checksum before upload and reads each object back to verify before pointer assignment. It commits one bounded batch and can resume from `last_id`; rows with `object_key` are skipped. It never changes/deletes `raw_body`.
+- The batch migrator defaults to dry-run, processes <=100 rows/invocation (default 25), verifies the row checksum before upload and reads/decompresses each object back to verify original SHA-256 before pointer assignment. Text MIME objects are gzip-encoded; the original size/checksum are used. It commits one bounded batch and can resume from `last_id`; rows with `object_key` are skipped. It never changes/deletes `raw_body`.
+- Documented but did not implement job/outbox cleanup. Preserve queued/running/leased jobs, undispatched and Redis-pending outbox work, and the latest succeeded row per law/type; retain failures younger than 180 days. Older terminal rows are candidates only after a measured dry run, current restored backup, audit-summary preservation, Redis PEL/integrity review, and explicit coordinator approval. No cleanup script exists.
 - Existing snapshot counts and bytes are unmeasured. Running this online adds external writes and duplicate storage but does not free DB space. Treat rollout as post-recovery and separately authorized.
 
 ## Cost impact

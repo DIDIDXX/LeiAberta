@@ -4,10 +4,10 @@ This is an additive storage path for archived source response bytes. PostgreSQL 
 
 ## Storage behavior
 
-- Object keys are content-addressed from SHA-256 of the raw, uncompressed response bytes: `SOURCE_SNAPSHOT_S3_PREFIX/sha256/<first-two-hex>/<sha256>`.
+- Object keys are content-addressed from SHA-256 of the raw, uncompressed response bytes: `SOURCE_SNAPSHOT_S3_PREFIX/sha256/<first-two-hex>/<sha256>`. HTML, XML, JSON and `text/*` are stored with standard deterministic gzip (`ContentEncoding: gzip`); binary documents stay uncompressed. The original MIME string is recorded as `ContentType`, and the digest is checked after decompression.
 - Identical content shares one object key. Existing objects are read and hashed before reuse. New objects are uploaded, read back, and hashed before a pointer can be saved.
 - Database rows gain nullable `storage_backend`, `object_key`, and `size_bytes` fields. `size_bytes` records the uncompressed body length. `raw_body` is retained.
-- Reads verify object bytes against the row checksum. On missing config, transport error, or checksum mismatch the application logs the failed object read and serves the retained `raw_body` copy. If both paths are unavailable, the read raises an error.
+- Reads honor `ContentEncoding`, decompress gzip before hashing, and verify the original bytes against the row checksum. On missing config, transport error, decompression error, or checksum mismatch the application logs the failed object read and serves the retained `raw_body` copy. If both paths are unavailable, the read raises an error.
 - New source captures are uploaded when complete object-store configuration is available. If upload/verification fails, the application retains the new source bytes in PostgreSQL and continues; the exception is logged without credentials or payload bytes.
 - Upload succeeds before SQL pointer commit. A process/transaction failure may leave an unreferenced immutable object; a later retry safely reuses it.
 
@@ -26,13 +26,13 @@ This is an additive storage path for archived source response bytes. PostgreSQL 
    - `SOURCE_SNAPSHOT_S3_PREFIX` (optional; defaults to `source-snapshots`)
    - `SOURCE_SNAPSHOT_S3_ADDRESSING_STYLE` (optional; defaults to `path`)
 
-Do not reuse backup credentials unless the bucket policy strictly restricts them. Prefer object-store permissions scoped to this bucket/prefix. Application writes need read/head/put. Lifecycle deletion is intentionally not automated.
+Do not reuse backup credentials unless the bucket policy strictly restricts them. Prefer object-store permissions scoped to this bucket/prefix. The app requires `get`, `head`, and `put` access. Some S3-compatible services return 403 rather than 404 for `HEAD` of a missing object unless `ListBucket` is allowed; scope any needed list permission to this prefix. In that case a write failure safely leaves the database copy in use. Lifecycle deletion is intentionally not automated.
 
 ## Rollout
 
 1. Deploy code and apply Alembic revision `20261006_0011` (adds three nullable columns only). It does not rewrite existing rows or touch `raw_body`.
 2. Initially keep the new variables absent. Existing behavior remains database-only, and object pointers, if present, still fall back to PostgreSQL.
-3. Configure a staging bucket and credentials, then write/read one known test object and confirm that a wrong checksum is rejected. Do not test by modifying a legal snapshot.
+3. Configure a staging bucket and credentials, then write/read a text round-trip, a binary object, and confirm that a wrong checksum is rejected. Do not test by modifying a legal snapshot.
 4. Run a bounded dry-run in the intended application environment; dry-run is the command default and does not contact S3 or write database state:
 
    ```bash
@@ -59,5 +59,19 @@ Do not reuse backup credentials unless the bucket policy strictly restricts them
 ## Capacity and cost
 
 - This change duplicates source bytes across Postgres and the bucket while in migration/rollback window. It can temporarily increase total storage usage and adds object API requests/egress.
-- PostgreSQL capacity is unchanged until a later reviewed migration removes verified database payloads. No compression or cost saving is claimed here.
+- PostgreSQL capacity is unchanged until a later reviewed migration removes verified database payloads. Gzip applies to object copies only; no database compression or cost saving is claimed here.
 - Measure real candidate bytes, object storage pricing, and read/egress patterns before planning that destructive follow-up.
+
+## Job and outbox retention gate
+
+No job or outbox cleanup command is included or authorized by this rollout. Preserve all `queued` and `running` jobs, every non-null lease, all outbox rows with `dispatched_at IS NULL`, and any job whose Redis stream message is still pending/unacknowledged. `dispatched_at` alone means `XADD` succeeded; it is not proof of worker ACK. Also preserve the latest `succeeded` job for every `(law_slug, job_type)` because `queue_job()` uses that success marker to avoid unnecessary duplicate work. Do not delete failed rows younger than 180 days.
+
+Only terminal rows (`succeeded`, `failed`, or `cancelled`) older than 180 days may be proposed for cleanup, and then only after all of these gates pass:
+
+1. Read-only relation/row/age/status sizing confirms the target is material to storage; do not infer a benefit from row count alone.
+2. A current backup is uploaded, checksum-verified, and successfully restored in isolation.
+3. A dry-run candidate report excludes active/leased jobs, latest-success markers, undispatched outbox rows, Redis pending entries, and every failed row younger than 180 days.
+4. Preserve an audit summary containing job ID, law slug/type, terminal status, timestamps, attempts and bounded error category before any deletion; never discard unique legal source/evidence data with queue housekeeping.
+5. Obtain explicit coordinator approval, perform a small transaction-bounded batch, then verify counts, FK integrity, worker/outbox recovery and core routes.
+
+The current outbox schema has no durable ACK field, so operator verification of Redis pending state is required; do not interpret `dispatched_at` as ACK. Cleanup stays unexecuted until SQL sizes/counts and backup/restore verification are available. No destructive cleanup script should be added without separate tests and coordinator review.

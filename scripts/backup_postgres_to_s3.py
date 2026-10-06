@@ -13,10 +13,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import boto3
-from botocore.config import Config
-
-
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.backup")
 ROW_COUNT_TABLES = (
@@ -75,6 +71,31 @@ def _db_metadata(database_url: str) -> dict:
         "'server_version_num', current_setting('server_version_num'), "
         "'database_size_bytes', pg_database_size(current_database()), "
         f"'row_counts', json_build_object({row_counts}), "
+        "'relation_sizes', COALESCE(("
+        "SELECT json_agg(json_build_object("
+        "'schema', schemaname, 'table', relname, "
+        "'total_bytes', pg_total_relation_size(relid), "
+        "'heap_bytes', pg_relation_size(relid), 'index_bytes', pg_indexes_size(relid), "
+        "'live_rows_estimate', n_live_tup, 'dead_rows_estimate', n_dead_tup"
+        ") ORDER BY pg_total_relation_size(relid) DESC) FROM pg_stat_user_tables"
+        "), '[]'::json), "
+        "'job_status_counts', COALESCE(("
+        "SELECT json_object_agg(status, row_count) FROM ("
+        "SELECT status, count(*) AS row_count FROM public.hydration_jobs GROUP BY status"
+        ") AS grouped_jobs"
+        "), '{}'::json), "
+        "'job_type_status_counts', COALESCE(("
+        "SELECT json_agg(json_build_object('job_type', job_type, 'status', status, 'count', row_count) "
+        "ORDER BY job_type, status) FROM ("
+        "SELECT job_type, status, count(*) AS row_count FROM public.hydration_jobs GROUP BY job_type, status"
+        ") AS grouped_job_types"
+        "), '[]'::json), "
+        "'outbox_dispatch_state_counts', COALESCE(("
+        "SELECT json_object_agg(dispatch_state, row_count) FROM ("
+        "SELECT CASE WHEN dispatched_at IS NULL THEN 'pending' ELSE 'dispatched' END AS dispatch_state, "
+        "count(*) AS row_count FROM public.job_outbox GROUP BY dispatch_state"
+        ") AS grouped_outbox"
+        "), '{}'::json), "
         "'alembic_versions', COALESCE((SELECT json_agg(version_num ORDER BY version_num) "
         "FROM public.alembic_version), '[]'::json))::text"
     )
@@ -142,6 +163,9 @@ def _verify_restore(dump_path: Path, expected: dict) -> dict:
 
 
 def _s3_client():
+    import boto3
+    from botocore.config import Config
+
     return boto3.client(
         "s3",
         endpoint_url=_required_env("BACKUP_S3_ENDPOINT"),
