@@ -83,3 +83,7 @@ As capturas de Diff mostram a comparação em duas colunas no desktop e em pain�
 - **Bloqueio para GO:** a produção ainda contém a redação enganosa do Why/Blame mostrada nas capturas. A correção local precisa ser revisada, integrada, implantada e revalidada em produção antes de declarar esse caveat uniforme entre Diff e Blame.
 - Também não houve teste end-to-end de hidratação sob demanda nem confirmação de trechos anterior/posterior em fonte primária; manter esses limites explícitos.
 - Rollback do patch: reverter somente o commit desta branch que altera `static/app.js` e `e2e/core-flow.spec.js`; nenhuma migration ou dado foi alterado.
+
+## Atualização do coordenador — 2026-10-06
+
+Após web/worker SHA `5d49fb5956096173e3094aa422f746f0782eb92e`, smoke real em 17 endpoints/páginas (health, ready, worker health, stats, sources, busca com typo, fontes/cobertura/sobre, OpenAPI, sitemap, deep link do art. 389, law/nodes/history/blame/provenance/diff) retornou HTTP 200. Duração dos endpoints do art. 389 ~0.43–2.05 s neste request; isso não substitui QA visual. Teste de navegador anterior passou nos tamanhos 390/430/768/1440 px, sem overflow/erros, com teclado e cópia de deep link. Caveat preservado: texto arquivado Normas.leg.br é transcrição classificada não oficial; trechos primários anterior/posterior não foram armazenados/provados. Hidratação cold `sp-alesp-212364` processada por worker real, porém parcial e sem artigo estruturado; exibir estado honesto e revisar antes de GO.
