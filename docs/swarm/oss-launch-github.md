@@ -37,7 +37,7 @@ O código da base deste worktree não usa `SUPPORT_URL`, e o repositório não c
 ## Handoff operacional
 
 - P0: aplicação não está pronta: Railway mostra os containers como Online/SUCCESS, mas o smoke público mais recente retornou `/health` 500 e `/ready` 503; a home `/` retornou 200. A exclusão staged antiga de `pg-diagnostic` foi descartada; não houve remoção nem alteração desse serviço ativo.
-- O único bloqueio manual Railway atual é revisar/aplicar via Dashboard, com 2FA do proprietário, o resize não destrutivo do volume persistente Postgres de 5.000 MB para 6.500 MB. Antes de aplicar, confirmar que Pending Changes contém somente esse resize; após aplicar, health/readiness e rota pública ainda precisam ser validados. Instruções estão em `docs/launch/MANUAL_ACTIONS.md`.
+- A tentativa autorizada de `accept-deploy` limpou a alteração staged sem redimensionar o volume. A leitura atual confirma nenhum staged change, `postgres-volume` ainda em 5.000 MB e métrica recente de 4,9965 GB ocupados. O bloqueio manual agora é o proprietário ajustar o volume para 6.500 MB pelo Dashboard com 2FA; revisar o preview e aplicar somente se a única mudança for esse resize. Nenhum outro serviço ou dado foi alterado. Health/readiness e rota pública continuam pendentes de recuperação. Instruções estão em `docs/launch/MANUAL_ACTIONS.md`.
 - Railway Pro Observability Disk Usage em 70/80/85% envia alertas ao Dashboard, mas não pausa o worker; isso é aviso, não controle automático. O runbook `docs/runbooks/postgres-disk-budget.md` foi copiado sem alteração para este PR e está linkado em `docs/launch/MANUAL_ACTIONS.md`.
 
 ## Limites desta entrega
