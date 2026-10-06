@@ -142,12 +142,26 @@ def publish_queue_depth_summary(redis) -> None:
         logger.warning("worker_queue_depth_unavailable error_type=%s", type(exc).__name__)
 
 
+def _is_terminal_job(job_id: str) -> bool:
+    """Read terminal job state before submission so stale deliveries need no worker slot."""
+    from app.db import SessionLocal
+    from app.models import HydrationJob
+
+    with SessionLocal() as session:
+        job = session.get(HydrationJob, job_id)
+        return bool(job and job.status in {"succeeded", "failed", "cancelled"})
+
+
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor, *, backfill_mode: str | None = None) -> None:
     """Process independent source jobs concurrently; ACK only after durable handling."""
     futures = {}
     for message_id, fields in messages:
         job_id = fields.get("job_id")
         if job_id:
+            # A terminal delivery is stale and safe to ACK without a processing slot.
+            if _is_terminal_job(job_id):
+                redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
+                continue
             # A paused bulk item remains in the stream/DB for a later resume.
             # Do not ACK or claim work by changing its durable job status.
             if not should_process_job(job_id, mode=backfill_mode):
