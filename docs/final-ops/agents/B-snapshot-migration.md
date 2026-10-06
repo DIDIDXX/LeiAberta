@@ -43,3 +43,7 @@ Retain the final JSON and batch progress logs. Require `status=complete`, zero p
 - A crash after object PUT but before SQL commit can leave a content-addressed orphan. It is safe for retry, but actual total bucket occupancy requires an inventory or full audit.
 - Rollback: stop the one-shot job, disable new S3 writes by removing the approved object-store configuration, and roll back application code if needed. Existing DB copies remain intact; do not delete bucket objects or downgrade pointer columns as part of this handoff.
 - No proof here supports reclaiming PostgreSQL disk. That requires the separate D1/D2 gates and remains explicitly out of scope.
+
+## Atualização do coordenador — 2026-10-06
+
+A auditoria real terminou: 14.202 linhas apontam a 14.201 objetos únicos (64.972.169 bytes comprimidos/armazenados; 252.701.649 bytes brutos verificados), zero objetos faltando, órfãos, checksum divergente ou falhas. O migrador de produção registrou 14.200 updates verificados em 569 lotes; há uma linha duplicada por checksum. `raw_body` continua presente nas 14.202 linhas. Economia física PostgreSQL: 0 bytes. A tabela snapshot representa ~108 MB contra 2.331 GB da tabela `laws`; D1/D2 seguem fechados até dual-read/backup de objeto e estratégia de retenção/restore serem demonstrados. O serviço one-shot tem zero uso medido e nenhuma montagem de volume, o serviço `source-snapshot-migration` foi removido depois de auditoria completa; não possuía volume montado e CPU/RAM/disco estavam em zero. Objetos verificados permanecem no bucket e métricas nesta handoff.
