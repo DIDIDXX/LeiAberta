@@ -38,6 +38,8 @@ Fresh Postgres metrics/logs read at approximately `2026-10-06T01:21Z` confirm th
 
 Rechecked at `2026-10-06T01:25Z`: Postgres disk remains **4.996513792 GB** (61 samples; 4.996333568 GB minimum in the preceding hour). Latest Postgres runtime logs at 01:25:15–17Z again show end-of-recovery checkpoint `PANIC: ... No space left on device`, followed by process termination and recovery restarting. Railway's environment status still lists all five services Online/Ready, no issues, and deployments `SUCCESS`; the pending volume resize remains staged and not live. Recent HTTP evidence at 01:20Z still has `/health`, `/api/stats`, `/api/laws`, and `/api/search` returning 500 while `/ready` returns 503. The status/deployment fields do not reflect the live database outage.
 
+At `2026-10-06T01:30Z`, the latest Postgres disk sample is still **4.996513792 GB** and its latest runtime logs again record `PANIC: ... No space left on device` during recovery. Railway environment status still says five services Online/Ready with zero reported issues, and the one 5,000 → 6,500 MB volume patch is staged only. No production action was taken.
+
 Railway runtime logs at `2026-10-06T01:09:37Z` show SQLAlchemy/psycopg failing to connect because Postgres reported recovery mode. At `01:09:40Z`, Railway reported its per-replica limit of 500 log lines/s and **1,410 messages dropped**. Worker logs show the same database recovery/connectivity failure and `wait_for_database_schema` retries at attempts 10, 20, and 30. The worker heartbeat is only started after its schema wait succeeds; it is therefore stale while the worker is waiting for the unavailable DB.
 
 Railway service inventory at review time:
