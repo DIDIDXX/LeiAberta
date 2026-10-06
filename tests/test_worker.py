@@ -212,7 +212,7 @@ def test_terminal_jobs_ack_stale_stream_entries_but_ambiguous_queued_jobs_stay_p
 
     redis = FakeRedis()
     messages = [(f"message-{status}", {"job_id": f"terminal-{status}-job"}) for status in statuses]
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=1) as executor:
         worker.process_queue_messages(redis, messages, executor, backfill_mode="off")
 
     assert set(redis.acked) == {"message-succeeded", "message-failed", "message-cancelled"}

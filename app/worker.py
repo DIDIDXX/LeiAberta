@@ -244,6 +244,7 @@ def run() -> None:
     alesp_sync_future = None
     sinj_sync_future = None
     sapl_sync_future = None
+    ibge_sync_future = None
     refresh_check_seconds = max(300, int(os.getenv("CATALOG_REFRESH_CHECK_SECONDS", "3600")))
     next_refresh_check = time.monotonic()
     senado_batch_seconds = max(300, int(os.getenv("SENADO_TEXT_BATCH_SECONDS", "300")))
@@ -271,6 +272,15 @@ def run() -> None:
                     logger.exception("senado_catalog_refresh_failed")
                     next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 senado_sync_future = None
+            if ibge_sync_future is not None and ibge_sync_future.done():
+                try:
+                    result = ibge_sync_future.result()
+                    logger.info("ibge_jurisdictions_refresh_finished result=%s",
+                                "skipped_fresh" if result.get("skipped_fresh") else result.get("localities", 0))
+                except Exception:
+                    logger.exception("ibge_jurisdictions_refresh_failed")
+                    next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
+                ibge_sync_future = None
             if alesp_sync_future is not None and alesp_sync_future.done():
                 try:
                     result = alesp_sync_future.result()
@@ -353,14 +363,14 @@ def run() -> None:
                         logger.info("senado_catalog_refresh_started")
                 except Exception:
                     logger.exception("senado_catalog_refresh_start_failed")
-                try:
-                    from app.catalog_sync.ibge import sync_ibge_jurisdictions
+                if ibge_sync_future is None:
+                    try:
+                        from app.catalog_sync.ibge import sync_ibge_jurisdictions
 
-                    ibge = sync_ibge_jurisdictions()
-                    logger.info("ibge_jurisdictions_refresh_finished result=%s",
-                                "skipped_fresh" if ibge.get("skipped_fresh") else ibge.get("localities", 0))
-                except Exception:
-                    logger.exception("ibge_jurisdictions_refresh_failed")
+                        ibge_sync_future = catalog_executor.submit(sync_ibge_jurisdictions)
+                        logger.info("ibge_jurisdictions_refresh_started")
+                    except Exception:
+                        logger.exception("ibge_jurisdictions_refresh_start_failed")
                 if alesp_sync_future is None:
                     try:
                         from app.catalog_sync.alesp import sync_alesp_catalog
