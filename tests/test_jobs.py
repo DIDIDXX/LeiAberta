@@ -17,6 +17,59 @@ from app.sources.alesp import AlespHistorySnapshot
 from app.sources.sinj_df import SinjDFHistorySnapshot
 
 
+def test_outbox_preserves_paused_jobs_and_resumes_them_by_mode(db_session, add_law, monkeypatch):
+    laws = [add_law(slug=slug) for slug in (
+        "interactive-outbox", "hot-outbox", "legacy-outbox", "cold-outbox", "unknown-outbox",
+        "terminal-outbox",
+    )]
+    for law in laws:
+        law.hot = False
+    laws[1].hot = True
+    jobs_to_queue = [
+        HydrationJob(id="interactive-outbox-job", law_slug=laws[0].slug, job_type="history",
+                     status="queued", stage_name="queued", message="Aguardando worker"),
+        HydrationJob(id="hot-outbox-job", law_slug=laws[1].slug, job_type="hydrate",
+                     status="queued", stage_name="queued",
+                     message=jobs.BACKGROUND_BACKFILL_MARKER + "Aguardando hot"),
+        HydrationJob(id="legacy-outbox-job", law_slug=laws[2].slug, job_type="hydrate",
+                     status="queued", stage_name="queued", message="Aguardando varredura histórica em lote"),
+        HydrationJob(id="cold-outbox-job", law_slug=laws[3].slug, job_type="hydrate",
+                     status="queued", stage_name="queued",
+                     message=jobs.BACKGROUND_BACKFILL_MARKER + "Aguardando cold"),
+        HydrationJob(id="unknown-outbox-job", law_slug=laws[4].slug, job_type="hydrate",
+                     status="queued", stage_name="retry_wait", message="Erro legado sem marcador"),
+        HydrationJob(id="terminal-outbox-job", law_slug=laws[5].slug, job_type="hydrate",
+                     status="succeeded", stage_name="complete", message="Concluído sem marcador"),
+    ]
+    db_session.add_all(laws + jobs_to_queue)
+    db_session.flush()
+    db_session.add_all([JobOutbox(job_id=item.id) for item in jobs_to_queue])
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    monkeypatch.setenv("REDIS_URL", "redis://fake")
+
+    class FakeRedis:
+        def __init__(self):
+            self.messages = []
+
+        def xadd(self, queue_name, fields):
+            self.messages.append(fields["job_id"])
+
+    fake_redis = FakeRedis()
+    monkeypatch.setattr("redis.Redis.from_url", lambda *args, **kwargs: fake_redis)
+
+    assert jobs.dispatch_outbox(mode="off") == 2
+    assert set(fake_redis.messages) == {"interactive-outbox-job", "terminal-outbox-job"}
+    db_session.expire_all()
+    assert db_session.query(JobOutbox).filter_by(job_id="legacy-outbox-job").one().dispatched_at is None
+    assert db_session.query(JobOutbox).filter_by(job_id="unknown-outbox-job").one().dispatched_at is None
+
+    assert jobs.dispatch_outbox(mode="hot") == 1
+    assert fake_redis.messages[-1] == "hot-outbox-job"
+    assert jobs.dispatch_outbox(mode="continuous") == 3
+    assert set(fake_redis.messages) == {item.id for item in jobs_to_queue}
+
+
 def test_senate_provenance_job_archives_sources_and_persists_dossier(db_session, add_law, monkeypatch):
     law = add_law(slug="14550-2023", number="14.550", year=2023)
     law.source_name = "Senado Federal — Dados Abertos Legislativos"

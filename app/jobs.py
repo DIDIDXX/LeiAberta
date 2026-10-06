@@ -24,12 +24,80 @@ QUEUE_NAME = "leiaberta:hydrate"
 QUEUE_GROUP = "leiaberta-workers"
 ACTIVE_STATUSES = ["queued", "running"]
 MAX_INTERACTIVE_JOB_BATCH = 24
+BACKGROUND_BACKFILL_MODES = {"off", "hot", "continuous"}
+BACKGROUND_BACKFILL_MARKER = "[background-backfill] "
+LEGACY_BACKFILL_MESSAGES = (
+    "Aguardando captura do texto legislativo",
+    "Aguardando captura integral da fonte oficial",
+    "Aguardando varredura histórica em lote",
+)
+INTERACTIVE_JOB_MESSAGES = ("Aguardando worker", "Aguardando fila de processamento")
 _SUBNATIONAL_BACKFILL_CURSORS: dict[str, str] = {}
 _SUBNATIONAL_BACKFILL_SOURCE_CURSOR: str | None = None
 _HISTORY_BACKFILL_CURSORS: dict[str, str] = {}
 _HISTORY_BACKFILL_SOURCE_CURSOR: str | None = None
 _HISTORY_BACKFILL_EXHAUSTED: set[str] = set()
 _HISTORY_BACKFILL_RESCAN_AT: datetime | None = None
+
+
+def background_backfill_mode(value: str | None = None) -> str:
+    """Read the worker's bulk-work policy; the safe default pauses bulk work."""
+    mode = (value if value is not None else os.getenv("BACKGROUND_BACKFILL_MODE", "off")).strip().lower()
+    if mode not in BACKGROUND_BACKFILL_MODES:
+        raise ValueError("BACKGROUND_BACKFILL_MODE must be off, hot, or continuous")
+    return mode
+
+
+def _tag_backfill_message(message: str) -> str:
+    return message if message.startswith(BACKGROUND_BACKFILL_MARKER) else BACKGROUND_BACKFILL_MARKER + message
+
+
+def _backfill_message(message: str | None) -> bool:
+    return bool(message and (message.startswith(BACKGROUND_BACKFILL_MARKER)
+                             or message in LEGACY_BACKFILL_MESSAGES))
+
+
+def _job_message(job: HydrationJob, message: str) -> str:
+    """Retain the durable bulk marker as progress text changes during retries."""
+    if _backfill_message(job.message):
+        return _tag_backfill_message(message)
+    return message
+
+
+def public_job_message(job: HydrationJob) -> str:
+    """Hide the internal queue marker from API clients and the reader UI."""
+    if job.message.startswith(BACKGROUND_BACKFILL_MARKER):
+        return job.message[len(BACKGROUND_BACKFILL_MARKER):]
+    return job.message
+
+
+def _backfill_mode_allows(mode: str, *, hot: bool) -> bool:
+    return mode == "continuous" or (mode == "hot" and hot)
+
+
+def should_process_job(job_id: str, *, mode: str | None = None) -> bool:
+    """Only process known interactive or mode-eligible bulk jobs; defer ambiguity."""
+    policy = background_backfill_mode(mode)
+    if policy == "continuous":
+        return True
+    with SessionLocal() as session:
+        row = session.execute(
+            select(HydrationJob.status, HydrationJob.message, Law.hot)
+            .join(Law, Law.slug == HydrationJob.law_slug)
+            .where(HydrationJob.id == job_id)
+        ).first()
+    if row is None:
+        return True
+    status, message, law_is_hot = row
+    if status in {"succeeded", "failed", "cancelled"}:
+        # The process function's durable terminal guard returns False; ACKing
+        # that stale stream delivery cannot erase retryable or queued work.
+        return True
+    if message in INTERACTIVE_JOB_MESSAGES:
+        return True
+    if _backfill_message(message):
+        return _backfill_mode_allows(policy, hot=bool(law_is_hot))
+    return False
 
 
 def _bounded_backfill_limit(session, requested: int, *, job_type: str, source_names: tuple[str, ...],
@@ -66,7 +134,7 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
             .limit(1)
         )
         if existing:
-            if priority and existing.status == "queued" and existing.stage_name == "queued":
+            if priority and existing.status == "queued" and existing.message != "Aguardando worker":
                 existing.message = "Aguardando worker"
                 session.commit()
                 session.refresh(existing)
@@ -127,10 +195,14 @@ def queue_hydration(law: Law, *, refresh: bool = False) -> HydrationJob:
     return queue_job(law.slug, "hydrate", refresh=refresh, priority=True)
 
 
-def queue_senado_text_batch(*, limit: int = 100) -> dict:
+def queue_senado_text_batch(*, limit: int = 100, mode: str | None = None) -> dict:
     """Queue one bounded part of the Senate catalog for text retrieval."""
     if not 1 <= limit <= 500:
         raise ValueError("O lote de textos deve conter de 1 a 500 normas.")
+    policy = background_backfill_mode(mode)
+    if policy == "off":
+        return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                "capacity_reached": False, "paused": True, "jobs": []}
     session = SessionLocal()
     jobs: list[dict] = []
     try:
@@ -178,6 +250,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
                 Law.jurisdiction == "federal",
                 Law.source_name == "Senado Federal — Dados Abertos Legislativos",
                 Law.current_version_id.is_(None),
+                *((Law.hot.is_(True),) if policy == "hot" else ()),
                 or_(no_prior_job, retry_after_repair),
             )
             .order_by(Law.slug)
@@ -187,7 +260,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
         for law in laws:
             job = HydrationJob(
                 id=str(uuid.uuid4()), law_slug=law.slug, job_type="hydrate", status="queued",
-                stage_name="queued", message="Aguardando captura do texto legislativo",
+                stage_name="queued", message=_tag_backfill_message("Aguardando captura do texto legislativo"),
                 created_at=now, updated_at=now,
             )
             law.materialization_status = "preparing"
@@ -202,7 +275,7 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
         session.close()
     if jobs:
         try:
-            dispatch_outbox()
+            dispatch_outbox(mode=policy)
         except Exception as exc:
             logger.warning("senado_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
     return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
@@ -210,11 +283,15 @@ def queue_senado_text_batch(*, limit: int = 100) -> dict:
             "capacity_reached": False, "jobs": jobs}
 
 
-def queue_subnational_text_batch(*, limit: int = 100) -> dict:
+def queue_subnational_text_batch(*, limit: int = 100, mode: str | None = None) -> dict:
     """Backfill source-published texts from each connected subnational catalog."""
     global _SUBNATIONAL_BACKFILL_SOURCE_CURSOR
     if not 1 <= limit <= 500:
         raise ValueError("O lote de textos subnacionais deve conter de 1 a 500 normas.")
+    policy = background_backfill_mode(mode)
+    if policy == "off":
+        return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                "capacity_reached": False, "paused": True, "queued_by_source": {}, "jobs": []}
     from app.catalog_sync.sapl import SAPL_INSTANCES
 
     supported_source_names = (
@@ -260,6 +337,7 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
                 Law.current_version_id.is_(None),
                 Law.materialization_status.in_(["catalog", "retryable"]),
                 Law.slug > cursor,
+                *((Law.hot.is_(True),) if policy == "hot" else ()),
             ).order_by(Law.slug).limit(scan_limit)
             candidates = list(session.scalars(statement))
             if not candidates and cursor:
@@ -268,6 +346,7 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
                     Law.source_name == source_name, Law.current_version_id.is_(None),
                     Law.materialization_status.in_(["catalog", "retryable"]),
                     Law.slug > cursor,
+                    *((Law.hot.is_(True),) if policy == "hot" else ()),
                 ).order_by(Law.slug).limit(scan_limit)))
             selected = []
             last_scanned = cursor
@@ -297,7 +376,7 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
             for law in selected:
                 job = HydrationJob(
                     id=str(uuid.uuid4()), law_slug=law.slug, job_type="hydrate", status="queued",
-                    stage_name="queued", message="Aguardando captura integral da fonte oficial",
+                    stage_name="queued", message=_tag_backfill_message("Aguardando captura integral da fonte oficial"),
                     created_at=now, updated_at=now,
                 )
                 law.materialization_status = "preparing"
@@ -315,7 +394,7 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
         session.close()
     if jobs:
         try:
-            dispatch_outbox()
+            dispatch_outbox(mode=policy)
         except Exception as exc:
             logger.warning("subnational_text_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
     return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
@@ -323,11 +402,15 @@ def queue_subnational_text_batch(*, limit: int = 100) -> dict:
             "capacity_reached": False, "queued_by_source": queued_by_source, "jobs": jobs}
 
 
-def queue_official_history_batch(*, limit: int = 500) -> dict:
+def queue_official_history_batch(*, limit: int = 500, mode: str | None = None) -> dict:
     """Queue one fair, resumable batch across every connected history adapter."""
     global _HISTORY_BACKFILL_SOURCE_CURSOR, _HISTORY_BACKFILL_RESCAN_AT
     if not 1 <= limit <= 500:
         raise ValueError("O lote de históricos deve conter de 1 a 500 normas.")
+    policy = background_backfill_mode(mode)
+    if policy == "off":
+        return {"queued_count": 0, "limit": 0, "requested_limit": limit,
+                "capacity_reached": False, "paused": True, "queued_by_source": {}, "jobs": []}
     from app.catalog_sync.sapl import SAPL_INSTANCES
     from app.sources.senado import TYPE_CODES
 
@@ -378,6 +461,7 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
             statement = select(Law).where(
                 Law.source_name == source_name,
                 Law.slug > cursor,
+                *((Law.hot.is_(True),) if policy == "hot" else ()),
             ).order_by(Law.slug).limit(scan_limit)
             candidates = list(session.scalars(statement))
             if not candidates and cursor:
@@ -385,6 +469,7 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
                 candidates = list(session.scalars(select(Law).where(
                     Law.source_name == source_name,
                     Law.slug > cursor,
+                    *((Law.hot.is_(True),) if policy == "hot" else ()),
                 ).order_by(Law.slug).limit(scan_limit)))
             if not candidates:
                 _HISTORY_BACKFILL_EXHAUSTED.add(source_name)
@@ -421,7 +506,7 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
                 law.coverage = coverage
                 job = HydrationJob(
                     id=str(uuid.uuid4()), law_slug=law.slug, job_type="history", status="queued",
-                    stage_name="queued", message="Aguardando varredura histórica em lote",
+                    stage_name="queued", message=_tag_backfill_message("Aguardando varredura histórica em lote"),
                     created_at=now, updated_at=now,
                 )
                 session.add(job)
@@ -446,7 +531,7 @@ def queue_official_history_batch(*, limit: int = 500) -> dict:
         session.close()
     if jobs:
         try:
-            dispatch_outbox()
+            dispatch_outbox(mode=policy)
         except Exception as exc:
             logger.warning("official_history_batch_dispatch_deferred count=%s error=%s", len(jobs), str(exc)[:160])
     return {"queued_count": len(jobs), "limit": batch_limit, "requested_limit": limit,
@@ -515,16 +600,31 @@ def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_f
         session.close()
 
 
-def dispatch_outbox(limit: int = 100) -> int:
+def dispatch_outbox(limit: int = 100, *, mode: str | None = None) -> int:
     redis_url = os.getenv("REDIS_URL", "")
     if not redis_url:
         return 0
+    policy = background_backfill_mode(mode)
     from redis import Redis
     redis = Redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=2, socket_timeout=2)
     session = SessionLocal()
     dispatched = 0
     try:
-        events = list(session.scalars(select(JobOutbox).where(JobOutbox.dispatched_at.is_(None), JobOutbox.available_at <= datetime.now(timezone.utc)).order_by(JobOutbox.id).limit(limit).with_for_update(skip_locked=True)))
+        backfill = or_(HydrationJob.message.like(f"{BACKGROUND_BACKFILL_MARKER}%"),
+                       HydrationJob.message.in_(LEGACY_BACKFILL_MESSAGES))
+        interactive = HydrationJob.message.in_(INTERACTIVE_JOB_MESSAGES)
+        terminal = HydrationJob.status.in_(["succeeded", "failed", "cancelled"])
+        eligible = (HydrationJob.id.is_not(None) if policy == "continuous" else
+                    or_(terminal, interactive, and_(backfill, Law.hot.is_(True))) if policy == "hot" else
+                    or_(terminal, interactive))
+        events = list(session.scalars(
+            select(JobOutbox)
+            .join(HydrationJob, HydrationJob.id == JobOutbox.job_id)
+            .join(Law, Law.slug == HydrationJob.law_slug)
+            .where(JobOutbox.dispatched_at.is_(None),
+                   JobOutbox.available_at <= datetime.now(timezone.utc), eligible)
+            .order_by(JobOutbox.id).limit(limit).with_for_update(skip_locked=True)
+        ))
         for event in events:
             redis.xadd(QUEUE_NAME, {"job_id": event.job_id})
             event.dispatched_at = datetime.now(timezone.utc)
@@ -548,7 +648,7 @@ def _update_job(session, job: HydrationJob, *, status: str | None = None, stage:
         job.stage = stage
         job.stage_name = {0: "queued", 1: "source", 2: "fetch", 3: "parse", 4: "validate", 5: "complete"}.get(stage, "processing")
     if message is not None:
-        job.message = message
+        job.message = _job_message(job, message)
     if error is not None:
         job.error = error
     if status in {"succeeded", "failed", "cancelled"}:
@@ -717,11 +817,11 @@ def _process_history_job(job_id: str) -> None:
         job.stage = 5
         job.stage_name = "discovered"
         if provider == "senado":
-            job.message = (f"{len(relations)} referências oficiais e {linked_changes} comparações textuais verificadas; "
-                           f"{pending_text} referências continuam sem redação conferida")
+            job.message = _job_message(job, f"{len(relations)} referências oficiais e {linked_changes} comparações textuais verificadas; "
+                                       f"{pending_text} referências continuam sem redação conferida")
         else:
-            job.message = (f"{len(relations)} referências oficiais registradas nesta fonte; "
-                           "ela não fornece redações anteriores suficientes para comparar cada alteração")
+            job.message = _job_message(job, f"{len(relations)} referências oficiais registradas nesta fonte; "
+                                       "ela não fornece redações anteriores suficientes para comparar cada alteração")
         job.error = ""
         job.lease_until = None
         job.updated_at = datetime.now(timezone.utc)
@@ -768,14 +868,14 @@ def _process_senate_provenance_job(job_id: str) -> None:
         job.stage = 5
         job.stage_name = "complete"
         if data["status"] == "no_process":
-            job.message = "Consulta exata ao Senado concluída; nenhum processo vinculado foi listado"
+            job.message = _job_message(job, "Consulta exata ao Senado concluída; nenhum processo vinculado foi listado")
         else:
             process_count = data.get("processes_loaded", 0)
             amendment_count = sum(len(item.get("amendments", [])) for item in data.get("processes", []))
             vote_count = sum(len(item.get("committee_votes", [])) + len(item.get("plenary_votes", []))
                              for item in data.get("processes", []))
-            job.message = (f"{process_count} processo(s), {amendment_count} emenda(s) e "
-                           f"{vote_count} sessão(ões) de votação consultados no Senado")
+            job.message = _job_message(job, f"{process_count} processo(s), {amendment_count} emenda(s) e "
+                                       f"{vote_count} sessão(ões) de votação consultados no Senado")
         job.error = ""
         job.lease_until = None
         job.updated_at = datetime.now(timezone.utc)
@@ -908,18 +1008,18 @@ def process_hydration_job(job_id: str) -> bool:
                 delay = min(3600, 15 * (2 ** max(0, failed.attempts - 1)))
                 failed.status = "queued"
                 failed.stage_name = "retry_wait"
-                failed.message = f"Fonte temporariamente indisponível; nova tentativa em aproximadamente {delay} s"
+                failed.message = _job_message(failed, f"Fonte temporariamente indisponível; nova tentativa em aproximadamente {delay} s")
                 outbox.available_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
                 outbox.dispatched_at = None
                 outbox.last_error = failed.error
             else:
                 failed.status = "failed"
                 failed.stage_name = "failed"
-                failed.message = (
+                failed.message = _job_message(failed, (
                     "A fonte oficial não fornece um texto compatível"
                     if isinstance(exc, SourceDocumentUnavailable) else
                     "O processamento falhou após novas tentativas"
-                )
+                ))
                 law = retry_session.get(Law, failed.law_slug)
                 if law:
                     if failed.job_type == "history":
@@ -1131,7 +1231,7 @@ def _process_hydration_job_unchecked(job_id: str) -> None:
 
         job.stage = 4
         job.stage_name = "validate"
-        job.message = "Conferindo referências de alteração"
+        job.message = _job_message(job, "Conferindo referências de alteração")
         job.updated_at = datetime.now(timezone.utc)
         linked_changes = _verified_lmp_changes(session, law, version, nodes) if law.slug == "11340-2006" else 0
         law.current_version_id = version.id

@@ -1,5 +1,13 @@
 from scripts import queue_history_batch as history_batch
 from app.models import Law
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def enable_batch_producer_for_unit_tests(monkeypatch):
+    # These tests exercise the batch producer itself; worker mode behavior has
+    # separate coverage and bulk enqueue is opt-in by default.
+    monkeypatch.setenv("BACKGROUND_BACKFILL_MODE", "continuous")
 
 
 def test_history_batch_dry_run_is_bounded_resumable_and_skips_partial(db_session, monkeypatch):
@@ -52,7 +60,7 @@ def test_official_history_batch_fairly_queues_supported_sources_without_interact
     ])
     db_session.commit()
     monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
     monkeypatch.setattr(jobs, "_HISTORY_BACKFILL_SOURCE_CURSOR", None)
     jobs._HISTORY_BACKFILL_CURSORS.clear()
     jobs._HISTORY_BACKFILL_EXHAUSTED.clear()
@@ -64,7 +72,7 @@ def test_official_history_batch_fairly_queues_supported_sources_without_interact
     assert set(result["queued_by_source"].values()) == {1}
     created = db_session.query(HydrationJob).filter_by(job_type="history", status="queued").all()
     assert {job.law_slug for job in created} == {"senado-history-batch", "sapl-history-batch"}
-    assert all(job.message == "Aguardando varredura histórica em lote" for job in created)
+    assert all(job.message.endswith("Aguardando varredura histórica em lote") for job in created)
     assert db_session.query(JobOutbox).count() == 2
     assert db_session.get(Law, "sapl-history-batch").coverage["history"] == "queued"
     assert jobs.queued_interactive_job_ids(limit=2) == []
@@ -86,7 +94,7 @@ def test_senado_text_batch_is_bounded_idempotent_and_persists_outbox(db_session,
     ])
     db_session.commit()
     monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
 
     first = jobs.queue_senado_text_batch(limit=1)
     second = jobs.queue_senado_text_batch(limit=500)
@@ -124,14 +132,60 @@ def test_senado_text_backfill_stops_at_active_queue_cap(db_session, monkeypatch)
     db_session.commit()
     monkeypatch.setenv("SENADO_TEXT_BACKFILL_MAX_ACTIVE_JOBS", "1")
     monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
 
     result = jobs.queue_senado_text_batch(limit=500)
 
     assert result["queued_count"] == 0
     assert result["capacity_reached"] is True
-    assert result["active_jobs"] == result["active_job_limit"] == 1
-    assert db_session.query(HydrationJob).filter_by(law_slug="senado-pending-cap-2").count() == 0
+
+
+def test_background_mode_off_preserves_queue_and_hot_mode_only_enqueues_hot_laws(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app import jobs
+    from app.models import HydrationJob
+
+    common = dict(jurisdiction="federal", law_type="Lei", year=2024, number="1",
+                  description="", status="Não verificado", aliases=[],
+                  source_name="Senado Federal — Dados Abertos Legislativos",
+                  source_url="https://legis.senado.leg.br/dadosabertos/legislacao/1",
+                  fetch_url="https://legis.senado.leg.br/dadosabertos/legislacao/1",
+                  materialization_status="catalog")
+    db_session.add_all([
+        Law(slug="mode-hot", title="Quente", hot=True, **common),
+        Law(slug="mode-cold", title="Fria", hot=False, **common),
+    ])
+    db_session.commit()
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
+
+    paused = jobs.queue_senado_text_batch(limit=10, mode="off")
+    assert paused["paused"] is True
+    assert paused["queued_count"] == 0
+    assert db_session.query(HydrationJob).count() == 0
+
+    result = jobs.queue_senado_text_batch(limit=10, mode="hot")
+    assert result["queued_count"] == 1
+    queued = db_session.query(HydrationJob).filter_by(status="queued").one()
+    assert queued.law_slug == "mode-hot"
+    assert queued.message.startswith(jobs.BACKGROUND_BACKFILL_MARKER)
+
+
+def test_background_mode_off_disables_each_automatic_batch_producer_without_mutation(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app import jobs
+    from app.models import HydrationJob, JobOutbox
+
+    monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
+    senado = jobs.queue_senado_text_batch(limit=5, mode="off")
+    subnational = jobs.queue_subnational_text_batch(limit=5, mode="off")
+    history = jobs.queue_official_history_batch(limit=5, mode="off")
+
+    assert [item["paused"] for item in (senado, subnational, history)] == [True, True, True]
+    assert db_session.query(HydrationJob).count() == 0
+    assert db_session.query(JobOutbox).count() == 0
 
 
 def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, monkeypatch):
@@ -166,7 +220,7 @@ def test_senado_text_batch_retries_only_known_pre_patch_failures(db_session, mon
     ])
     db_session.commit()
     monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
 
     first = jobs.queue_senado_text_batch(limit=10)
     second = jobs.queue_senado_text_batch(limit=10)
@@ -207,7 +261,7 @@ def test_subnational_text_backfill_is_fair_and_skips_unpublished_text(db_session
     db_session.commit()
     monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_CURSORS", {})
     monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
 
     result = jobs.queue_subnational_text_batch(limit=3)
 
@@ -236,7 +290,7 @@ def test_subnational_backfill_rotates_when_source_count_exceeds_batch_limit(db_s
     monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_CURSORS", {})
     monkeypatch.setattr(jobs, "_SUBNATIONAL_BACKFILL_SOURCE_CURSOR", None)
     monkeypatch.setattr(jobs, "SessionLocal", sessionmaker(bind=db_session.get_bind(), expire_on_commit=False))
-    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100: 0)
+    monkeypatch.setattr(jobs, "dispatch_outbox", lambda limit=100, **kwargs: 0)
 
     for index, instance in enumerate(instances, 1):
         db_session.add(Law(

@@ -22,7 +22,7 @@ from xml.sax.saxutils import escape
 
 from app.db import get_session
 from app.audit import audit_archived_document
-from app.jobs import queue_history, queue_hydration, queue_provenance
+from app.jobs import public_job_message, queue_history, queue_hydration, queue_provenance
 from app.catalog_sync.sapl import SAPL_SOURCE_NAMES
 from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SenateProceeding, SourceRegistry, SourceSnapshot
 from app.search import search_laws
@@ -367,7 +367,7 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
             "id": version.id, "name": version.version_name, "source_url": version.source_url,
             "retrieved_at": version.retrieved_at.isoformat(), "checksum": version.checksum,
         } if version else None,
-        "job": {"id": job.id, "status": job.status, "stage": job.stage, "message": job.message} if job else None,
+        "job": {"id": job.id, "status": job.status, "stage": job.stage, "message": public_job_message(job)} if job else None,
         "materializable": materializable,
     }
 
@@ -516,7 +516,7 @@ def law_history(slug: str, session: Session = Depends(get_session)):
         "status": status,
         "coverage": status,
         "job": {"id": active_job.id, "status": active_job.status, "stage": active_job.stage_name,
-                "message": active_job.message, "attempts": active_job.attempts} if active_job else None,
+                "message": public_job_message(active_job), "attempts": active_job.attempts} if active_job else None,
         "checked_at": coverage.get("history_checked_at"),
         "events_pending_text": coverage.get("history_events_pending_text", 0),
         "error": coverage.get("history_error"),
@@ -542,7 +542,7 @@ def prepare_history(slug: str, session: Session = Depends(get_session)):
         job = queue_history(law)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Não foi possível registrar o job de histórico.") from exc
-    return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": job.message,
+    return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": public_job_message(job),
             "job_type": job.job_type, "attempts": job.attempts}
 
 
@@ -563,7 +563,7 @@ def law_proceedings(slug: str, session: Session = Depends(get_session)):
         "checked_at": dossier.checked_at.isoformat() if dossier and dossier.checked_at else None,
         "error": dossier.error if dossier and dossier.error else (law.coverage or {}).get("senate_provenance_error"),
         "job": {"id": active_job.id, "status": active_job.status, "stage": active_job.stage_name,
-                "message": active_job.message, "attempts": active_job.attempts} if active_job else None,
+                "message": public_job_message(active_job), "attempts": active_job.attempts} if active_job else None,
         "processes": (dossier.data or {}).get("processes", []) if dossier else [],
         "notice": (dossier.data or {}).get("notice") if dossier else None,
         "matching_processes_found": (dossier.data or {}).get("matching_processes_found", 0) if dossier else 0,
@@ -583,7 +583,7 @@ def prepare_law_proceedings(slug: str, refresh: bool = Query(False), session: Se
         job = queue_provenance(law, refresh=refresh)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Não foi possível registrar o job de tramitação.") from exc
-    return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": job.message,
+    return {"id": job.id, "status": job.status, "stage": job.stage_name, "message": public_job_message(job),
             "job_type": job.job_type, "attempts": job.attempts}
 
 
@@ -636,7 +636,7 @@ def hydrate_law(slug: str, session: Session = Depends(get_session)):
         raise HTTPException(status_code=409, detail="O catálogo só encontrou metadados oficiais; esta fonte ainda não fornece texto integral pelo LeiAberta.")
     refresh = False
     job = queue_hydration(law, refresh=refresh)
-    return {"job_id": job.id, "status": job.status, "stage": job.stage, "message": job.message}
+    return {"job_id": job.id, "status": job.status, "stage": job.stage, "message": public_job_message(job)}
 
 
 @app.get("/api/hydration/{job_id}")
@@ -647,7 +647,7 @@ def hydration_status(job_id: str, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Preparação não encontrada.")
     return {"id": job.id, "law_slug": job.law_slug, "job_type": job.job_type,
             "status": job.status, "stage": job.stage_name, "progress": job.stage,
-            "message": job.message, "error": job.error if job.status == "failed" else "",
+            "message": public_job_message(job), "error": job.error if job.status == "failed" else "",
             "attempts": job.attempts, "updated_at": job.updated_at.isoformat()}
 
 
