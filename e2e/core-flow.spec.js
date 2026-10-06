@@ -126,15 +126,15 @@ test("copy links for the comparison, article, and evidence views", async ({ page
   await page.goto("/diff/be3a1531-edaa-5a78-94ca-70c6544e3853");
   await page.getByRole("button", { name: "Copiar link desta alteração" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\\/diff\\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/diff\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
 
   await page.goto("/lei/10406-2002/artigo/389");
   await page.getByRole("button", { name: "Copiar link deste artigo" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\\/lei\\/10406-2002\\/artigo\\/389/);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/lei\/10406-2002\/artigo\/389/);
 
   await page.goto("/lei/10406-2002/blame?node=art%3A389");
   await page.getByRole("button", { name: "Copiar link desta evidência" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\\/lei\\/10406-2002\\/blame\\?node=art%3A389/);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/lei\/10406-2002\/blame\?node=art%3A389/);
 });
