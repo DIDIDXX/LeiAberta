@@ -16,7 +16,7 @@
 - Added short cache headers to successful GETs for `/api/stats`, `/api/laws`, and `/api/search`, permitting browser and shared-cache reuse without claiming long freshness.
 - Downgraded search query/result logging to DEBUG and removed the raw query from the application log line.
 - Made `/health` and `/api/health` pure process liveness checks; `/ready` remains a database plus schema check and returns 503 on connection failure or schema mismatch.
-- Mapped only SQLAlchemy `OperationalError` from application requests to a generic 503 with `Retry-After` and `no-store`. Readiness keeps its explicit 503 path. Other SQLAlchemy exceptions are not normalized as outages. Database outage logs are rate-limited to one per 30 seconds and aggregate suppressed failures without printing driver exception details.
+- Mapped only SQLAlchemy `OperationalError` from application requests to a generic 503 with `Retry-After` and `no-store`. Readiness maps SQLAlchemy failures while querying the schema table to its explicit generic 503; other SQLAlchemy exceptions on normal application requests are not normalized as outages. Database outage logs are rate-limited to one per 30 seconds and aggregate suppressed failures without printing driver exception details.
 - No migration, schema/index, Railway setting, production data, or secret was changed.
 
 ## Validation
