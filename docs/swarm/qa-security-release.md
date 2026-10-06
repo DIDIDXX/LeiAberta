@@ -3,7 +3,8 @@
 **Reviewer:** QA/security/release agent
 **Review base:** `main` at `22ab226` (`docs: mark v0.1.0 release complete (#80)`)
 **Environment reviewed:** Railway production, read-only
-**Observation time:** 2026-10-06 01:06–01:44 UTC
+**Production observation:** 2026-10-06 01:06–01:45 UTC
+**Test refresh:** 2026-10-06 01:57 UTC
 **Scope:** production HTTP/health/5xx, recent runtime logs and deployment state, prior backup/restore evidence, application rate limits/log behavior, existing Python/E2E suite and failover gaps. No Railway configuration, database, data, secrets, or deployments were changed.
 
 ## Release decision
@@ -86,24 +87,25 @@ Other noted limitations: the rate limiter is global, not per-client; it fails op
 
 On the isolated `codex/qa-security-release` worktree at base `22ab226`:
 
-- `pytest -q` on the reviewed base: **150 passed**, 1 upstream Starlette/httpx deprecation warning. After adding the prompt-aligned matrix coverage below, the focused API/history/source tests passed: **37 passed**, 1 upstream deprecation warning.
-- After `npm ci` and installing Chromium, `npm run test:e2e`: **2 passed** (real art. 389 before/after + device evidence; keyboard search selection of LGPD; home checked at 390/430/768/1440 px for horizontal overflow).
-- The E2E test setup uses a local SQLite database and seeded fixture; it does not prove production PostgreSQL availability or failover.
-- Prior launch docs record a manual browser matrix of **36 combinations** (9 routes × 390/430/768/1440 px); this review did not rerun that matrix because the live DB-backed routes are currently failing. Current automated Playwright suite has 2 tests, not 36 browser-route-width cases.
-- No destructive, outage-inducing, high-rate, or production failover test was run.
+- `pytest -q`: **150 passed**, 1 upstream Starlette/httpx deprecation warning.
+- `npm run test:e2e`: **4 passed**. This includes the archived art. 389 comparison, the legal text page and provenance, history → before/after/source, LGDP keyboard search, and the route/viewport smoke matrix below.
+- The matrix loaded **9 routes × 4 viewport widths = 36 route/viewport combinations** (390, 430, 768, 1440 px). Each case asserted route heading, no horizontal overflow, and no uncaught browser page errors. The `fontes` case checks its explicit empty-data state; `cobertura` checks seeded catalog metrics and the Federal section.
+- E2E uses a freshly migrated local SQLite `.e2e.db`, seeded from `app.seed` and `scripts.seed_e2e_demo`. It explicitly unsets `REDIS_URL`, does not enable `LOCAL_INLINE_JOBS`, and aborts browser requests outside localhost. The LGPD flow reaches a persistent queued/preparing state only; the worker is intentionally not run and the source adapter is not called. This verifies the UI's queued state, **not** completed hydration or production availability.
+- There are no `SourceRegistry` rows in the local seed: `/fontes` displays its designed empty state, not populated source records. The legal source links and provenance evidence are tested from the existing archived comparison fixture.
+- No destructive, outage-inducing, high-rate, worker completion, production failover, or cutover test was run.
 
 ### Acceptance matrix against the launch prompt
 
 | Prompt flow / viewport | Evidence exercised | Status and remaining gap |
 | --- | --- | --- |
-| Existing law before/after and provenance evidence | Browser E2E opens the existing Código Civil art. 389 comparison, checks both texts and official-source link, then opens device evidence. | **Pass locally.** Fixture is seeded in SQLite; this does not validate Railway/Postgres. |
-| Search by a typo and keyboard operation | Browser E2E types `LGDP`, moves to the LGPD result with ArrowDown, checks `aria-selected`, presses Enter, and checks navigation. | **Pass locally.** One known result/query exercised. |
-| Home at 390, 430, 768, and 1440 px | Browser E2E checks the home heading and `scrollWidth <= innerWidth` at each requested width. | **Pass for home only.** No all-route viewport sweep or visual comparison at those widths was run. |
-| Law history page, queued/running/partial states, and preparing history | Python API/job tests cover `test_history_is_explicitly_not_requested_until_a_real_job_exists`, `test_history_prepare_creates_a_persisted_job`, `test_queued_text_hydration_does_not_claim_history_is_being_prepared`, and persisted official-history fixtures. | **Backend tests only.** Browser history route, status polling, error/retry presentation, and accessibility were not E2E-tested. |
-| Cold catalog law → interactive hydration queued → worker completion | API test `test_senado_catalog_entry_can_queue_text_without_claiming_it_is_ready` and launch fixture test for catalog search/hydration/retry cover the API queue response and idempotence. | **Partial.** No browser-triggered cold-law flow or end-to-end worker completion was exercised. |
-| Coverage and sources pages | Python coverage/stats and `test_sources_api_exposes_success_freshness_and_delta_fields` exercise supporting API data. | **Partial.** Browser routes `/cobertura` and `/fontes`, their source links, and loading/error states were not E2E-tested. |
-| Keyboard/accessibility beyond search | Searchbox accessible name and ArrowDown/Enter are exercised in browser E2E. | **Partial.** No full keyboard-only route traversal, focus-order audit, screen-reader check, or automated WCAG scan was run. |
-| Browser route × width matrix | Prior launch documentation lists 9 routes × 390/430/768/1440 px (36 combinations). | **Not run as a full matrix.** Only home was checked at all four widths; comparison/provenance E2E used the default Playwright viewport. |
+| Existing law/article, before/after, official source and provenance | E2E opens Código Civil art. 389, follows “Por que este artigo está assim?” to the verified fixture provenance, checks the Planalto law link and modifier link, then opens history → recorded before/after. | **Pass locally.** Seeded archived fixture only; source-domain link is asserted but never fetched. Not production PostgreSQL validation. |
+| Search by `LGDP` typo and keyboard operation | Home skip-link is reached with Tab/Enter; searchbox accessible name is checked, ArrowDown selects the LGPD suggestion (`aria-selected`), Enter opens the federal LGPD catalog page. | **Pass locally.** The test sees a queued/preparing job and official Planalto link. No worker completion is claimed. |
+| History state and diff when a pair exists | Existing Civil Code fixture starts with partial history and one before/after pair; E2E checks history status/entry, follows its diff link and asserts both sides/source. | **Pass for this fixture.** Running/failed polling and retry UI are still backend-only; no live source history adapter is called. |
+| Coverage and sources pages | Browser reaches `/cobertura`, checks seeded catalog metric labels/Federal group; `/fontes` loads its explicit no-registries state. | **Route/fallback pass only.** Fixture contains no SourceRegistry records, so populated sources, status/freshness content, and their external links are not represented. |
+| Keyboard/accessibility beyond search | Keyboard-only skip-link activation and accessible searchbox + ArrowDown/Enter are tested. | **Partial.** No complete route traversal by keyboard, focus-order audit, screen-reader check, or automated WCAG scan. |
+| Browser route × width matrix | Playwright visits `/`, `/buscar?q=LGDP`, law page, article, history, blame, diff, `/fontes`, `/cobertura` at 390/430/768/1440 px. Each asserts route heading, no horizontal overflow and no page error. | **36/36 local fixture cases pass.** No screenshot/visual regression comparison; matrix cannot establish production DB behavior. |
+| Cold catalog law → interactive hydration queued → worker completion | LGPD typo search opens a catalog-only law; the local DB persists the priority job and UI shows preparing/queued state. Inline worker and Redis are disabled; non-local network requests are blocked. | **Queued state passes locally; worker completion is deliberately not available in this E2E setup.** No claim of hydration completion or source availability. |
+| Production history/coverage/source and failover | Railway evidence above still shows Postgres recovery and high 5xx. | **Not run against production.** Remains release-gated on owner resize/2FA, recovery, HTTP/readiness and post-recovery backup. |
 
 ## Release gates
 
@@ -135,7 +137,7 @@ All six PRs below are open, unmerged, based on `22ab2262678e040879f6220bae4f5c4c
 | PR | Exact head | Current CI | Review / remaining gate |
 | --- | --- | --- | --- |
 | #81 Query protection | `0beb637a65ca6409e3729ea3c9424a14492db606` | run #83: success; local `pytest -q`: 162 passed (reported by author) | Reviewed current code: pure liveness vs DB readiness; OperationalError 503; throttled no-detail outage logs; Redis/local bounded rate budgets and snapshots. Snapshot caches intentionally stale up to 5 min; no production check/deploy. |
-| #82 QA handoff | `fd210e2807567d47357cc51939295c7219cb3aeb` before this report refresh | run #78: success | This report update will trigger CI. Local base suite 150 passed; focused API/history/source 37 passed; E2E 2 passed. Acceptance gaps below remain. |
+| #82 QA handoff | This report is the current PR #82 head; check exact SHA/status in the PR | prior run #78: success | Local `pytest -q`: 150 passed; latest `npm run test:e2e`: 4 passed, including 36 route/viewport cases; current branch CI must pass before merge. Production-only gates remain. |
 | #83 OSS cost/support docs | `485f56bccf7fad6e7d2959e62cef91a1968e93a1` | run #82: success | Documentation only; Railway bill and actual post-recovery cost pivot remain unverified. |
 | #84 Snapshot storage | `ea92064040abae106ee13185fff1129c6b5f7600` | run #84: success | Additive migration and dry-run-first uploader not applied; bucket/credentials, actual sizing, retention and production restore/cutover remain unverified. |
 | #85 Accessible deep links | `94747386993ced5de966d68465e2a6945384bc21` | run #71: success | Local 159 Python tests and 2 E2E passed (reported); no production deployment or live URL/copy behavior verified. |
