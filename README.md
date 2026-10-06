@@ -30,7 +30,7 @@ A home abre o diff registrado do art. 389 do Código Civil: a redação anterior
 - Leitor com IDs estáveis para artigos e subdivisões.
 - Histórico que distingue comparação textual de relação oficial ainda sem texto histórico pareado.
 - Explicação e Blame por dispositivo: ato modificador verificado quando disponível, lacuna explícita quando não.
-- Páginas públicas de [fontes](/fontes), [cobertura](/cobertura) e [sobre](/sobre).
+- Páginas públicas de [fontes](https://web-production-12e95.up.railway.app/fontes), [cobertura](https://web-production-12e95.up.railway.app/cobertura) e [sobre](https://web-production-12e95.up.railway.app/sobre).
 - Snapshots oficiais, SHA-256, versão do parser e jobs duráveis para hidratação e histórico.
 
 ## Arquitetura
@@ -98,6 +98,14 @@ Testes de parser e integração usam fixtures; não dependem de os portais ofici
 ## Fontes e limites
 
 Há adaptadores para catálogos do Senado, IBGE, ALESP, SINJ-DF e instalações SAPL selecionadas. As páginas do site e `GET /api/sources` mostram o estado observado. O acervo não é a totalidade da legislação brasileira, e nem todo metadado tem texto integral disponível. Normas.leg.br pode classificar transcrições como não oficiais; essa classificação é preservada.
+
+## Operação e custo
+
+O desenho operacional deve manter a descoberta automática de normas sem transformar o catálogo em hidratação histórica ilimitada. A política de custo é conservar sincronização leve de metadados, priorizar texto solicitado por pessoas e limitar qualquer materialização em lote por orçamento, observabilidade e possibilidade de pausa. Não afirmar economia, capacidade ou estabilidade após uma mudança sem comparar métricas equivalentes antes/depois e conferir a fatura Railway. O custo real atual é desconhecido até essa medição; cenários baseados em métricas e preços públicos são apenas estimativas.
+
+## Suporte
+
+Relate erro jurídico com dispositivo e fonte oficial por [uma issue de dados jurídicos](https://github.com/DIDIDXX/LeiAberta/issues/new/choose). Não há provedor de doação/pagamento integrado. Se for adicionado um CTA opcional com `SUPPORT_URL`, ele só deve ser renderizado quando a configuração tiver uma URL válida; sem configuração, não deve haver link quebrado. Esta seção não afirma que o CTA já está implementado.
 
 ## Contribuir
 
