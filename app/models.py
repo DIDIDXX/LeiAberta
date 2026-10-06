@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -120,6 +120,11 @@ class SourceSnapshot(Base):
     checksum: Mapped[str] = mapped_column(String(64), index=True)
     raw_format: Mapped[str] = mapped_column(String(80), default="text/html; charset=iso-8859-1")
     raw_body: Mapped[bytes] = mapped_column(LargeBinary)
+    # Optional external replica. raw_body remains authoritative fallback until a
+    # separately reviewed migration removes it after complete integrity checks.
+    storage_backend: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    object_key: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 

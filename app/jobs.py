@@ -16,6 +16,7 @@ from app.audit import audit_archived_document
 from app.catalog import AMENDING_LAWS
 from app.db import SessionLocal
 from app.models import HistoryEvent, HydrationJob, JobOutbox, Law, LawChange, LawVersion, LegalNode, SenateProceeding, SourceSnapshot
+from app.storage.source_snapshots import archive_snapshot_object
 from app.sources.normas import SourceDocumentUnavailable
 from app.sources.planalto import PARSER_VERSION, ParsedNode, detect_raw_format, extract_paragraphs, fetch_official_html, parse_legal_nodes, source_note_for_law
 
@@ -494,11 +495,33 @@ def archive_source_document(law_slug: str, source_url: str, checksum: str, raw_f
         if snapshot:
             if snapshot.version_id is None and version_id is not None:
                 snapshot.version_id = version_id
+            if not snapshot.object_key:
+                try:
+                    object_ref = archive_snapshot_object(snapshot.raw_body, snapshot.checksum)
+                except Exception as exc:
+                    logger.warning("source_snapshot_object_write_failed id=%s error_type=%s; retaining database copy",
+                                   snapshot.id, type(exc).__name__)
+                    object_ref = None
+                if object_ref:
+                    snapshot.storage_backend = object_ref.backend
+                    snapshot.object_key = object_ref.object_key
+                    snapshot.size_bytes = object_ref.size_bytes
             session.commit()
             return snapshot.id
+        try:
+            object_ref = archive_snapshot_object(raw_body, checksum)
+        except Exception as exc:
+            # The retained PostgreSQL copy remains the system of record during
+            # rollout; an unavailable object store must not drop source bytes.
+            logger.warning("source_snapshot_object_write_failed law=%s error_type=%s; retaining database copy",
+                           law_slug, type(exc).__name__)
+            object_ref = None
         snapshot = SourceSnapshot(
             law_slug=law_slug, version_id=version_id, source_url=source_url,
             checksum=checksum, raw_format=raw_format, raw_body=raw_body,
+            storage_backend=object_ref.backend if object_ref else None,
+            object_key=object_ref.object_key if object_ref else None,
+            size_bytes=object_ref.size_bytes if object_ref else None,
         )
         session.add(snapshot)
         try:
