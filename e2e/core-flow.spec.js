@@ -1,10 +1,12 @@
 const { test, expect } = require("@playwright/test");
 
 test("real existing article: home to before/after comparison and device evidence", async ({ page }) => {
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:8012" });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
   await page.getByRole("link", { name: /Veja o antes e depois de um artigo/ }).click();
   await expect(page).toHaveURL(/\/diff\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
+  await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("link", { name: "Código Civil" })).toBeVisible();
   await expect(page.getByText("Data registrada: 28 de jun. de 2024")).toBeVisible();
   await expect(page.getByText("Comparação registrada", { exact: true })).toBeVisible();
@@ -13,9 +15,22 @@ test("real existing article: home to before/after comparison and device evidence
   await expect(page.getByText(/segundo índices oficiais regularmente estabelecidos/)).toBeVisible();
   await expect(page.getByText(/juros, atualização monetária e honorários de advogado/)).toBeVisible();
   await expect(page.getByText(/valor jurídico não oficial/)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   await expect(page.getByRole("link", { name: /Versão da comparação no Normas.leg.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
-  await page.getByRole("link", { name: /Ver evidências deste dispositivo/ }).click();
+  await page.getByRole("button", { name: "Copiar link desta alteração" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/diff\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
+  await page.getByRole("link", { name: "Ler o artigo atual →" }).click();
+  await expect(page).toHaveURL(/\/lei\/10406-2002\/artigo\/389/);
+  await page.getByRole("button", { name: "Copiar link deste artigo" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/lei\/10406-2002\/artigo\/389/);
+  await page.getByRole("link", { name: /Por que este artigo está assim/ }).click();
   await expect(page).toHaveURL(/\/lei\/10406-2002\/blame\?node=/);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  await page.getByRole("button", { name: "Copiar link desta evidência" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Link copiado." })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\/lei\/10406-2002\/blame\?node=art%3A389/);
   await expect(page.getByText(/O ato abaixo tem comparação de texto registrada/)).toBeVisible();
   await expect(page.getByRole("link", { name: /Ver antes e depois/ })).toBeVisible();
 });
