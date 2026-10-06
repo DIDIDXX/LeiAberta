@@ -61,3 +61,9 @@ The catalog refresh paths also differ: Senate metadata freshness is 24 hours; AL
 ## Recovery acceptance
 
 Close the incident only after Postgres accepts connections; readiness and critical API smoke checks pass; the disk stays below the agreed budget; a new backup is confirmed; bulk work is paused; worker memory and queue state are stable; and there are no new disk-full logs during a meaningful observation window. Record timestamps, metric windows, commit SHA, and rollback actions in `docs/reports/p0-db-full-incident.md`.
+
+## Estado operacional — 2026-10-06 19:50 UTC
+
+Medição atual do serviço Postgres azul: 65.7% no último ponto e pico de 66.1% na janela de 1 h; todas 61 amostras ficam abaixo de 70%. A janela inclui um ciclo SAPL que processou 20 páginas/4.000 registros; o delta total de disco foi pequeno (max 3.3036 GB e último 3.2868 GB), sujeito a WAL/reuso.
+
+O coordenador ajustou `SAPL_FULL_PAGES_PER_CYCLE=4` (deploy `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` SUCCESS; log real confirmou 4 páginas, 8 probes, zero erros) enquanto preserva probes incrementais. Um ciclo/h sem erros dá no máximo aproximado de 9.600 linhas paginadas/dia, mas retries podem adiantar ciclo; não é controle rígido por bytes. Monitorar antes/depois do deploy. Em 70% alertar/revisar SQL e growth; 80% pausar bulk full-catalog não essencial; 85% interromper produtores não essenciais e tratar como P0. A aplicação não lê métricas Railway e não há auto-pause confiável. Nunca executar `VACUUM FULL`, `REINDEX` ou `pg_repack` sem espaço/lock/runbook medidos.
