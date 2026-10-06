@@ -117,7 +117,7 @@ def test_readiness_returns_bounded_503_when_database_connection_fails():
     assert "secret" not in response.text
 
 
-def test_readiness_does_not_misclassify_other_sqlalchemy_errors_as_outages():
+def test_readiness_converts_schema_query_errors_to_bounded_503():
     from sqlalchemy.exc import ProgrammingError
 
     class InvalidQuerySession:
@@ -129,8 +129,29 @@ def test_readiness_does_not_misclassify_other_sqlalchemy_errors_as_outages():
 
     app.dependency_overrides[get_session] = override_session
     try:
+        response = TestClient(app).get("/ready")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Database schema is unavailable"}
+    assert "invalid SQL" not in response.text
+
+
+def test_non_operational_sqlalchemy_errors_are_not_normalized_for_application_requests():
+    from sqlalchemy.exc import ProgrammingError
+
+    class InvalidQuerySession:
+        def execute(self, *_args, **_kwargs):
+            raise ProgrammingError("select stats", {}, Exception("invalid SQL"))
+
+    def override_session():
+        yield InvalidQuerySession()
+
+    app.dependency_overrides[get_session] = override_session
+    try:
         with pytest.raises(ProgrammingError):
-            TestClient(app).get("/ready")
+            TestClient(app).get("/api/stats")
     finally:
         app.dependency_overrides.clear()
 
