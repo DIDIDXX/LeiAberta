@@ -79,6 +79,102 @@ def test_readiness_rejects_missing_alembic_schema(db_session):
     assert response.status_code == 503
 
 
+def test_liveness_health_is_independent_of_database(monkeypatch):
+    def unavailable_session():
+        raise AssertionError("liveness must not acquire a database session")
+        yield
+
+    app.dependency_overrides[get_session] = unavailable_session
+    try:
+        response = TestClient(app).get("/health")
+        api_response = TestClient(app).get("/api/health")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+    assert api_response.status_code == 200
+
+
+def test_readiness_returns_bounded_503_when_database_connection_fails():
+    from sqlalchemy.exc import OperationalError
+
+    class UnavailableSession:
+        def scalars(self, *_args, **_kwargs):
+            raise OperationalError("select version_num", {}, Exception("secret connection details"))
+
+    def override_session():
+        yield UnavailableSession()
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/ready")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Database schema is unavailable"}
+    assert "secret" not in response.text
+
+
+def test_readiness_does_not_misclassify_other_sqlalchemy_errors_as_outages():
+    from sqlalchemy.exc import ProgrammingError
+
+    class InvalidQuerySession:
+        def scalars(self, *_args, **_kwargs):
+            raise ProgrammingError("select version_num", {}, Exception("invalid SQL"))
+
+    def override_session():
+        yield InvalidQuerySession()
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        with pytest.raises(ProgrammingError):
+            TestClient(app).get("/ready")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_operational_error_returns_generic_retryable_503_without_driver_details():
+    from sqlalchemy.exc import OperationalError
+
+    class UnavailableSession:
+        def execute(self, *_args, **_kwargs):
+            raise OperationalError("select stats", {}, Exception("password=secret-host"))
+
+    def override_session():
+        yield UnavailableSession()
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/stats")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"detail": "Banco de dados temporariamente indisponível."}
+    assert "password" not in response.text
+    assert "secret-host" not in response.text
+
+
+def test_database_failure_logging_is_throttled_and_reports_suppressed_count(monkeypatch, caplog):
+    from app import main
+
+    monkeypatch.setattr(main, "_last_db_failure_log_at", None)
+    monkeypatch.setattr(main, "_suppressed_db_failure_count", 0)
+    with caplog.at_level("ERROR", logger="leiaberta.api"):
+        main._log_database_failure(now=100)
+        main._log_database_failure(now=110)
+        main._log_database_failure(now=129)
+        main._log_database_failure(now=130)
+
+    entries = [record for record in caplog.records if record.message.startswith("database_unavailable")]
+    assert len(entries) == 2
+    assert [record.args for record in entries] == [(0,), (2,)]
+
+
 def test_public_rate_limit_returns_429_and_retry_after(monkeypatch):
     from app import main
 
@@ -116,6 +212,8 @@ def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip()
     assert _rate_limit_policy("GET", "/api/laws") == ("law-list", 120, 60)
     assert _rate_limit_policy("GET", "/api/stats") == ("stats", 30, 60)
     assert _rate_limit_policy("GET", "/api/laws/13709-2018/nodes") == ("law-detail", 240, 60)
+    for endpoint in ("history", "proceedings", "coverage", "audit"):
+        assert _rate_limit_policy("GET", f"/api/laws/13709-2018/{endpoint}") == ("law-expensive", 90, 60)
     assert _rate_limit_policy("POST", "/api/laws/11340-2006/history/prepare") == ("job-prepare", 60, 60)
     assert _rate_limit_policy("POST", "/api/laws/13709-2018/hydrate") == ("job-prepare", 60, 60)
 
