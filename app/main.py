@@ -17,7 +17,7 @@ from anyio import to_thread
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import case, func, select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from xml.sax.saxutils import escape
 
@@ -40,6 +40,34 @@ TEXT_SOURCE_NAMES = {
 } | set(SAPL_SOURCE_NAMES)
 app = FastAPI(title="LeiAberta", version="0.1.0", description="Catálogo e histórico público de legislação brasileira.")
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")
+
+_db_failure_log_lock = threading.Lock()
+_last_db_failure_log_at: float | None = None
+_suppressed_db_failure_count = 0
+
+
+def _log_database_failure(now: float | None = None) -> None:
+    """Report database outages at most once per 30 seconds without driver details."""
+    global _last_db_failure_log_at, _suppressed_db_failure_count
+    current = time.monotonic() if now is None else now
+    with _db_failure_log_lock:
+        if _last_db_failure_log_at is not None and current - _last_db_failure_log_at < 30:
+            _suppressed_db_failure_count += 1
+            return
+        suppressed = _suppressed_db_failure_count
+        _suppressed_db_failure_count = 0
+        _last_db_failure_log_at = current
+    logger.error("database_unavailable suppressed_failures=%s", suppressed)
+
+
+@app.exception_handler(OperationalError)
+def database_operational_error(_request: Request, _exc: OperationalError):
+    _log_database_failure()
+    return JSONResponse(
+        {"detail": "Banco de dados temporariamente indisponível."},
+        status_code=503,
+        headers={"Retry-After": "5", "Cache-Control": "no-store"},
+    )
 
 _RATE_LIMIT_SCRIPT = """
 local count = redis.call('INCR', KEYS[1])
@@ -68,6 +96,9 @@ def _rate_limit_policy(method: str, path: str) -> tuple[str, int, int] | None:
     if method == "GET" and path == "/api/laws":
         return "law-list", 120, 60
     parts = path.strip("/").split("/")
+    if method == "GET" and len(parts) == 4 and parts[:2] == ["api", "laws"]:
+        if parts[3] in {"history", "proceedings", "coverage", "audit"}:
+            return "law-expensive", 90, 60
     if method == "GET" and len(parts) >= 3 and parts[:2] == ["api", "laws"]:
         if len(parts) == 3 or parts[-1] in {"nodes", "blame", "provenance"} or "provenance" in parts:
             return "law-detail", 240, 60
@@ -226,8 +257,8 @@ def _change_evidence(item: LawChange) -> dict:
 
 
 @app.get("/health", include_in_schema=False)
-def health(session: Session = Depends(get_session)):
-    session.execute(text("SELECT 1"))
+def health():
+    """Process liveness only; database/schema readiness is checked by `/ready`."""
     return {"status": "ok", "service": "leiaberta-api"}
 
 
@@ -239,7 +270,8 @@ def readiness(session: Session = Depends(get_session)):
 
     try:
         applied_heads = set(session.scalars(text("SELECT version_num FROM alembic_version")).all())
-    except SQLAlchemyError as exc:
+    except OperationalError as exc:
+        _log_database_failure()
         raise HTTPException(status_code=503, detail="Database schema is unavailable") from exc
     expected_heads = set(ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_heads())
     if applied_heads != expected_heads:
@@ -266,8 +298,8 @@ def worker_health():
 
 
 @app.get("/api/health")
-def api_health(session: Session = Depends(get_session)):
-    return health(session)
+def api_health():
+    return health()
 
 
 @app.get("/api/stats")
