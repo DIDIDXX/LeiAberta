@@ -10,18 +10,20 @@
 
 ## Changes in this branch
 
-- Added conservative global Redis budgets for stats (30/min), law listing (120/min), and search (300/min; previously 600/min).
+- Added conservative global Redis budgets for stats (30/min), source listing (60/min), law listing (120/min), and search (300/min; previously 600/min).
 - Added a separate shared budget for history, proceedings, coverage, and audit GETs (90/min) after review identified repeated history polling as another DB-heavy path.
 - Added a bounded per-process fixed-window limiter for those same requests when Redis is unavailable. Reads continue to work until the local budget is exhausted; excess returns HTTP 429 with `Retry-After`. This is deliberately not represented as a globally coordinated fallback: each web process has its own counter.
 - Added short cache headers to successful GETs for `/api/stats`, `/api/laws`, and `/api/search`, permitting browser and shared-cache reuse without claiming long freshness.
+- Added an actual 5-minute JSON snapshot cache to `/api/stats` and `/api/sources`: Redis is shared across web instances when configured, and cache misses/failures use a per-process fallback bounded to 8 MiB total, 2 MiB per entry, and 128 entries. Source filter values are SHA-256 digested before entering cache keys. Responses expose only `X-Data-Cache` state and the fixed TTL, never cache keys or Redis details.
+- Cache snapshots are read optimizations, not authoritative state for writes. No write path uses cached data, no write-side invalidation is claimed, and updates become visible after the 5-minute cache TTL.
 - Downgraded search query/result logging to DEBUG and removed the raw query from the application log line.
-- Made `/health` and `/api/health` pure process liveness checks; `/ready` remains a database plus schema check and returns 503 on connection failure or schema mismatch.
+- Made `/health` and `/api/health` pure process liveness checks; `/ready` remains a database plus schema check and returns 503 on connection failure or schema mismatch. `/worker-health` reports heartbeat freshness and database availability separately, and returns 503 unless both are ready.
 - Mapped only SQLAlchemy `OperationalError` from application requests to a generic 503 with `Retry-After` and `no-store`. Readiness maps SQLAlchemy failures while querying the schema table to its explicit generic 503; other SQLAlchemy exceptions on normal application requests are not normalized as outages. Database outage logs are rate-limited to one per 30 seconds and aggregate suppressed failures without printing driver exception details.
 - No migration, schema/index, Railway setting, production data, or secret was changed.
 
 ## Validation
 
-- `pytest -q`: 157 passed (one upstream Starlette/httpx deprecation warning).
+- `pytest -q`: 162 passed (one upstream Starlette/httpx deprecation warning). Tests cover Redis cache hits and the exact 300-second TTL, local fallback hit/expiry/bounds, source-filter key hashing, cached endpoint responses, worker DB/heartbeat readiness, and bounded database outage responses.
 - These are unit/API tests with SQLite fixtures; they do not establish query plans or production PostgreSQL capacity.
 
 ## Recommended follow-up after storage recovery
@@ -29,5 +31,5 @@
 1. Recover PostgreSQL capacity first, then capture `pg_stat_activity`, relation/index sizes, dead tuple estimates, and representative `EXPLAIN (ANALYZE, BUFFERS)` plans for stats and search under controlled load.
 2. Avoid running heavy `VACUUM FULL`, index builds, or catalog-wide query experiments while the volume is at its hard limit. Choose storage-reclamation actions with an operator who can inspect backups, WAL, snapshots, and service dependencies.
 3. For free-text search, evaluate a `pg_trgm` GIN index for title/description and a normalized aliases representation. This requires storage headroom and an explicit migration/rollback plan; it is not included here.
-4. Consider a short-lived versioned stats snapshot refreshed by the worker or a cache with explicit invalidation. Current HTTP headers only help when clients/intermediaries reuse a response; they do not memoize queries inside the application.
+4. The current Redis/local cache is intentionally non-authoritative and expires after five minutes. If fresher statistics become a requirement, consider a versioned worker-refreshed snapshot with explicit invalidation after measuring its write/read tradeoff.
 5. Reassess budgets with production traffic and replica count. Current Redis limits are global per scope; the fallback budgets are per process and thus multiply with web replicas.
