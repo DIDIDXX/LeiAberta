@@ -34,6 +34,11 @@ Salvar e confirmar visualmente os três campos. Não retentei escrita com a inte
 
 O código da base deste worktree não usa `SUPPORT_URL`, e o repositório não contém `.github/CODEOWNERS`. Esta tarefa não alterou runtime. O comportamento esperado, se o responsável pela interface incorporar a opção, é esconder o CTA quando `SUPPORT_URL` estiver ausente/vazio e exibir link discreto somente com uma URL válida. Não criar conta de pagamento. O destino existente para suporte comunitário/erros é o issue chooser do GitHub: <https://github.com/DIDIDXX/LeiAberta/issues/new/choose>.
 
+## Handoff operacional
+
+- A exclusão antiga staged de `pg-diagnostic` foi descartada pelo coordenador; não houve remoção nem alteração do serviço em execução.
+- O único bloqueio manual Railway atual é revisar/aplicar via Dashboard, com 2FA do proprietário, o resize não destrutivo do volume persistente Postgres de 5.000 MB para 6.500 MB. Antes de aplicar, confirmar que Pending Changes contém somente esse resize. Instruções estão em `docs/launch/MANUAL_ACTIONS.md`.
+
 ## Limites desta entrega
 
 - Não modifiquei runtime, Railway, secrets, metadados remotos nem release.
