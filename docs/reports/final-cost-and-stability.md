@@ -87,3 +87,25 @@ Smoke HTTP novo: 17/17 rotas e APIs com HTTP 200; APIs incluem busca `LGDP`, est
 Estimativa publicada com tarifas Railway e uso anterior: US$ 40.2–40.7/mês incluindo Postgres antigo; US$ 32.9–33.4 depois de aposentadoria aprovada, antes de mudanças de tráfego/uso. Fatura real não acessível; alvo aspiracional US$ 10–15 não atendido. Permanecem ~15 GB de volumes configurados (três volumes de 5 GB); soma de ocupação em 1 h: azul 3.287 GB, antigo 4.997 GB, Redis 0.153 GB. Bucket backup+snapshots estimado no relatório anterior ~1.36 GB.
 
 **Decisão: NO-GO para lançamento público agora.** Gates restantes: deployment e execução real do cron wrapper; observar worker cap pós-deploy e 24 h; política de retenção/recuperação de objetos; confirmar referência DB atual via ferramenta autorizada; revalidar hidratação cold estruturada e fontes com falha sem inferir ausência; aprovação expressa antes de retirar DB antigo. Fatura e custo alvo não foram comprovados.
+
+## Estado após deploy funcional f6084ab — 2026-10-06 20:25 UTC
+
+Este é o SHA funcional final validado nesta rodada: `f6084abcea82bebe0ade4699c1ce9460947cc571`. Deploys Railway: web `69750e48-27eb-47d7-af3b-9acdfa20f7c1`, worker `fe448b29-bab9-4cbe-a4bb-2fedcc068394`, backup `4e4e9f6b-63e5-4453-86e0-500e8235bf24`; os três SUCCESS nesse SHA. `main` era esse SHA no fechamento do deploy; a atualização desta seção é relatório do mesmo estado.
+
+### Soak e workload
+
+Soak de 19:54:51 a 20:25:36 UTC (30 min 45 s a partir do worker pronto). Múltiplas amostras de métrica Railway: disco azul 3.270852608 GB nos pontos finais; janela de 1 h no fechamento current/min 3.270852608 e max 3.303645184 GB (65.4%–66.1% do volume de 5 GB). Sem expansão observada pós-ciclo capado; variação negativa vs máximo anterior não é reclaim de `raw_body`, e sim arquivos/reuso/WAL não discriminados pelo provedor. Na última janela: Postgres CPU avg/max 0.00474/0.08120, RAM avg/max 2.371/2.413 GB; worker CPU 0.00300/0.04081, RAM 0.0810/0.1564 GB; web RAM 0.0963/0.1582 GB; Redis RAM 0.0142 GB/disco 0.1527 GB. Old Postgres continua 4.9965/5 GB e CPU média 0.250.
+
+O ciclo real final do worker processou 8 probes e 4 full pages, zero erros, uma fonte ainda em bootstrap. Probes incrementais gravaram normas recentes; full scan revisou 4×100 linhas sem novas linhas. `BACKGROUND_BACKFILL_MODE=off`, concurrency 1, Redis stream `pending_count=0` (38.305 entradas retidas não são fila pendente). O limite `SAPL_FULL_PAGES_PER_CYCLE=4` é por ciclo: ~9.600 linhas de página/dia com exatamente um ciclo/hora, mas retry pode adiantar ciclo. Ainda não existe quota persistente diária em bytes/novos registros. Não extrapolar esse soak para 24 h.
+
+### Backup wrapper e cron
+
+No mesmo SHA, o build do backup mostrou `COPY scripts/run_backup_as_postgres.sh` e `chmod 0755`; deployment SUCCESS; config live usa wrapper, cron 03:00 UTC e restart NEVER. O log do deployment não tem um novo `postgres_backup_finished` até 20:25; logo o cron ainda não executou. Já existe backup manual pós-cutover completo com objeto e manifest lidos do bucket, SHA correto, restore isolado (45.458 s), row counts, assinatura e Alembic confirmados, listado acima. Não confundir deployment de cron SUCCESS com backup automático concluído.
+
+### Smoke final, custo e GO
+
+Proxy produziu 19/19 HTTP 200 durante o smoke pós-deploy; `/ready` retornou ready e `/worker-health` heartbeat fresh/database ready/processing ready. Cobertura incluiu home, art.389, Why/Blame/Diff/History, typo search, fontes/cobertura, OpenAPI/sitemap e endpoints jurídicos. Browser check anterior em 390/430/768/1440 px sem overflow; a ressalva de Normas.leg.br continua não oficial.
+
+Serviços temporários `postgres-blue-restore` e `source-snapshot-migration` removidos, sem volumes. Custo estimado, calculado por uso/tarifas publicados e não pela fatura real: US$ 40.2–40.7/mês com antigo Postgres lotado presente; US$ 32.9–33.4 após descarte somente com aprovação do proprietário. O acesso à fatura não estava disponível; alvo aspiracional US$ 10–15 não atingido.
+
+**Decisão: NO-GO.** Bloqueios atuais: 24 h de observação; próxima execução cron ainda não concluída; ausência de quota diária persistente; política independente de retenção/restore dos objetos; hidratação cold parcial sem artigos estruturados; host atual de DATABASE_URL redacted nesta sessão; custo acima do alvo aspiracional; aprovação explícita antes de aposentar Postgres antigo. O banco antigo e `raw_body` seguem intactos.
