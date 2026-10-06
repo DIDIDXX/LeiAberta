@@ -9,6 +9,14 @@ from app.main import app
 from app.models import HydrationJob, Jurisdiction, Law, LawVersion, LegalNode, SenateProceeding, SourceSnapshot
 
 
+def clear_local_read_cache():
+    from app import main
+
+    with main._local_read_cache_lock:
+        main._local_read_cache.clear()
+        main._local_read_cache_bytes = 0
+
+
 def test_search_endpoint_handles_typo(db_session, add_law):
     db_session.add(add_law())
     db_session.commit()
@@ -232,6 +240,7 @@ def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip()
     assert _rate_limit_policy("GET", "/api/search") == ("search", 300, 60)
     assert _rate_limit_policy("GET", "/api/laws") == ("law-list", 120, 60)
     assert _rate_limit_policy("GET", "/api/stats") == ("stats", 30, 60)
+    assert _rate_limit_policy("GET", "/api/sources") == ("source-list", 60, 60)
     assert _rate_limit_policy("GET", "/api/laws/13709-2018/nodes") == ("law-detail", 240, 60)
     for endpoint in ("history", "proceedings", "coverage", "audit"):
         assert _rate_limit_policy("GET", f"/api/laws/13709-2018/{endpoint}") == ("law-expensive", 90, 60)
@@ -240,12 +249,94 @@ def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip()
 
 
 def test_repeatable_public_read_endpoints_emit_short_shared_cache_ttl():
+    from app.main import _read_cache_policy
+
     response = TestClient(app).get("/api/search")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=5, s-maxage=15, stale-while-revalidate=30"
+    assert _read_cache_policy("/api/sources") == "public, max-age=5, s-maxage=30, stale-while-revalidate=60"
 
 
-def test_worker_health_reports_fresh_and_stale_heartbeat(monkeypatch):
+def test_read_cache_uses_shared_redis_and_sets_five_minute_ttl(monkeypatch):
+    from app import main
+
+    class FakeRedis:
+        values = {}
+        ttls = {}
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value, ex):
+            self.values[key] = value
+            self.ttls[key] = ex
+
+        def ttl(self, key):
+            return self.ttls[key]
+
+    clear_local_read_cache()
+    fake = FakeRedis()
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_rate_limit_redis", lambda _url: fake)
+    key = main._sources_cache_key("sensitive-secret-filter", "enumerated")
+    assert "sensitive-secret-filter" not in key
+    calls = []
+
+    def load():
+        calls.append(1)
+        return {"items": [{"status": "enumerated"}], "count": 1}
+
+    first, first_status = main._read_cached_json(key, "sources", load, now=10)
+    second, second_status = main._read_cached_json(key, "sources", load, now=15)
+    assert first == second == {"items": [{"status": "enumerated"}], "count": 1}
+    assert first_status == "miss"
+    assert second_status == "redis-hit"
+    assert fake.ttls[key] == 300
+    assert calls == [1]
+    clear_local_read_cache()
+
+
+def test_read_cache_uses_bounded_local_fallback_and_expires_after_five_minutes(monkeypatch, caplog):
+    from redis.exceptions import RedisError
+    from app import main
+
+    class DownRedis:
+        def get(self, _key):
+            raise RedisError("sensitive-secret-from-client")
+
+        def set(self, *_args, **_kwargs):
+            raise RedisError("sensitive-secret-from-client")
+
+    clear_local_read_cache()
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_rate_limit_redis", lambda _url: DownRedis())
+    key = main._sources_cache_key("sensitive-secret-filter", None)
+    assert "sensitive-secret-filter" not in key
+    calls = []
+
+    def load():
+        calls.append(1)
+        return {"count": len(calls)}
+
+    with caplog.at_level("DEBUG", logger="leiaberta.api"):
+        first, first_status = main._read_cached_json(key, "sources", load, now=100)
+        hit, hit_status = main._read_cached_json(key, "sources", load, now=399)
+        expired, expired_status = main._read_cached_json(key, "sources", load, now=401)
+    assert first_status == "miss"
+    assert hit_status == "local-hit"
+    assert expired_status == "miss"
+    assert first == hit == {"count": 1}
+    assert expired == {"count": 2}
+    assert calls == [1, 1]
+    for index in range(main._LOCAL_READ_CACHE_MAX_ENTRIES + 1):
+        main._local_read_cache_set(f"bounded-entry-{index}", "{}", now=401)
+    assert len(main._local_read_cache) <= main._LOCAL_READ_CACHE_MAX_ENTRIES
+    assert main._local_read_cache_bytes <= main._LOCAL_READ_CACHE_MAX_BYTES
+    assert "sensitive-secret" not in " ".join(record.getMessage() for record in caplog.records)
+    clear_local_read_cache()
+
+
+def test_worker_health_requires_fresh_heartbeat_and_database(monkeypatch):
     from datetime import timedelta
     from app import main
 
@@ -255,15 +346,63 @@ def test_worker_health_reports_fresh_and_stale_heartbeat(monkeypatch):
         def get(self, _key):
             return self.heartbeat
 
+    class FakeSession:
+        def execute(self, *_args, **_kwargs):
+            return None
+
+    def override_session():
+        yield FakeSession()
+
     fake = FakeRedis()
     monkeypatch.setenv("REDIS_URL", "redis://unused")
     monkeypatch.setattr(main, "_rate_limit_redis", lambda _url: fake)
-    fake.heartbeat = datetime.now(timezone.utc).isoformat()
-    response = TestClient(app).get("/worker-health")
-    assert response.status_code == 200
-    fake.heartbeat = (datetime.now(timezone.utc) - timedelta(seconds=91)).isoformat()
-    response = TestClient(app).get("/worker-health")
+    app.dependency_overrides[get_session] = override_session
+    try:
+        fake.heartbeat = datetime.now(timezone.utc).isoformat()
+        response = TestClient(app).get("/worker-health")
+        assert response.status_code == 200
+        assert response.json()["heartbeat_status"] == "fresh"
+        assert response.json()["database_status"] == "ready"
+        assert response.json()["processing_ready"] is True
+
+        fake.heartbeat = (datetime.now(timezone.utc) - timedelta(seconds=91)).isoformat()
+        response = TestClient(app).get("/worker-health")
+    finally:
+        app.dependency_overrides.clear()
     assert response.status_code == 503
+    assert response.json()["heartbeat_status"] == "stale"
+    assert response.json()["database_status"] == "ready"
+    assert response.json()["processing_ready"] is False
+
+
+def test_worker_health_reports_fresh_heartbeat_but_database_down(monkeypatch):
+    from app import main
+    from sqlalchemy.exc import OperationalError
+
+    class FakeRedis:
+        def get(self, _key):
+            return datetime.now(timezone.utc).isoformat()
+
+    class UnavailableSession:
+        def execute(self, *_args, **_kwargs):
+            raise OperationalError("select 1", {}, Exception("secret database host"))
+
+    def override_session():
+        yield UnavailableSession()
+
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_rate_limit_redis", lambda _url: FakeRedis())
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/worker-health")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 503
+    assert response.json()["heartbeat_status"] == "fresh"
+    assert response.json()["database_status"] == "unavailable"
+    assert response.json()["processing_ready"] is False
+    assert "secret database host" not in response.text
 
 
 def test_planalto_fetch_rejects_oversized_response(monkeypatch):
@@ -471,6 +610,12 @@ def test_law_page_canonical_uses_forwarded_https_when_config_is_absent(db_sessio
 
 
 def test_stats_reports_aggregated_catalog_counts(db_session, add_law):
+    from app import main
+
+    clear_local_read_cache()
+    main._local_read_cache_set("oversized-test-entry", "x" * (main._LOCAL_READ_CACHE_MAX_ENTRY_BYTES + 1), 0)
+    assert "oversized-test-entry" not in main._local_read_cache
+
     law = add_law()
     db_session.add(law)
     db_session.commit()
@@ -486,6 +631,85 @@ def test_stats_reports_aggregated_catalog_counts(db_session, add_law):
     assert response.status_code == 200
     assert response.json()["indexed_laws"] == 1
     assert response.json()["materialized_laws"] == 0
+    assert response.headers["x-data-cache"] == "miss"
+    assert response.headers["x-data-cache-ttl"] == "300"
+
+    def unavailable_session():
+        class SessionThatMustNotBeQueried:
+            def execute(self, *_args, **_kwargs):
+                raise AssertionError("cached stats should avoid a database query")
+
+            def scalars(self, *_args, **_kwargs):
+                raise AssertionError("cached stats should avoid a database query")
+
+            def scalar(self, *_args, **_kwargs):
+                raise AssertionError("cached stats should avoid a database query")
+
+        yield SessionThatMustNotBeQueried()
+
+    app.dependency_overrides[get_session] = unavailable_session
+    try:
+        cached = TestClient(app).get("/api/stats")
+    finally:
+        app.dependency_overrides.clear()
+        clear_local_read_cache()
+    assert cached.status_code == 200
+    assert cached.json() == response.json()
+    assert cached.headers["x-data-cache"] == "local-hit"
+
+
+def test_sources_endpoint_cache_is_filter_specific_and_returns_cached_snapshot(db_session):
+    from app.models import SourceRegistry
+
+    clear_local_read_cache()
+    db_session.add(SourceRegistry(
+        id="cache-test-source", name="Source test", adapter="sapl_catalog",
+        base_url="https://example.test", evidence_url="https://example.test/list",
+        status="enumerated", scope={"last_success_at": "2026-01-01T00:00:00+00:00"},
+    ))
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/sources?status=enumerated")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert response.headers["x-data-cache"] == "miss"
+    assert response.headers["x-data-cache-ttl"] == "300"
+
+    def unavailable_session():
+        class SessionThatMustNotBeQueried:
+            def execute(self, *_args, **_kwargs):
+                raise AssertionError("cached sources should avoid a database query")
+
+            def scalars(self, *_args, **_kwargs):
+                raise AssertionError("cached sources should avoid a database query")
+
+        yield SessionThatMustNotBeQueried()
+
+    app.dependency_overrides[get_session] = unavailable_session
+    try:
+        cached = TestClient(app).get("/api/sources?status=enumerated")
+    finally:
+        app.dependency_overrides.clear()
+    assert cached.status_code == 200
+    assert cached.json() == response.json()
+    assert cached.headers["x-data-cache"] == "local-hit"
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        other_filter = TestClient(app).get("/api/sources?status=discovered")
+    finally:
+        app.dependency_overrides.clear()
+        clear_local_read_cache()
+    assert other_filter.status_code == 200
+    assert other_filter.json()["count"] == 0
+    assert other_filter.headers["x-data-cache"] == "miss"
 
 
 def test_history_is_explicitly_not_requested_until_a_real_job_exists(db_session, add_law):
