@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import threading
 from functools import lru_cache
 from html import escape as html_escape
 from datetime import datetime, timezone
@@ -46,6 +47,13 @@ if count == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return count
 """
 
+# Redis is the shared limiter when available. During a Redis outage, keep a
+# small process-local budget so one web process does not immediately resume
+# unlimited scans over the public catalog. Buckets are intentionally global
+# per endpoint class rather than keyed by untrusted proxy headers.
+_local_rate_lock = threading.Lock()
+_local_rate_buckets: dict[tuple[str, int], int] = {}
+
 
 @lru_cache(maxsize=1)
 def _rate_limit_redis(url: str) -> Redis:
@@ -54,7 +62,11 @@ def _rate_limit_redis(url: str) -> Redis:
 
 def _rate_limit_policy(method: str, path: str) -> tuple[str, int, int] | None:
     if method == "GET" and path == "/api/search":
-        return "search", 600, 60
+        return "search", 300, 60
+    if method == "GET" and path == "/api/stats":
+        return "stats", 30, 60
+    if method == "GET" and path == "/api/laws":
+        return "law-list", 120, 60
     parts = path.strip("/").split("/")
     if method == "GET" and len(parts) >= 3 and parts[:2] == ["api", "laws"]:
         if len(parts) == 3 or parts[-1] in {"nodes", "blame", "provenance"} or "provenance" in parts:
@@ -76,6 +88,31 @@ def _consume_rate_budget(scope: str, limit: int, window_seconds: int, now: int |
     return count, retry_after
 
 
+def _consume_local_rate_budget(scope: str, limit: int, window_seconds: int,
+                               now: int | None = None) -> tuple[int, int]:
+    current = int(time.time()) if now is None else now
+    bucket = current // window_seconds
+    retry_after = window_seconds - (current % window_seconds)
+    key = (scope, bucket)
+    with _local_rate_lock:
+        # At most one entry per scope per live/just-expired bucket is needed.
+        expired = [entry for entry in _local_rate_buckets if entry[1] < bucket - 1]
+        for entry in expired:
+            _local_rate_buckets.pop(entry, None)
+        count = _local_rate_buckets.get(key, 0) + 1
+        _local_rate_buckets[key] = count
+    return count, retry_after
+
+
+def _read_cache_policy(path: str) -> str | None:
+    """Short shared-cache TTLs damp repeat reads while keeping catalog fresh."""
+    if path == "/api/stats":
+        return "public, max-age=5, s-maxage=30, stale-while-revalidate=60"
+    if path in {"/api/laws", "/api/search"}:
+        return "public, max-age=5, s-maxage=15, stale-while-revalidate=30"
+    return None
+
+
 def _public_base_url(request: Request) -> str:
     configured = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     if configured:
@@ -95,22 +132,26 @@ async def public_rate_limit(request: Request, call_next):
             count, retry_after = await to_thread.run_sync(
                 _consume_rate_budget, scope, limit, window_seconds,
             )
-            if count > limit:
-                return JSONResponse(
-                    {"detail": "Limite temporário de solicitações atingido."},
-                    status_code=429,
-                    headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
-                )
         except RedisError:
-            # Reads and job endpoints remain available during Redis outages;
-            # queue dedupe/backpressure are the independent fallback.
-            logger.warning("rate_limit_store_unavailable scope=%s", scope)
+            # Keep serving reads during Redis outages, with a per-process
+            # fallback budget to protect the database from request storms.
+            logger.debug("rate_limit_store_unavailable scope=%s", scope)
+            count, retry_after = _consume_local_rate_budget(scope, limit, window_seconds)
+        if count > limit:
+            return JSONResponse(
+                {"detail": "Limite temporário de solicitações atingido."},
+                status_code=429,
+                headers={"Retry-After": str(retry_after), "Cache-Control": "no-store"},
+            )
     return await call_next(request)
 
 
 @app.middleware("http")
 async def baseline_security_headers(request: Request, call_next):
     response = await call_next(request)
+    cache_policy = _read_cache_policy(request.url.path) if request.method == "GET" else None
+    if cache_policy and response.status_code == 200:
+        response.headers.setdefault("Cache-Control", cache_policy)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
@@ -343,7 +384,7 @@ def search(q: str = Query("", max_length=180), limit: int = Query(10, ge=1, le=3
     if not q.strip():
         return {"query": q, "parsed": {}, "results": [], "suggestion": False}
     result = search_laws(session, q, limit=limit)
-    logger.info("search query=%s results=%s", q[:100], len(result["results"]))
+    logger.debug("search results=%s", len(result["results"]))
     return result
 
 
