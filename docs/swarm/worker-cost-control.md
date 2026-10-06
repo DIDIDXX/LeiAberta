@@ -32,11 +32,13 @@ Command:
 pytest -q
 ```
 
-Result: 160 passed; one existing Starlette/httpx deprecation warning. Coverage includes default-off and invalid-mode validation; all three producers paused without mutation; hot-only selection; legacy queued-job recognition; preservation and mode-based resumption of outbox work (`off` → `hot` → `continuous`); interactive job dispatch; safe ACK of terminal stale stream entries while ambiguous queued work remains pending; API marker hiding; bounded retry delays, suppressed-error summaries, successful-loop reset, and schema-wait error redaction.
+Result: 162 passed; one existing Starlette/httpx deprecation warning. Coverage includes default-off and invalid-mode validation; all three producers paused without mutation; hot-only selection; legacy queued-job recognition; preservation and mode-based resumption of outbox work (`off` → `hot` → `continuous`); interactive job dispatch; safe ACK of terminal stale stream entries while ambiguous queued work remains pending; API marker hiding; bounded retry delays, suppressed-error summaries, successful-loop reset, schema-wait error redaction, and private aggregate queue-depth telemetry with failure isolation.
 
 No live Railway, PostgreSQL, or Redis validation was performed. At implementation time the production database was reported in recovery, so this change must not be deployed until that incident is resolved and readiness is restored. Production deployment is intentionally outside this branch task.
 
 Worker schema readiness retries also use capped exponential delays (default 3, 6, 12, 24, then at most 30 seconds) within the existing five-minute timeout. Readiness logs are emitted on the first and every tenth attempt, and exception text is not logged. The main worker loop applies the same capped delay to classified SQLAlchemy database and Redis transport failures, resets it after a successful loop, and logs the first and every tenth identical error with the number suppressed. Other exceptions retain normal traceback visibility and the short retry interval.
+
+Every five minutes, the worker emits a private operational log summary containing only Redis stream length and consumer-group pending count. It does not log law/job IDs, consumer names, or publish queue depth through the public API. Redis telemetry errors are caught and reduced to the exception class so queue processing continues.
 
 ## Rollback
 

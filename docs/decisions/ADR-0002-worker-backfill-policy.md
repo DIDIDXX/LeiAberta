@@ -46,6 +46,8 @@ Persist the bulk classification in the existing job message with an internal mar
 
 Worker schema readiness waits use capped exponential retries (3, 6, 12, 24, then at most 30 seconds) within the existing five-minute timeout, with log messages on attempt one and every tenth attempt and no raw exception details. After startup, classified SQLAlchemy database and Redis transport failures in the outer queue loop use the same capped backoff, reset after a successful loop, and emit sparse error summaries with suppressed-event counts. Other exceptions keep normal traceback visibility. This reduces repeated DB connection and log pressure during recovery; it is not a circuit breaker for application queries.
 
+After startup, the worker also logs Redis stream length and consumer-group pending count every five minutes. This is a private aggregate log only; it contains no record IDs and is not exposed as a public metric. Telemetry errors are caught so they cannot block queue processing.
+
 ## Rollback
 
 Set `BACKGROUND_BACKFILL_MODE=off` and restart the worker. This pauses new automatic producers and processing without changing or deleting durable jobs or source evidence. A code rollback requires no migration reversal; the previous image may resume older automatic work, so keep the worker stopped or retain conservative source active-job caps until a safe mode is restored.

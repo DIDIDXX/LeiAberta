@@ -24,6 +24,7 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
 MAX_HYDRATION_CONCURRENCY = MAX_INTERACTIVE_JOB_BATCH
 MAX_CATALOG_CONCURRENCY = 4
+QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS = 300
 
 
 def hydration_concurrency() -> int:
@@ -126,6 +127,19 @@ def start_worker_heartbeat(redis, consumer: str, concurrency: int) -> tuple[Even
                     name="worker-heartbeat", daemon=True)
     thread.start()
     return stop, thread
+
+
+def publish_queue_depth_summary(redis) -> None:
+    """Log aggregate Redis queue counts without exposing any job or consumer IDs."""
+    try:
+        stream_length = int(redis.xlen(QUEUE_NAME))
+        pending_summary = redis.xpending(QUEUE_NAME, QUEUE_GROUP)
+        pending_count = int(pending_summary.get("pending", 0))
+        logger.info("worker_queue_depth stream_length=%s pending_count=%s",
+                    stream_length, pending_count)
+    except Exception as exc:
+        # Telemetry is best-effort and must never interrupt queue work.
+        logger.warning("worker_queue_depth_unavailable error_type=%s", type(exc).__name__)
 
 
 def process_queue_messages(redis, messages, executor: ThreadPoolExecutor, *, backfill_mode: str | None = None) -> None:
@@ -241,6 +255,7 @@ def run() -> None:
     history_batch_seconds = max(300, int(os.getenv("HISTORY_BACKFILL_BATCH_SECONDS", "300")))
     history_batch_size = min(500, max(1, int(os.getenv("HISTORY_BACKFILL_BATCH_SIZE", "500"))))
     next_history_batch = time.monotonic()
+    next_queue_depth_summary = time.monotonic() + QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS
     loop_backoff = WorkerLoopBackoff()
     start_worker_heartbeat(redis, consumer, concurrency)
     while True:
@@ -367,6 +382,9 @@ def run() -> None:
                         sapl_sync_future = catalog_executor.submit(sync_all_sapl_catalogs)
                     except Exception:
                         logger.exception("sapl_manaus_catalog_refresh_start_failed")
+            if time.monotonic() >= next_queue_depth_summary:
+                next_queue_depth_summary = time.monotonic() + QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS
+                publish_queue_depth_summary(redis)
             priority_job_ids = queued_interactive_job_ids(limit=concurrency)
             if priority_job_ids:
                 process_priority_jobs(priority_job_ids, executor)

@@ -281,3 +281,37 @@ def test_worker_heartbeat_loop_runs_independently_until_stopped():
     assert len(redis.records) == 1
     assert redis.records[0][0] == "leiaberta:worker:heartbeat"
     assert redis.records[0][2] == 90
+
+
+def test_queue_depth_summary_logs_only_aggregate_counts(caplog):
+    caplog.set_level("INFO", logger="leiaberta.worker")
+
+    class FakeRedis:
+        def xlen(self, queue_name):
+            assert queue_name == worker.QUEUE_NAME
+            return 1234
+
+        def xpending(self, queue_name, group_name):
+            assert queue_name == worker.QUEUE_NAME
+            assert group_name == worker.QUEUE_GROUP
+            return {"pending": 27, "min": "1-0", "max": "9-0", "consumers": [{"name": "private-consumer", "pending": 27}]}
+
+    worker.publish_queue_depth_summary(FakeRedis())
+
+    assert "worker_queue_depth stream_length=1234 pending_count=27" in caplog.text
+    assert "private-consumer" not in caplog.text
+    assert "1-0" not in caplog.text
+    assert worker.QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS == 300
+
+
+def test_queue_depth_telemetry_error_is_suppressed_from_queue_flow(caplog):
+    caplog.set_level("WARNING", logger="leiaberta.worker")
+
+    class BrokenRedis:
+        def xlen(self, queue_name):
+            raise ConnectionError("password=do-not-log")
+
+    worker.publish_queue_depth_summary(BrokenRedis())
+
+    assert "worker_queue_depth_unavailable error_type=ConnectionError" in caplog.text
+    assert "do-not-log" not in caplog.text
