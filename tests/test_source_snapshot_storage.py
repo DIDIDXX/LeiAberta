@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import gzip
+import json
 from io import BytesIO
 
 import pytest
@@ -12,7 +13,7 @@ from app.storage.source_snapshots import (
     SourceSnapshotObjectStore,
     read_source_snapshot,
 )
-from scripts.migrate_source_snapshots_to_object_storage import migrate_batch
+from scripts.migrate_source_snapshots_to_object_storage import migrate_batch, run_migration
 
 
 class FakeClientError(Exception):
@@ -187,3 +188,122 @@ def test_snapshot_migration_is_bounded_restartable_and_idempotent(db_session, ad
     replay = migrate_batch(session=db_session, batch_size=2, apply=True, store=store)
     assert replay["selected"] == 0
     assert fake_s3.put_count == 2
+
+
+def test_full_migration_resumes_checkpoint_and_reports_verified_storage_metrics(
+    db_session, add_law, tmp_path
+):
+    law = add_law()
+    first_body = b"first source" * 50
+    second_body = b"second source" * 50
+    first = _snapshot(law, first_body)
+    second = _snapshot(law, second_body)
+    db_session.add_all([first, second])
+    db_session.commit()
+    store = SourceSnapshotObjectStore(FakeS3(), "snapshots", prefix="legal")
+    checkpoint = tmp_path / "migration.json"
+
+    part = run_migration(session=db_session, store=store, apply=True, batch_size=1,
+                         max_batches=1, checkpoint_path=checkpoint, retry_delay=0)
+    assert part["status"] == "partial"
+    assert part["pending_pointers_at_end"] == 1
+    assert part["cursor"] == first.id
+    assert first.object_key == store.key_for(first.checksum)
+    assert checkpoint.exists()
+
+    finished = run_migration(session=db_session, store=store, apply=True, batch_size=1,
+                             checkpoint_path=checkpoint, retry_delay=0)
+    assert finished["status"] == "complete"
+    assert finished["pending_pointers_at_end"] == 0
+    assert finished["pointer_inconsistencies_at_end"] == 0
+    assert finished["stats"]["selected"] == 2
+    assert finished["stats"]["verified"] == 2
+    assert finished["stats"]["uploaded_objects"] == 2
+    assert finished["stats"]["raw_bytes"] == len(first_body) + len(second_body)
+    assert finished["stats"]["referenced_stored_bytes"] < finished["stats"]["raw_bytes"]
+    assert finished["stats"]["bucket_bytes_added"] == finished["stats"]["referenced_stored_bytes"]
+    assert first.raw_body == first_body and second.raw_body == second_body
+
+
+def test_upload_failure_does_not_advance_checkpoint_or_claim_completion(
+    db_session, add_law, tmp_path
+):
+    class UnavailableS3(FakeS3):
+        def put_object(self, **kwargs):
+            raise FakeClientError("503")
+
+    law = add_law()
+    body = b"source bytes"
+    snapshot = _snapshot(law, body)
+    db_session.add(snapshot)
+    db_session.commit()
+    checkpoint = tmp_path / "migration.json"
+    store = SourceSnapshotObjectStore(UnavailableS3(), "snapshots")
+
+    result = run_migration(session=db_session, store=store, apply=True, batch_size=1,
+                           checkpoint_path=checkpoint, max_retries=1, retry_delay=0)
+
+    assert result["status"] == "failed"
+    assert result["cursor"] == 0
+    assert result["pending_pointers_at_end"] == 1
+    assert result["failure"]["id"] == snapshot.id
+    assert result["failure"]["attempts"] == 2
+    assert snapshot.object_key is None
+    assert json.loads(checkpoint.read_text())["cursor"] == 0
+
+
+def test_checksum_invalid_row_is_reported_and_migration_is_not_complete(db_session, add_law):
+    law = add_law()
+    snapshot = _snapshot(law, b"wrong checksum")
+    snapshot.checksum = "0" * 64
+    db_session.add(snapshot)
+    db_session.commit()
+
+    result = run_migration(session=db_session, batch_size=1)
+
+    assert result["status"] == "partial"
+    assert result["pending_pointers_at_end"] == 1
+    assert result["stats"]["invalid"] == [{"id": snapshot.id, "reason": "database_checksum_mismatch"}]
+
+
+def test_migration_accounts_for_content_addressed_reuse_and_byte_bounded_batches(
+    db_session, add_law, tmp_path
+):
+    first_law = add_law(slug="law-one")
+    second_law = add_law(slug="law-two", number="13.710")
+    db_session.add_all([first_law, second_law])
+    db_session.flush()
+    body = b"same official response " * 8
+    first = _snapshot(first_law, body)
+    second = _snapshot(second_law, body)
+    db_session.add_all([first, second])
+    db_session.commit()
+    client = FakeS3()
+    store = SourceSnapshotObjectStore(client, "snapshots")
+
+    first_batch = migrate_batch(session=db_session, batch_size=10, max_batch_bytes=len(body) + 1,
+                                apply=True, store=store)
+    assert first_batch["selected"] == 1
+    assert first_batch["selected_bytes"] == len(body)
+    remainder = run_migration(session=db_session, store=store, apply=True, batch_size=10,
+                              max_batch_bytes=len(body) + 1, checkpoint_path=tmp_path / "resume.json",
+                              retry_delay=0)
+
+    assert remainder["status"] == "complete"
+    assert remainder["stats"]["uploaded_objects"] == 0
+    assert remainder["stats"]["reused_objects"] == 1
+    assert client.put_count == 1
+    assert first.object_key == second.object_key
+
+
+def test_migration_completion_rejects_inconsistent_preexisting_pointer(db_session, add_law):
+    law = add_law()
+    body = b"source"
+    snapshot = _snapshot(law, body, storage_backend="local", object_key="somewhere")
+    db_session.add(snapshot)
+    db_session.commit()
+
+    result = run_migration(session=db_session, batch_size=1)
+
+    assert result["status"] == "partial"
+    assert result["pointer_inconsistencies_at_end"] == 1

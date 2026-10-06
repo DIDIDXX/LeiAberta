@@ -33,21 +33,28 @@ Do not reuse backup credentials unless the bucket policy strictly restricts them
 1. Deploy code and apply Alembic revision `20261006_0011` (adds three nullable columns only). It does not rewrite existing rows or touch `raw_body`.
 2. Initially keep the new variables absent. Existing behavior remains database-only, and object pointers, if present, still fall back to PostgreSQL.
 3. Configure a staging bucket and credentials, then write/read a text round-trip, a binary object, and confirm that a wrong checksum is rejected. Do not test by modifying a legal snapshot.
-4. Run a bounded dry-run in the intended application environment; dry-run is the command default and does not contact S3 or write database state:
+4. The repository at the implementation SHA contains `scripts/migrate_source_snapshots_to_object_storage.py`; it does not contain the previously observed module `scripts.migrate_all_source_snapshots_to_object_storage`. Replace that service command with the script below. The command must include `--apply` to upload anything; omitting it is read-only dry-run. Do not run it as a permanently resident service: use a one-shot job or temporary run-and-stop service.
+
+   Checkpoint files contain only IDs and aggregate counters. Point `--checkpoint` at a durable mounted path if the job must resume after process or machine replacement. The database pointers are authoritative and the runner is idempotent, so if a local checkpoint is lost, `--reset-checkpoint` safely rescans rows while skipping committed pointers. Never place bucket secrets in the checkpoint or command line.
+
+5. Run a dry-run in the intended application environment; dry-run is the command default and does not contact S3 or write database state. It scans in bounded pages up to a fixed high-water ID and reports its aggregate at the end:
 
    ```bash
-   python scripts/migrate_source_snapshots_to_object_storage.py --batch-size 25 --after-id 0
+   python -u -m scripts.migrate_source_snapshots_to_object_storage --batch-size 25
    ```
 
-5. Review candidate count, total bytes, invalid rows, and cursor. Investigate any checksum mismatch without changing the row.
-6. For a reviewed batch, explicitly pass `--apply`. The command uploads at most 100 rows (default 25) per invocation, reads each object back, verifies SHA-256, then commits the object pointers for that batch. If any S3 operation fails, SQL pointers in the batch roll back; already-uploaded content-addressed objects are safe orphans and retryable.
+6. Review candidate count, raw bytes, invalid IDs, and high-water ID. Investigate any checksum mismatch without changing the row.
+7. For a reviewed migration, explicitly pass `--apply`. The runner processes the entire fixed ID range in SQL transactions of at most 100 rows (default 25) and approximately 64 MiB of uncompressed source data, emits a progress JSON line after every committed batch, and writes an atomic checkpoint. A single object larger than the byte budget is processed alone so it cannot starve the cursor. It uses bounded retries (default three retries after the first attempt) around each complete upload/read-back verification. If any S3 operation still fails, the current SQL batch rolls back and the checkpoint cursor does not advance; uploaded content-addressed objects are safe orphans and retryable.
 
    ```bash
-   python scripts/migrate_source_snapshots_to_object_storage.py --apply --batch-size 25 --after-id 0
+   python -u -m scripts.migrate_source_snapshots_to_object_storage --apply --batch-size 25 --checkpoint /durable/path/source-snapshot-migration.json
    ```
 
-7. Continue with the last emitted `last_id` as `--after-id`. Rows with an `object_key` are skipped, so reruns are idempotent. A corrupt/mismatched database row is reported in `invalid` and receives no pointer.
-8. Verify pointer counts and sampled/full object reads plus checksums, then monitor read-fallback and write-failure log events. Keep the PostgreSQL bytes until a separately reviewed data-removal rollout passes its own backup/restore and integrity gates.
+8. Treat only final JSON `status: complete` as completion, and check that `pending_pointers_at_end` and `pointer_inconsistencies_at_end` are zero. `SUCCESS` from a job/deployment only means the process exited; it is not a migration metric. The report separates rows/bytes selected and verified, raw bytes, object references' stored bytes, newly created bucket bytes, reused content-addressed objects, retry attempts, invalid rows, elapsed time, high-water ID, and end-of-run pointers. A successful `put_verified` reads every selected object back and SHA-256 checks the decompressed payload before SQL commit.
+9. A database-checksum-invalid row remains pending and makes the report `partial`; investigate it, then use `--reset-checkpoint` after correction/decision. Do not edit the checksum or source bytes just to clear the gate. On an upload failure, rerun with the same checkpoint. Rows with committed `object_key` pointers are skipped, so retries are idempotent. Existing object pointers outside this run's scanned range are counted but are not re-read by this migration; if independent revalidation is required, run a separate bounded audit before removing any DB payload.
+10. Verify counts from the report against read-only SQL and retain the report/checkpoint. Keep PostgreSQL bytes until a separately reviewed data-removal rollout passes its own bucket-only test and backup/restore gates.
+
+The migration report's `bucket_bytes_added` counts objects whose creation and read-back succeeded in this run. If a process dies after an S3 PUT but before its SQL commit/checkpoint, that orphan may later be reused and will not be counted as a new successful object in the resumed run. Use a bucket inventory or full object audit for exact total bucket occupancy; never infer it from migration counters alone.
 
 ## Rollback
 

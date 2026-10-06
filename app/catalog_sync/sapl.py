@@ -9,7 +9,6 @@ import os
 import time
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -27,7 +26,28 @@ from app.sources.network import RETRYABLE_HTTP_CODES
 PAGE_SIZE = 100
 MAX_BYTES = 10_000_000
 MAX_AGE = timedelta(days=7)
+INCREMENTAL_REFRESH_SECONDS = 60 * 60
+DEFAULT_INCREMENTAL_SOURCES_PER_CYCLE = 8
+DEFAULT_FULL_SOURCES_PER_CYCLE = 4
+DEFAULT_FULL_PAGES_PER_CYCLE = 20
+DEFAULT_FULL_PAGES_PER_SOURCE = 5
+DEFAULT_CYCLE_BUDGET_SECONDS = 300
 logger = logging.getLogger("leiaberta.sapl_catalog")
+
+
+def _bounded_env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(maximum, max(minimum, value))
+
+
+def _request_timeout(deadline: float | None, *, default: int = 45) -> int:
+    if deadline is None:
+        return default
+    remaining = deadline - time.monotonic()
+    return max(1, min(default, int(remaining)))
 
 
 @dataclass(frozen=True)
@@ -411,13 +431,14 @@ def fetch_type_names(*, timeout: int = 45,
 
 
 def fetch_catalog_page(page: int, *, page_size: int = PAGE_SIZE, timeout: int = 45,
+                       descending: bool = False,
                        instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> tuple[dict, str]:
     if page < 1 or not 1 <= page_size <= PAGE_SIZE:
         raise ValueError("Página ou tamanho inválido para o catálogo SAPL.")
     # SAPL exposes ordering via the ``o`` query parameter. Sorting by its
     # unique primary key prevents records with tied dates from moving across
     # page boundaries while the catalog is enumerated.
-    params = {"page_size": page_size, "page": page, "o": "id"}
+    params = {"page_size": page_size, "page": page, "o": "-id" if descending else "id"}
     if instance.federation_scope_filter:
         params["esfera_federacao"] = instance.federation_scope_filter
     url = instance.norms_url + "?" + urllib.parse.urlencode(params)
@@ -627,7 +648,8 @@ def _is_retryable_catalog_lock(exc: OperationalError) -> bool:
 def _source_is_fresh(instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> bool:
     with SessionLocal() as session:
         registry = session.get(SourceRegistry, instance.source_id)
-        checked = registry.last_checked_at if registry else None
+        scope = registry.scope or {} if registry else {}
+        checked = _scope_timestamp(scope, "last_full_success_at") or (registry.last_checked_at if registry else None)
         if registry is None or registry.status != "enumerated" or checked is None:
             return False
         if checked.tzinfo is None:
@@ -635,15 +657,102 @@ def _source_is_fresh(instance: SaplInstance = DEFAULT_SAPL_INSTANCE) -> bool:
         return checked > datetime.now(timezone.utc) - MAX_AGE
 
 
-def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: bool = False) -> dict:
+def _scope_timestamp(scope: dict, key: str) -> datetime | None:
+    raw = scope.get(key)
+    if not raw:
+        return None
+    try:
+        value = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+
+def sync_sapl_latest_page(instance: SaplInstance, *, force: bool = False,
+                          deadline: float | None = None,
+                          refresh_interval_seconds: int = INCREMENTAL_REFRESH_SECONDS) -> dict:
+    """Probe the newest SAPL records so new norms do not wait for a full scan.
+
+    SAPL does not expose a documented modified-since cursor here. The descending
+    primary-key page catches the common monotonic-ID insertion case. A periodic
+    bounded full scan remains necessary for retroactive/low-ID additions.
+    """
+    with SessionLocal() as session:
+        registry = session.get(SourceRegistry, instance.source_id)
+        if registry is None or registry.status not in {"enumerated", "syncing", "failed"}:
+            return {"source_id": instance.source_id, "skipped": "full_scan_required"}
+        scope = dict(registry.scope or {})
+        last_incremental = _scope_timestamp(scope, "last_incremental_at")
+        if not force and last_incremental and last_incremental > datetime.now(timezone.utc) - timedelta(
+                seconds=refresh_interval_seconds):
+            return {"source_id": instance.source_id, "skipped_fresh": True}
+        known_max = scope.get("max_remote_id")
+        if known_max is None:
+            checkpoints = scope.get("page_checkpoints") or []
+            if checkpoints:
+                known_max = checkpoints[-1].get("last_id")
+        if not str(known_max or "").isdigit():
+            return {"source_id": instance.source_id, "skipped": "full_scan_required"}
+        known_max = int(known_max)
+
+    if deadline is not None and time.monotonic() >= deadline:
+        return {"source_id": instance.source_id, "skipped": "cycle_budget_exhausted"}
+    types = fetch_type_names(timeout=_request_timeout(deadline), instance=instance)
+    payload, catalog_url = fetch_catalog_page(1, timeout=_request_timeout(deadline),
+                                               descending=True, instance=instance)
+    pagination = payload["pagination"]
+    total, pages = pagination["total_entries"], pagination["total_pages"]
+    if total < 1 or pages < 1 or pages > total:
+        raise ValueError("O catálogo SAPL retornou universo ou paginação inválida.")
+    records = parse_catalog_page(payload, types, instance=instance)
+    remote_ids = [int(item.remote_id) for item in records]
+    expected_page_count = min(PAGE_SIZE, total)
+    if len(records) != expected_page_count:
+        raise ValueError(f"Página incremental SAPL truncada: {len(records)} de {expected_page_count}.")
+    if any(left <= right for left, right in zip(remote_ids, remote_ids[1:])):
+        raise ValueError("A página incremental SAPL não está em ordem estritamente decrescente de id.")
+    new_records = [item for item in records if int(item.remote_id) > known_max]
+    observed_at = datetime.now(timezone.utc)
+    added = refreshed = 0
+    with SessionLocal() as session:
+        _limit_catalog_page_transaction(session)
+        counts = sync_catalog_page(session, new_records, observed_at=observed_at, instance=instance) if new_records else {
+            "added": 0, "refreshed": 0,
+        }
+        registry = session.get(SourceRegistry, instance.source_id)
+        scope = dict(registry.scope or {})
+        highest_seen = max(remote_ids, default=known_max)
+        full_page_of_new_ids = len(records) == PAGE_SIZE and all(remote_id > known_max for remote_id in remote_ids)
+        scope.update({
+            "max_remote_id": str(max(known_max, highest_seen)),
+            "last_incremental_at": observed_at.isoformat(),
+            "last_incremental_attempt_at": observed_at.isoformat(),
+            "incremental_probe_url": catalog_url,
+        })
+        scope.pop("last_incremental_error_type", None)
+        if full_page_of_new_ids:
+            # A burst larger than one page may hide additional new IDs behind
+            # this page. Mark the full scan due; never advance a false cursor.
+            scope["incremental_backlog"] = True
+            scope["last_full_success_at"] = (observed_at - MAX_AGE - timedelta(seconds=1)).isoformat()
+        registry.scope = scope
+        session.commit()
+        added, refreshed = counts["added"], counts["refreshed"]
+    return {"source_id": instance.source_id, "incremental": True, "records_seen": len(records),
+            "new_records": len(new_records), "added": added, "refreshed": refreshed,
+            "incremental_backlog": full_page_of_new_ids}
+
+
+def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: bool = False,
+                      max_pages: int | None = None, deadline: float | None = None) -> dict:
     if not force and _source_is_fresh(instance):
         with SessionLocal() as session:
             registry = session.get(SourceRegistry, instance.source_id)
             return {"source_id": instance.source_id, "skipped_fresh": True,
                     "records": (registry.scope or {}).get("records_enumerated", 0)}
     observed_at = datetime.now(timezone.utc)
-    types = fetch_type_names(instance=instance)
-    first, catalog_url = fetch_catalog_page(1, instance=instance)
+    types = fetch_type_names(timeout=_request_timeout(deadline), instance=instance)
+    first, catalog_url = fetch_catalog_page(1, timeout=_request_timeout(deadline), instance=instance)
     pagination = first["pagination"]
     total, pages = pagination["total_entries"], pagination["total_pages"]
     if total < 1 or pages < 1 or pages > total:
@@ -671,6 +780,9 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         else:
             previous_scope = dict(registry.scope or {})
             previous_status = registry.status
+        for preserved_key in ("last_full_success_at", "last_incremental_at", "max_remote_id"):
+            if previous_scope.get(preserved_key) is not None:
+                scope[preserved_key] = previous_scope[preserved_key]
         registry.jurisdiction_id = instance.jurisdiction_id if session.get(Jurisdiction, instance.jurisdiction_id) else None
         registry.name, registry.adapter, registry.base_url = instance.source_name, "sapl_catalog", catalog_url
         registry.evidence_url, registry.status = instance.authority_url, "syncing"
@@ -681,16 +793,20 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         session.commit()
 
     added = refreshed = 0
+    added_this_run = refreshed_this_run = 0
     federation_counts = {"M": 0, "E": 0, "F": 0, "not_declared": 0}
     page_checkpoints: list[dict] = []
     start_page = 1
+    pages_processed = 0
     can_resume = not force and previous_status in {"failed", "syncing"}
     checkpoint_state = _usable_checkpoint(previous_scope, total=total, pages=pages) if can_resume else None
     if checkpoint_state is not None:
         candidate_pages, candidate_counts = checkpoint_state
         boundary_page = len(candidate_pages)
         try:
-            boundary_payload = first if boundary_page == 1 else fetch_catalog_page(boundary_page, instance=instance)[0]
+            boundary_payload = first if boundary_page == 1 else fetch_catalog_page(
+                boundary_page, timeout=_request_timeout(deadline), instance=instance,
+            )[0]
             boundary_pagination = boundary_payload["pagination"]
             boundary_records = parse_catalog_page(boundary_payload, types, instance=instance)
             actual_boundary = _page_checkpoint(boundary_records)
@@ -699,6 +815,8 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                     and actual_boundary == candidate_pages[-1]):
                 page_checkpoints = candidate_pages
                 federation_counts = candidate_counts
+                added = int(previous_scope.get("records_added_total", 0))
+                refreshed = int(previous_scope.get("records_refreshed_total", 0))
                 start_page = boundary_page + 1
                 logger.info("sapl_catalog_checkpoint_resumed source_id=%s last_page=%s records=%s",
                             instance.source_id, boundary_page,
@@ -719,8 +837,14 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
     previous_remote_id = page_checkpoints[-1]["last_id"] if page_checkpoints else None
     try:
         for page in range(start_page, pages + 1):
+            if max_pages is not None and pages_processed >= max_pages:
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                break
             logger.info("sapl_catalog_page_fetch_started page=%s total_pages=%s", page, pages)
-            payload = first if page == 1 else fetch_catalog_page(page, instance=instance)[0]
+            payload = first if page == 1 else fetch_catalog_page(
+                page, timeout=_request_timeout(deadline), instance=instance,
+            )[0]
             current = payload["pagination"]
             if current["total_entries"] != total or current["total_pages"] != pages:
                 raise ValueError("O total SAPL mudou durante a paginação.")
@@ -753,6 +877,8 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                         registry = session.get(SourceRegistry, instance.source_id)
                         registry.scope = {**scope, "records_enumerated": next_enumerated, "last_page": page,
                                           "records_by_federation_scope": next_federation_counts,
+                                          "records_added_total": added + counts["added"],
+                                          "records_refreshed_total": refreshed + counts["refreshed"],
                                           "checkpoint_format": "sapl-page-checkpoints-v1",
                                           "page_checkpoints": next_page_checkpoints,
                                           "catalog_ids_sha256_partial": _catalog_ids_digest(next_page_checkpoints),
@@ -771,10 +897,13 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                     time.sleep(delay)
             added += counts["added"]
             refreshed += counts["refreshed"]
+            added_this_run += counts["added"]
+            refreshed_this_run += counts["refreshed"]
             enumerated = next_enumerated
             federation_counts = next_federation_counts
             page_checkpoints = next_page_checkpoints
             previous_remote_id = page_state["last_id"]
+            pages_processed += 1
             logger.info("sapl_catalog_page_committed page=%s enumerated=%s", page, enumerated)
     except Exception as exc:
         with SessionLocal() as session:
@@ -790,7 +919,19 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
                 session.commit()
         raise
     if enumerated != total or len(page_checkpoints) != pages:
-        raise ValueError(f"Catálogo SAPL incompleto: {enumerated} de {total} registros.")
+        with SessionLocal() as session:
+            registry = session.get(SourceRegistry, instance.source_id)
+            if registry:
+                registry.status = "syncing"
+                registry.scope = {**(registry.scope or {}), "records_enumerated": enumerated,
+                                  "last_page": len(page_checkpoints), "last_attempt_at": datetime.now(timezone.utc).isoformat()}
+                registry.last_checked_at = datetime.now(timezone.utc)
+                session.commit()
+        return {"source_id": instance.source_id, "records": enumerated, "expected": total,
+                "pages": pages, "pages_processed": pages_processed, "complete": False,
+                "added": added_this_run, "refreshed": refreshed_this_run,
+                "added_total": added, "refreshed_total": refreshed,
+                "progress": round(enumerated / total, 4)}
     final_digest = _catalog_ids_digest(page_checkpoints)
     with SessionLocal() as session:
         external_prefix = f"sapl:{instance.external_namespace}:%"
@@ -799,18 +940,23 @@ def sync_sapl_catalog(instance: SaplInstance = DEFAULT_SAPL_INSTANCE, *, force: 
         registry.status = "enumerated"
         registry.scope = {**scope, "records_enumerated": enumerated, "records_in_database": db_total,
                           "records_by_federation_scope": dict(federation_counts),
+                          "max_remote_id": page_checkpoints[-1]["last_id"],
+                          "records_added_total": added, "records_refreshed_total": refreshed,
                           "last_page": pages, "checkpoint_format": "sapl-page-checkpoints-v1",
                           "page_checkpoints": page_checkpoints,
                           "catalog_ids_sha256": final_digest,
                           "catalog_ids_digest_algorithm": "sha256-of-ordered-page-sha256s-v1",
                           "last_success_at": datetime.now(timezone.utc).isoformat(),
+                          "last_full_success_at": datetime.now(timezone.utc).isoformat(),
                           "new_records": added, "updated_records": refreshed, "failed_records": 0,
                           "observed_at": datetime.now(timezone.utc).isoformat()}
         registry.last_checked_at = datetime.now(timezone.utc)
         registry.last_error = ""
         session.commit()
-    return {"source_id": instance.source_id, "records": enumerated, "expected": total, "pages": pages, "added": added,
-            "refreshed": refreshed, "catalog_ids_sha256": final_digest}
+    return {"source_id": instance.source_id, "records": enumerated, "expected": total, "pages": pages,
+            "pages_processed": pages_processed, "complete": True, "progress": 1.0,
+            "added": added_this_run, "refreshed": refreshed_this_run,
+            "added_total": added, "refreshed_total": refreshed, "catalog_ids_sha256": final_digest}
 
 
 def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
@@ -819,28 +965,118 @@ def sync_sapl_manaus_catalog(*, force: bool = False) -> dict:
 
 
 def sync_all_sapl_catalogs(*, force: bool = False) -> dict:
-    """Refresh configured SAPL catalogs with bounded parallelism.
+    """Run incremental probes and bounded historical catalog enumeration.
 
-    Each catalog persists its own page checkpoints, so independent instances can
-    be synchronized concurrently and safely resumed after a worker restart.
+    The latest-page probe continues discovering recently added, monotonic-ID
+    norms. Full scans are resumable and consume a fixed page/time budget per
+    cycle so a large bootstrap cannot monopolize the worker or database.
     """
     results = []
     errors = []
-    max_workers = min(8, max(1, int(os.getenv("SAPL_SYNC_CONCURRENCY", "4"))))
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="sapl-instance") as executor:
-        futures = {
-            executor.submit(sync_sapl_catalog, instance, force=force): instance
-            for instance in SAPL_INSTANCES
+    cycle_started = time.monotonic()
+    budget_seconds = _bounded_env_int("SAPL_CATALOG_CYCLE_BUDGET_SECONDS", DEFAULT_CYCLE_BUDGET_SECONDS,
+                                      minimum=30, maximum=1800)
+    deadline = cycle_started + budget_seconds
+    incremental_limit = _bounded_env_int("SAPL_INCREMENTAL_SOURCES_PER_CYCLE",
+                                          DEFAULT_INCREMENTAL_SOURCES_PER_CYCLE, minimum=0, maximum=32)
+    full_source_limit = _bounded_env_int("SAPL_FULL_SOURCES_PER_CYCLE", DEFAULT_FULL_SOURCES_PER_CYCLE,
+                                         minimum=0, maximum=32)
+    full_page_budget = _bounded_env_int("SAPL_FULL_PAGES_PER_CYCLE", DEFAULT_FULL_PAGES_PER_CYCLE,
+                                        minimum=0, maximum=200)
+    pages_per_source = _bounded_env_int("SAPL_FULL_PAGES_PER_SOURCE", DEFAULT_FULL_PAGES_PER_SOURCE,
+                                        minimum=1, maximum=100)
+    refresh_interval = _bounded_env_int("SAPL_INCREMENTAL_REFRESH_SECONDS", INCREMENTAL_REFRESH_SECONDS,
+                                        minimum=300, maximum=7 * 24 * 60 * 60)
+
+    with SessionLocal() as session:
+        registries = {
+            registry.id: registry
+            for registry in session.scalars(select(SourceRegistry).where(
+                SourceRegistry.id.in_([item.source_id for item in SAPL_INSTANCES])
+            ))
         }
-        for future in as_completed(futures):
-            instance = futures[future]
+
+    def checked_at(registry):
+        if registry is None:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        value = registry.last_checked_at or datetime.min.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+
+    # Probe a rotating subset each cycle. Oldest probe timestamps go first so
+    # no single installation can starve the rest.
+    incremental_candidates = []
+    full_candidates = []
+    now = datetime.now(timezone.utc)
+    for instance in SAPL_INSTANCES:
+        registry = registries.get(instance.source_id)
+        if registry is None:
+            full_candidates.append((datetime.min.replace(tzinfo=timezone.utc), instance, registry))
+            continue
+        scope = dict(registry.scope or {})
+        checkpoints = scope.get("page_checkpoints") or []
+        has_watermark = str(scope.get("max_remote_id") or "").isdigit() or bool(
+            checkpoints and str(checkpoints[-1].get("last_id") or "").isdigit()
+        )
+        if registry.status in {"enumerated", "syncing", "failed"} and (
+                registry.status == "enumerated" or has_watermark):
+            probe_at = (_scope_timestamp(scope, "last_incremental_attempt_at")
+                        or _scope_timestamp(scope, "last_incremental_at") or checked_at(registry))
+            if force or probe_at <= now - timedelta(seconds=refresh_interval):
+                incremental_candidates.append((probe_at, instance, registry))
+        last_full = _scope_timestamp(scope, "last_full_success_at") or checked_at(registry)
+        if (force or registry.status != "enumerated" or scope.get("incremental_backlog")
+                or last_full <= now - MAX_AGE):
+            full_candidates.append((last_full, instance, registry))
+    incremental_candidates.sort(key=lambda row: row[0])
+    full_candidates.sort(key=lambda row: row[0])
+
+    for _probe_at, instance, _registry in incremental_candidates[:incremental_limit]:
+        if time.monotonic() >= deadline:
+            break
+        try:
+            result = sync_sapl_latest_page(instance, force=force, deadline=deadline,
+                                           refresh_interval_seconds=refresh_interval)
+            results.append(result)
+        except Exception as exc:
             try:
-                results.append(future.result())
-            except Exception as exc:
-                error = str(exc)[:500]
-                errors.append({"source_id": instance.source_id, "error": error})
-                logger.exception("sapl_catalog_sync_failed source_id=%s source=%s",
-                                 instance.source_id, instance.source_name)
+                with SessionLocal() as session:
+                    registry = session.get(SourceRegistry, instance.source_id)
+                    if registry:
+                        scope = dict(registry.scope or {})
+                        scope["last_incremental_attempt_at"] = datetime.now(timezone.utc).isoformat()
+                        scope["last_incremental_error_type"] = type(exc).__name__
+                        registry.scope = scope
+                        session.commit()
+            except Exception as checkpoint_exc:
+                logger.warning("sapl_incremental_attempt_checkpoint_failed source_id=%s error_type=%s",
+                               instance.source_id, type(checkpoint_exc).__name__)
+            error = str(exc)[:500]
+            errors.append({"source_id": instance.source_id, "error": error, "phase": "incremental"})
+            logger.exception("sapl_incremental_probe_failed source_id=%s", instance.source_id)
+
+    pages_remaining = full_page_budget
+    full_sources_processed = 0
+    for _last_full, instance, _registry in full_candidates:
+        if full_sources_processed >= full_source_limit:
+            break
+        if pages_remaining < 1 or time.monotonic() >= deadline:
+            break
+        source_page_limit = min(pages_per_source, pages_remaining)
+        try:
+            result = sync_sapl_catalog(instance, force=force, max_pages=source_page_limit, deadline=deadline)
+            results.append(result)
+            full_sources_processed += 1
+            pages_remaining -= int(result.get("pages_processed", 0))
+        except Exception as exc:
+            full_sources_processed += 1
+            error = str(exc)[:500]
+            errors.append({"source_id": instance.source_id, "error": error, "phase": "full"})
+            logger.exception("sapl_catalog_sync_failed source_id=%s source=%s",
+                             instance.source_id, instance.source_name)
     return {"synced": results, "errors": errors,
             "records": sum(row.get("records", 0) for row in results),
-            "skipped_fresh": sum(bool(row.get("skipped_fresh")) for row in results)}
+            "skipped_fresh": sum(bool(row.get("skipped_fresh")) for row in results),
+            "incremental_probes": sum(bool(row.get("incremental")) for row in results),
+            "full_pages_processed": sum(int(row.get("pages_processed", 0)) for row in results),
+            "full_scans_incomplete": sum(row.get("complete") is False for row in results),
+            "cycle_budget_seconds": budget_seconds}

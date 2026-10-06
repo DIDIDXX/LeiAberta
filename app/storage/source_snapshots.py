@@ -11,8 +11,9 @@ import gzip
 import logging
 import os
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlsplit
 
 logger = logging.getLogger("leiaberta.source_snapshots")
 
@@ -26,13 +27,17 @@ class SnapshotObjectRef:
     backend: str
     object_key: str
     size_bytes: int
+    stored_size_bytes: int
+    created: bool = field(compare=False)
 
 
 class SourceSnapshotObjectStore:
-    def __init__(self, client: Any, bucket: str, *, prefix: str = "source-snapshots") -> None:
+    def __init__(self, client: Any, bucket: str, *, prefix: str = "source-snapshots",
+                 endpoint_identity: str | None = None) -> None:
         self.client = client
         self.bucket = bucket
         self.prefix = prefix.strip("/")
+        self.endpoint_identity = endpoint_identity
 
     @classmethod
     def from_env(cls) -> SourceSnapshotObjectStore | None:
@@ -49,6 +54,13 @@ class SourceSnapshotObjectStore:
         missing = [names[key] for key, value in values.items() if not value]
         if missing:
             raise ValueError("Incomplete source snapshot object-store configuration: " + ", ".join(missing))
+        endpoint = values["endpoint"]
+        parsed_endpoint = urlsplit(endpoint)
+        if parsed_endpoint.scheme not in {"https", "http"} or not parsed_endpoint.hostname:
+            raise ValueError("SOURCE_SNAPSHOT_S3_ENDPOINT must be an http(s) URL")
+        addressing_style = os.getenv("SOURCE_SNAPSHOT_S3_ADDRESSING_STYLE", "path").strip().lower()
+        if addressing_style not in {"path", "virtual"}:
+            raise ValueError("SOURCE_SNAPSHOT_S3_ADDRESSING_STYLE must be path or virtual")
 
         # Import lazily: installations using database-only snapshots do not
         # need to initialize an S3 client or contact the object store.
@@ -57,13 +69,21 @@ class SourceSnapshotObjectStore:
 
         client = boto3.client(
             "s3",
-            endpoint_url=values["endpoint"],
+            endpoint_url=endpoint,
             aws_access_key_id=values["access_key"],
             aws_secret_access_key=values["secret_key"],
             region_name=values["region"],
-            config=Config(s3={"addressing_style": os.getenv("SOURCE_SNAPSHOT_S3_ADDRESSING_STYLE", "path")}),
+            # The migration runner applies its own bounded retry policy around
+            # an entire put/read/verify operation, so each SDK request is single-shot.
+            config=Config(s3={"addressing_style": addressing_style},
+                          retries={"mode": "standard", "total_max_attempts": 1}),
         )
-        return cls(client, values["bucket"], prefix=os.getenv("SOURCE_SNAPSHOT_S3_PREFIX", "source-snapshots"))
+        host = parsed_endpoint.hostname.lower()
+        if parsed_endpoint.port:
+            host = f"{host}:{parsed_endpoint.port}"
+        identity = f"{parsed_endpoint.scheme}://{host}{parsed_endpoint.path.rstrip('/')}"
+        return cls(client, values["bucket"], prefix=os.getenv("SOURCE_SNAPSHOT_S3_PREFIX", "source-snapshots"),
+                   endpoint_identity=identity)
 
     def key_for(self, sha256: str) -> str:
         if len(sha256) != 64 or any(char not in "0123456789abcdef" for char in sha256):
@@ -122,8 +142,9 @@ class SourceSnapshotObjectStore:
         key = self.key_for(expected_sha256)
         compress = self._compressible(content_type)
         stored_payload = gzip.compress(payload, compresslevel=6, mtime=0) if compress else payload
+        created = False
         try:
-            self.client.head_object(Bucket=self.bucket, Key=key)
+            head_response = self.client.head_object(Bucket=self.bucket, Key=key)
         except Exception as exc:
             if not self._missing_object(exc):
                 raise SnapshotObjectError(f"Could not inspect source snapshot object {key}") from exc
@@ -139,13 +160,22 @@ class SourceSnapshotObjectStore:
                     "compression": "gzip" if compress else "none",
                 },
             )
+            created = True
 
         # Verify actual object bytes rather than trusting user metadata, ETag
         # (which is not always a content MD5), or a successful PUT response.
         stored = self.read_verified(key, expected_sha256)
         if len(stored) != len(payload):
             raise SnapshotObjectError(f"Source snapshot size mismatch for {key}")
-        return SnapshotObjectRef(backend="s3", object_key=key, size_bytes=len(stored))
+        try:
+            head_response = self.client.head_object(Bucket=self.bucket, Key=key)
+        except Exception as exc:
+            raise SnapshotObjectError(f"Could not inspect verified source snapshot object {key}") from exc
+        stored_size_bytes = int(head_response.get("ContentLength", -1))
+        if stored_size_bytes < 0:
+            raise SnapshotObjectError(f"Source snapshot object size is unavailable for {key}")
+        return SnapshotObjectRef(backend="s3", object_key=key, size_bytes=len(stored),
+                                 stored_size_bytes=stored_size_bytes, created=created)
 
 
 def read_source_snapshot(snapshot, store: SourceSnapshotObjectStore | None = None) -> bytes:

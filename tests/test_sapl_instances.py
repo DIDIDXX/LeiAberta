@@ -302,6 +302,194 @@ def test_sapl_catalog_pages_use_stable_primary_key_order(monkeypatch):
     }
 
 
+def test_sapl_catalog_page_can_probe_newest_ids_first(monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+
+    from app.catalog_sync import sapl as sapl_catalog
+
+    instance = next(item for item in SAPL_INSTANCES if item.ibge_code == "3549102")
+    url = instance.norms_url + "?page_size=100&page=1&o=-id"
+
+    def fake_get_json(requested_url, *, timeout, instance):
+        return {"results": [], "pagination": {"page": 1, "total_entries": 12086, "total_pages": 121}}, requested_url
+
+    monkeypatch.setattr(sapl_catalog, "_get_json", fake_get_json)
+    _payload, final_url = sapl_catalog.fetch_catalog_page(1, descending=True, instance=instance)
+
+    assert parse_qs(urlparse(final_url).query)["o"] == ["-id"]
+
+
+def test_sapl_full_catalog_scan_respects_page_budget_and_resumes(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+    from app.models import SourceRegistry
+
+    instance = SaplInstance(
+        ibge_code="9900002", municipality="Cidade de Teste", state_code="ZZ",
+        host="https://sapl.budget.zz.leg.br", source_id="municipality:9900002:sapl",
+        source_name="Câmara Municipal de Budget — SAPL", authority_url="https://camara.budget.zz/",
+    )
+    monkeypatch.setattr(sapl_catalog, "PAGE_SIZE", 2)
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    monkeypatch.setattr(sapl_catalog, "fetch_type_names", lambda **_kwargs: {"1": "Lei"})
+    rows = {1: [(1, "Lei 1"), (2, "Lei 2")], 2: [(3, "Lei 3"), (4, "Lei 4")]}
+    calls = []
+
+    def fetch_page(page, **_kwargs):
+        calls.append(page)
+        payload = {"pagination": {"page": page, "total_entries": 4, "total_pages": 2}, "results": []}
+        for remote_id, title in rows[page]:
+            payload["results"].append({
+                "id": remote_id, "__str__": title, "tipo": 1, "numero": str(remote_id),
+                "ano": 2024, "esfera_federacao": "M", "data": "2024-01-01",
+                "data_publicacao": None, "ementa": title,
+            })
+        return payload, instance.norms_url
+
+    monkeypatch.setattr(sapl_catalog, "fetch_catalog_page", fetch_page)
+
+    first = sapl_catalog.sync_sapl_catalog(instance, force=True, max_pages=1)
+    assert first["complete"] is False
+    assert first["pages_processed"] == 1
+    registry = db_session.get(SourceRegistry, instance.source_id)
+    assert registry.status == "syncing"
+    assert registry.scope["last_page"] == 1
+
+    second = sapl_catalog.sync_sapl_catalog(instance, max_pages=1)
+    assert second["complete"] is True
+    assert second["progress"] == 1.0
+    assert calls == [1, 1, 2]
+    assert db_session.query(Law).filter_by(source_name=instance.source_name).count() == 4
+
+
+def test_sapl_latest_page_probe_adds_new_norm_without_full_scan(db_session, monkeypatch):
+    from datetime import datetime, timezone
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+    from app.models import SourceRegistry
+
+    instance = SaplInstance(
+        ibge_code="9900003", municipality="Cidade de Teste", state_code="ZZ",
+        host="https://sapl.latest.zz.leg.br", source_id="municipality:9900003:sapl",
+        source_name="Câmara Municipal de Latest — SAPL", authority_url="https://camara.latest.zz/",
+    )
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    monkeypatch.setattr(sapl_catalog, "PAGE_SIZE", 2)
+    db_session.add(SourceRegistry(
+        id=instance.source_id, name=instance.source_name, adapter="sapl_catalog",
+        base_url=instance.norms_url, evidence_url=instance.authority_url, status="enumerated",
+        scope={"max_remote_id": "3", "page_checkpoints": [{"last_id": "3"}]},
+        last_checked_at=datetime.now(timezone.utc),
+    ))
+    db_session.commit()
+    monkeypatch.setattr(sapl_catalog, "fetch_type_names", lambda **_kwargs: {"1": "Lei"})
+
+    def fetch_latest(page, *, descending=False, instance, **_kwargs):
+        assert page == 1
+        assert descending is True
+        return ({"pagination": {"page": 1, "total_entries": 4, "total_pages": 1}, "results": [
+            {"id": 4, "__str__": "Lei nova", "tipo": 1, "numero": "4", "ano": 2026,
+             "esfera_federacao": "M", "data": "2026-01-01", "ementa": "Lei nova"},
+            {"id": 3, "__str__": "Lei antiga", "tipo": 1, "numero": "3", "ano": 2025,
+             "esfera_federacao": "M", "data": "2025-01-01", "ementa": "Lei antiga"},
+        ]}, instance.norms_url)
+
+    monkeypatch.setattr(sapl_catalog, "fetch_catalog_page", fetch_latest)
+    result = sapl_catalog.sync_sapl_latest_page(instance, force=True)
+
+    assert result["incremental"] is True
+    assert result["new_records"] == result["added"] == 1
+    assert db_session.query(Law).filter_by(source_name=instance.source_name).count() == 1
+    db_session.expire_all()
+    assert db_session.get(SourceRegistry, instance.source_id).scope["max_remote_id"] == "4"
+
+
+def test_sapl_cycle_caps_bootstrap_sources_and_total_pages(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+
+    instances = tuple(SaplInstance(
+        ibge_code=f"990001{i}", municipality=f"Cidade {i}", state_code="ZZ",
+        host=f"https://sapl.budget{i}.zz.leg.br", source_id=f"municipality:990001{i}:sapl",
+        source_name=f"Câmara de Budget {i} — SAPL", authority_url=f"https://camara.budget{i}.zz/",
+    ) for i in range(5))
+    monkeypatch.setattr(sapl_catalog, "SAPL_INSTANCES", instances)
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    monkeypatch.setenv("SAPL_FULL_SOURCES_PER_CYCLE", "2")
+    monkeypatch.setenv("SAPL_FULL_PAGES_PER_CYCLE", "2")
+    monkeypatch.setenv("SAPL_FULL_PAGES_PER_SOURCE", "1")
+    started = []
+
+    def fake_full(instance, **kwargs):
+        started.append((instance.source_id, kwargs["max_pages"]))
+        return {"source_id": instance.source_id, "complete": False, "pages_processed": 1,
+                "records": 100, "expected": 1000}
+
+    monkeypatch.setattr(sapl_catalog, "sync_sapl_catalog", fake_full)
+    result = sapl_catalog.sync_all_sapl_catalogs()
+
+    assert started == [(instances[0].source_id, 1), (instances[1].source_id, 1)]
+    assert result["full_pages_processed"] == 2
+    assert result["full_scans_incomplete"] == 2
+
+
+def test_sapl_cycle_can_pause_full_scans_while_incremental_probe_continues(db_session, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+    from app.models import SourceRegistry
+
+    instance = SaplInstance(
+        ibge_code="9900020", municipality="Cidade de Teste", state_code="ZZ",
+        host="https://sapl.pause.zz.leg.br", source_id="municipality:9900020:sapl",
+        source_name="Câmara de Pause — SAPL", authority_url="https://camara.pause.zz/",
+    )
+    monkeypatch.setattr(sapl_catalog, "SAPL_INSTANCES", (instance,))
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    old = datetime.now(timezone.utc) - timedelta(days=8)
+    db_session.add(SourceRegistry(
+        id=instance.source_id, name=instance.source_name, adapter="sapl_catalog",
+        base_url=instance.norms_url, evidence_url=instance.authority_url, status="enumerated",
+        scope={"max_remote_id": "500", "last_full_success_at": old.isoformat(),
+               "last_incremental_at": old.isoformat()},
+        last_checked_at=old,
+    ))
+    db_session.commit()
+    monkeypatch.setenv("SAPL_FULL_SOURCES_PER_CYCLE", "0")
+    monkeypatch.setenv("SAPL_FULL_PAGES_PER_CYCLE", "0")
+    probed = []
+    full_scans = []
+    monkeypatch.setattr(sapl_catalog, "sync_sapl_latest_page",
+                        lambda source, **_kwargs: probed.append(source.source_id) or {
+                            "source_id": source.source_id, "incremental": True, "new_records": 0,
+                        })
+    monkeypatch.setattr(sapl_catalog, "sync_sapl_catalog",
+                        lambda source, **_kwargs: full_scans.append(source.source_id))
+
+    result = sapl_catalog.sync_all_sapl_catalogs()
+
+    assert probed == [instance.source_id]
+    assert full_scans == []
+    assert result["incremental_probes"] == 1
+    assert result["full_pages_processed"] == 0
+
+
 def test_sapl_reader_retries_transient_page_404(monkeypatch):
     import io
     import json

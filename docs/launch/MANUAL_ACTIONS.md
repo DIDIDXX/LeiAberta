@@ -1,17 +1,23 @@
-# Ações externas
+# Ações manuais pendentes
 
-- **Metadados GitHub:** tentei definir descrição, homepage e topics do repositório; a integração retornou 403 `Resource not accessible by integration`. Com permissão de administrador, abra `https://github.com/DIDIDXX/LeiAberta/settings` → **General** e aplique:
-  - **Description:** `Open-source traceability layer for Brazilian legislation: text, amendments, provenance and official sources.`
-  - **Website:** `https://web-production-12e95.up.railway.app`
-  - **Topics:** `brazil`, `legislation`, `civic-tech`, `open-data`, `legaltech`, `data-engineering`, `fastapi`, `postgresql`, `open-source`.
-  Confirme que Website abre a produção e que cada topic foi adicionado antes de salvar.
-- **P0 Railway — app sem readiness e Postgres sem espaço:** na verificação pública de 06/10/2026 01:49 UTC, `/health` retornou **500**, `/ready` retornou **503**, e a home `/` retornou **200**; homepage responde, mas a aplicação não está saudável. Métricas Railway do Postgres mostraram **4,9965 GB** usados em volume de **5.000 MB** na última hora. A exclusão antiga de `pg-diagnostic` foi descartada e não removeu serviço algum. Uma tentativa autorizada de `accept-deploy` limpou o staged change sem aplicar o tamanho: confirmei agora que **não há alterações staged** e que `postgres-volume` continua em **5.000 MB**. Nenhum outro serviço, volume ou dado foi alterado.
+Este arquivo substitui a fotografia desatualizada do início do incidente. O retrato medido em 06/10/2026 mostra `web`, `/ready` e o worker respondendo; confirme novamente após cada deploy.
 
-  **Ação manual do proprietário:** no Railway Dashboard, abra o projeto **LeiAberta** → ambiente **production** → serviço **Postgres** → volume **postgres-volume** (mount `/var/lib/postgresql/data`) e altere o tamanho de **5.000 MB para 6.500 MB**. Revise o preview/Pending Changes e só confirme se a única alteração for esse aumento de tamanho; não inclua mudança em outro serviço, volume, variável ou recurso. O proprietário precisa autenticar com 2FA e aplicar a mudança pelo Dashboard. Se qualquer outra alteração aparecer, pare e solicite revisão. Depois, confira que o volume está em 6.500 MB e valide `/health`, `/ready`, a rota pública, os logs de Postgres e o espaço livre; não anuncie recuperação apenas porque o resize foi aceito. Este agente não aplicou a mudança.
+## Antes de anunciar lançamento público
 
-  O monitor **Railway Pro Observability → Disk Usage**, com alertas em **70%, 80% e 85%**, é somente observacional: os avisos chegam ao Dashboard, mas não pausam o worker. Não trate esses alertas como mecanismo automático de proteção contra novo crescimento de disco. Siga o [runbook de disco e recuperação do PostgreSQL](../runbooks/postgres-disk-budget.md).
-- **Domínio próprio:** opcional. Nenhum domínio foi comprado ou alterado. O hostname de produção é `up.railway.app`; a home responde, mas a aplicação continua sem readiness neste P0. Não trate o domínio nem um HTTP 200 isolado como prova de saúde. Para usar domínio próprio depois, o mantenedor deve registrá-lo e configurar DNS/TLS conforme [CUSTOM_DOMAIN.md](CUSTOM_DOMAIN.md).
-- **Billing/custo real:** a fatura e o plano não estavam disponíveis. O custo efetivo é desconhecido até medir o uso após as mudanças e conferir a fatura. Valores por CPU/RAM e tarifas publicadas são estimativas, não custo confirmado.
-- **Redes sociais:** os textos em `POSTS.md` estão prontos e não foram publicados.
+- Revalidar produção depois do deploy final: caveat do Why/Blame, rotas/APIs, sincronização incremental limitada e uma hidratação sob demanda concluída pelo worker real.
+- Conferir os resultados completos da auditoria SHA dos 14.201 objetos do bucket e do backup/restore com a nova verificação de schema.
+- Observar ao menos 30–60 minutos sob sync representativo, registrar crescimento do volume, e manter a janela de 24 horas antes de encerrar o fallback.
+- Definir e comprovar retenção, versionamento ou cópia recuperável dos snapshots no bucket antes de qualquer `raw_body = NULL`.
+- Verificar a fatura Railway real quando o mantenedor tiver acesso. A estimativa atual é aproximadamente US$ 40,20–40,70/mês com o banco antigo e US$ 32,90–33,40/mês depois de uma eventual aposentadoria; a meta aspiracional US$ 10–15/mês ainda não foi atingida.
 
-A home da demo responde, mas health e readiness falham enquanto o P0 estiver aberto. Não há resize staged no momento; após o proprietário aumentar o volume pelo Dashboard e confirmar que só essa mudança foi aplicada, valide health/readiness e uma rota pública antes de anunciar disponibilidade.
+## Aprovação explícita necessária
+
+O Postgres antigo continua conectado ao volume de 5 GB, quase cheio em 4,9965 GB, e seus logs registram `No space left on device`. Ele está preservado para inspeção, mas não é um fallback confiável no estado atual.
+
+Após os gates de backup, restore, estabilidade e observação, o proprietário deve decidir se autoriza excluir o serviço **Postgres** antigo e seu volume `postgres-volume` no Railway. A autorização para esta execução não inclui essa exclusão; nenhum serviço ou volume antigo foi apagado. Se aprovado, revise as mudanças pendentes do Railway e confirme que removem apenas o serviço/volume antigos esperados. Não inclua outros recursos na mesma aplicação.
+
+## Limites desta etapa
+
+- Não comprar domínio, migrar para VPS, fazer upgrade pago nem publicar posts em redes sociais.
+- A comparação arquivada do Art. 389 continua baseada em transcrição do Normas.leg.br classificada como não oficial. Os trechos exatos anterior e posterior ainda não foram comprovados em documentos primários armazenados.
+- A integração GitHub havia recusado com 403 a edição de descrição/homepage/topics. Se ainda desejar esses metadados, o mantenedor pode atualizá-los nas configurações do repositório; isso não bloqueia o funcionamento da aplicação.
