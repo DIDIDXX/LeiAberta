@@ -90,14 +90,40 @@ def test_public_rate_limit_returns_429_and_retry_after(monkeypatch):
     assert response.headers["cache-control"] == "no-store"
 
 
+def test_redis_failure_uses_local_budget_for_stats_instead_of_unlimited_reads(monkeypatch):
+    from redis.exceptions import RedisError
+    from app import main
+
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setattr(main, "_consume_rate_budget", lambda *_args: (_ for _ in ()).throw(RedisError()))
+    calls = []
+
+    def local_budget(scope, limit, window_seconds):
+        calls.append((scope, limit, window_seconds))
+        return 31, 12
+
+    monkeypatch.setattr(main, "_consume_local_rate_budget", local_budget)
+    response = TestClient(app).get("/api/stats")
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "12"
+    assert calls == [("stats", 30, 60)]
+
+
 def test_rate_limit_policy_covers_enqueue_routes_without_trusting_forwarded_ip():
     from app.main import _rate_limit_policy
 
-    assert _rate_limit_policy("GET", "/api/search") == ("search", 600, 60)
+    assert _rate_limit_policy("GET", "/api/search") == ("search", 300, 60)
+    assert _rate_limit_policy("GET", "/api/laws") == ("law-list", 120, 60)
+    assert _rate_limit_policy("GET", "/api/stats") == ("stats", 30, 60)
     assert _rate_limit_policy("GET", "/api/laws/13709-2018/nodes") == ("law-detail", 240, 60)
     assert _rate_limit_policy("POST", "/api/laws/11340-2006/history/prepare") == ("job-prepare", 60, 60)
     assert _rate_limit_policy("POST", "/api/laws/13709-2018/hydrate") == ("job-prepare", 60, 60)
-    assert _rate_limit_policy("GET", "/api/stats") is None
+
+
+def test_repeatable_public_read_endpoints_emit_short_shared_cache_ttl():
+    response = TestClient(app).get("/api/search")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=5, s-maxage=15, stale-while-revalidate=30"
 
 
 def test_worker_health_reports_fresh_and_stale_heartbeat(monkeypatch):
