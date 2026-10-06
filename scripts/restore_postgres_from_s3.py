@@ -85,9 +85,9 @@ def read_manifest(client, bucket: str) -> dict:
         )
     logger.info(
         "restore_preflight_passed key=%s bytes=%s sha256=%s source_db_bytes=%s postgres_major=%s "
-        "tables_with_counts=%s alembic_versions=%s",
+        "source_row_counts=%s source_alembic_versions=%s",
         EXPECTED_KEY, EXPECTED_BYTES, EXPECTED_SHA256, db_size, version_num // 10000,
-        len(source["row_counts"]), len(source["alembic_versions"]),
+        json.dumps(source["row_counts"], sort_keys=True), json.dumps(source["alembic_versions"]),
     )
     return source
 
@@ -112,33 +112,35 @@ def main() -> None:
     source = read_manifest(client, bucket)
     url = database_url()
 
-    empty = run([
-        "psql", "--no-psqlrc", "--tuples-only", "--no-align", "--set=ON_ERROR_STOP=1",
-        "--dbname", url, "--command",
-        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'",
-    ], timeout=60)
-    if int(empty.stdout.strip() or "0") != 0:
-        raise RuntimeError("Restore stopped: target public schema is not empty")
+    verify_only = os.getenv("RESTORE_VERIFY_ONLY", "0").strip().lower() in {"1", "true", "yes"}
+    if not verify_only:
+        empty = run([
+            "psql", "--no-psqlrc", "--tuples-only", "--no-align", "--set=ON_ERROR_STOP=1",
+            "--dbname", url, "--command",
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'",
+        ], timeout=60)
+        if int(empty.stdout.strip() or "0") != 0:
+            raise RuntimeError("Restore stopped: target public schema is not empty")
 
-    with tempfile.TemporaryDirectory(prefix="leiaberta-blue-restore-") as temp_dir:
-        dump_path = Path(temp_dir) / "production.dump"
-        response = client.get_object(Bucket=bucket, Key=EXPECTED_KEY)
-        if response.get("ContentLength") != EXPECTED_BYTES:
-            raise RuntimeError(f"Dump object ContentLength mismatch: {response.get('ContentLength')}")
-        digest = hashlib.sha256()
-        size = 0
-        with dump_path.open("wb") as output:
-            body = response["Body"]
-            while chunk := body.read(1024 * 1024):
-                digest.update(chunk)
-                size += len(chunk)
-                output.write(chunk)
-        if size != EXPECTED_BYTES or digest.hexdigest() != EXPECTED_SHA256:
-            raise RuntimeError(f"Downloaded dump verification failed: bytes={size}, sha256={digest.hexdigest()}")
-        logger.info("dump_integrity_verified key=%s bytes=%s sha256=%s", EXPECTED_KEY, size, digest.hexdigest())
+        with tempfile.TemporaryDirectory(prefix="leiaberta-blue-restore-") as temp_dir:
+            dump_path = Path(temp_dir) / "production.dump"
+            response = client.get_object(Bucket=bucket, Key=EXPECTED_KEY)
+            if response.get("ContentLength") != EXPECTED_BYTES:
+                raise RuntimeError(f"Dump object ContentLength mismatch: {response.get('ContentLength')}")
+            digest = hashlib.sha256()
+            size = 0
+            with dump_path.open("wb") as output:
+                body = response["Body"]
+                while chunk := body.read(1024 * 1024):
+                    digest.update(chunk)
+                    size += len(chunk)
+                    output.write(chunk)
+            if size != EXPECTED_BYTES or digest.hexdigest() != EXPECTED_SHA256:
+                raise RuntimeError(f"Downloaded dump verification failed: bytes={size}, sha256={digest.hexdigest()}")
+            logger.info("dump_integrity_verified key=%s bytes=%s sha256=%s", EXPECTED_KEY, size, digest.hexdigest())
 
-        run(["pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", url,
-             str(dump_path)], timeout=7200)
+            run(["pg_restore", "--exit-on-error", "--no-owner", "--no-privileges", "--dbname", url,
+                 str(dump_path)], timeout=7200)
 
     restored = metadata(url)
     expected_counts = {table: int(source["row_counts"][table]) for table in EXPECTED_TABLES}
