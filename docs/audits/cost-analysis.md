@@ -1,6 +1,6 @@
 # Cost analysis
 
-Snapshot and rate source checked 2026-10-05. The Railway billing UI/invoice and workspace plan were not available through the connected account, so this is a rate-based estimate, not a statement of actual charges.
+Snapshot and rate source checked 2026-10-05. **Actual LeiAberta cost is unknown until it is measured against the Railway invoice and post-change usage.** The billing UI/invoice and workspace plan were not available through the connected account. All dollar figures below are rate-based estimates or scenarios, not actual charges, savings, or a validated post-change run rate.
 
 ## Railway published rates used
 
@@ -32,7 +32,7 @@ These scenarios describe what is known and what cannot yet be responsibly extrap
 | 100,000 requests/day | Could require read caching, better search indexes and/or web replicas; DB, connection pool and worker queue are unbenchmarked. | Very low. |
 | 10 / 100 / 1,000 hydrations/day | Each fetch can download a source document, parse/store raw bytes, nodes and indexes; cost per job varies substantially by source/size. Formula adds worker CPU/RAM minutes, egress bytes, DB WAL/write and retained source bytes. No valid single-job average exists yet. | Very low. |
 
-Measure representative requests and hydration sizes first, then use the published per-minute rates and measured concurrency to calculate scenarios. Do not use total article count as storage bytes or assume one hydration equals one database row.
+Measure representative requests and hydration sizes first, then use the published per-minute rates and measured concurrency to calculate scenarios. After an operational change, compare equivalent usage windows and inspect the actual invoice before claiming savings or a steady-state price. Do not use total article count as storage bytes or assume one hydration equals one database row.
 
 ## Cost and risk decisions
 
