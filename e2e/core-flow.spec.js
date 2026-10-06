@@ -4,6 +4,7 @@ test("real existing article: home to before/after comparison and device evidence
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:8012" });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Apoie o LeiAberta/ })).toHaveCount(0);
   await page.getByRole("link", { name: /Veja o antes e depois de um artigo/ }).click();
   await expect(page).toHaveURL(/\/diff\/be3a1531-edaa-5a78-94ca-70c6544e3853/);
   await page.setViewportSize({ width: 390, height: 844 });

@@ -17,6 +17,7 @@
 - A pesquisa encontrou fontes legislativas primárias para auditar independentemente os dois lados do art. 389: a publicação/republicação oficial da Lei 10.406 na Câmara preserva a redação anterior, e a publicação original da Lei 14.905 na Câmara, além da página da lei no Planalto, é o ato modificador e contém a redação nova. Isso permite construir um caso de alta qualidade sem trocar de dispositivo; falta que o produto armazene e apresente essas referências distintas como evidência do lado anterior, do lado posterior e do ato.
 - A produção estava em falha no momento desta inspeção: `/health`, `/api/stats`, `/api/laws/10406-2002`, `/api/laws/10406-2002/history` e `/api/changes/be3a1531-edaa-5a78-94ca-70c6544e3853` retornaram HTTP 500 em amostras de 06/10/2026 UTC. Por isso, não validei deep links, status legal ou comportamento mobile no site ao vivo. Não fiz alterações de produção.
 - Produto: existiam deep links endereçáveis para lei/artigo, diff e evidência em Blame; faltava uma ação acessível para copiar o URL dessas três páginas. O diff também não oferecia um caminho direto ao artigo atual.
+- O footer não tinha opção de apoio. A aplicação servia `index.html` estaticamente, então era necessário injetar a configuração no servidor para que a ação realmente não exista quando `SUPPORT_URL` estiver vazio.
 
 ## Measurements
 
@@ -42,6 +43,7 @@
 - Manter o art. 389 no hero. As alternativas são interessantes, mas nenhuma foi provada como um par oficial melhor já consumível por este produto; mudar o artigo só pelo apelo da narrativa enfraqueceria a aceitação legal.
 - A próxima melhoria de evidência deve guardar links/trechos/checksums por lado (`before`, `after`) e o link oficial do ato, mantendo a referência do Normas identificada como transcrição não oficial. Só então o badge pode subir para evidência primária.
 - Adicionar a ação `Copiar link` ao artigo aberto, diff e evidência de Blame; usar a URL atual completa para preservar `node` e demais parâmetros. Acrescentar ao diff um link direto ao artigo atual.
+- Configurar o apoio por `SUPPORT_URL` opcional, lido em cada renderização do documento. Só URLs HTTPS sem credenciais produzem CTA; valores ausentes, vazios ou inseguros deixam o slot vazio. O projeto não cria nem configura conta em provedor de pagamento.
 - A falha de produção foi reportada ao coordenador; não fazer alteração Railway, produção, worker, ingestão ou banco neste branch.
 
 ## Changes
@@ -50,17 +52,25 @@
 - Cópia usa Clipboard API, com fallback de seleção para browser/contexto sem Clipboard API, e confirma sucesso/erro em região acessível `role=status` / `aria-live=polite`.
 - O diff agora aponta diretamente para a página atual do artigo afetado.
 - E2E cobre cópia do URL do diff, artigo e evidência e testa largura móvel no diff e Blame.
+- Adicionado `SUPPORT_URL=` ao `.env.example` e um CTA discreto no rodapé, injetado só para HTTPS sem credenciais/control chars e com `rel="noopener noreferrer"`.
+- Tests cobrem configuração segura na home e página de artigo, ausência quando unset/blank e rejeição de `javascript:`, HTTP, credenciais, porta inválida e controle de linha na URL.
 
 ## Files touched
 
 - `static/app.js`
 - `static/styles.css`
+- `static/index.html`
+- `app/main.py`
+- `.env.example`
 - `e2e/core-flow.spec.js`
+- `playwright.config.js`
+- `tests/test_launch_experience.py`
 - `docs/swarm/product-hero-evidence.md`
 
 ## Tests
 
 - `npm run test:e2e` — passou (2/2) em ambiente local seedado.
+- `pytest -q tests/test_launch_experience.py` — passou (12 testes; um aviso de depreciação Starlette/httpx).
 - `node --check static/app.js` — passou.
 - `node --check e2e/core-flow.spec.js` — passou.
 - `git diff --check` — passou.
@@ -68,7 +78,7 @@
 
 ## Production impact
 
-Nenhum. Não acessei nem alterei configuração ou dados de produção. O coordenador deve revalidar produção depois da estabilização do incidente P0.
+Nenhum. Não acessei nem alterei configuração ou dados de produção. O operador pode definir `SUPPORT_URL` depois, se tiver um destino de apoio externo; vazio não renderiza CTA. O coordenador deve revalidar produção depois da estabilização do incidente P0.
 
 ## Migration impact
 
@@ -76,17 +86,18 @@ Nenhum.
 
 ## Cost impact
 
-Negligível; sem serviços, chamadas de rede ou persistência adicionais.
+Baixo: uma leitura do documento base e validação simples de variável de ambiente ao renderizar cada página HTML. Sem serviço, persistência ou chamada de rede adicional. O destino externo só é acessado mediante clique, após configuração explícita de `SUPPORT_URL`.
 
 ## Risks
 
 - Clipboard API pode ser bloqueada pelo navegador/permissões; há fallback `execCommand` e mensagem acessível explicando como copiar o endereço manualmente.
+- O destino de apoio é definido pelo operador. Só deve receber um URL confiável em HTTPS; nenhum provedor, conta ou fluxo de pagamento foi criado.
 - Para transformar art. 389 em hero primário, não basta adicionar mais um link: é necessário registrar qual fonte sustenta exatamente o texto anterior e o posterior e manter a ressalva do registro original enquanto isso não for feito.
 - Os 500 em produção impedem validar os deep links e o conteúdo real durante esta execução.
 
 ## Rollback
 
-Reverter o commit/PR deste branch restaura as páginas sem os controles de cópia. Nenhum dado de produção ou migration precisa de rollback.
+Reverter o commit/PR deste branch restaura as páginas sem os controles de cópia/apoio. Remover ou deixar `SUPPORT_URL` vazio oculta o CTA sem exigir deploy específico para removê-lo se as variáveis forem aplicadas em runtime. Nenhum dado de produção ou migration precisa de rollback.
 
 ## Dependencies on other agents
 

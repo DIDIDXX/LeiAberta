@@ -131,3 +131,48 @@ def test_sources_api_exposes_success_freshness_and_delta_fields(db_session):
     assert item["freshness_status"] == "stale"
     assert (item["new_records"], item["updated_records"], item["failed_records"], item["sync_failures"]) == (4, 2, None, 1)
     assert item["request_policy"]["page_size"] == 100
+
+
+@pytest.mark.parametrize("support_url", [
+    None,
+    "",
+    "   ",
+    "javascript:alert(1)",
+    "http://support.example/donate",
+    "https://user:pass@support.example/donate",
+    "https://support.example:bad/donate",
+    "https://support.example/donate\n?next=javascript:alert(1)",
+])
+def test_optional_support_link_is_hidden_without_a_safe_https_url(db_session, monkeypatch, support_url):
+    if support_url is None:
+        monkeypatch.delenv("SUPPORT_URL", raising=False)
+    else:
+        monkeypatch.setenv("SUPPORT_URL", support_url)
+    client = _client_for(db_session)
+    try:
+        response = client.get("/")
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    assert "footer-support-link" not in response.text
+    assert "Apoie o LeiAberta" not in response.text
+
+
+def test_optional_support_link_is_safe_and_present_on_app_and_article_pages(db_session, add_law, monkeypatch):
+    law = add_law()
+    db_session.add(law)
+    db_session.commit()
+    monkeypatch.setenv("SUPPORT_URL", 'https://apoie.example/pagina?origem="site"&campanha=lei')
+    client = _client_for(db_session)
+    try:
+        home = client.get("/")
+        article = client.get(f"/lei/{law.slug}/artigo/1")
+    finally:
+        app.dependency_overrides.clear()
+    for response in (home, article):
+        assert response.status_code == 200
+        assert 'class="footer-support-link"' in response.text
+        assert 'href="https://apoie.example/pagina?origem=&quot;site&quot;&amp;campanha=lei"' in response.text
+        assert 'target="_blank" rel="noopener noreferrer"' in response.text
+        assert 'aria-label="Apoie o LeiAberta (abre em nova guia)"' in response.text
+        assert "<span aria-hidden=\"true\">♡</span> Apoie o LeiAberta" in response.text
