@@ -165,7 +165,14 @@ def read_source_snapshot(snapshot, store: SourceSnapshotObjectStore | None = Non
     raw_body = snapshot.raw_body
     if raw_body is None:
         raise SnapshotObjectError(f"Source snapshot {snapshot.id} has neither readable object storage nor DB bytes")
-    return bytes(raw_body)
+    raw_body = bytes(raw_body)
+    actual = hashlib.sha256(raw_body).hexdigest()
+    if actual != snapshot.checksum:
+        raise SnapshotObjectError(
+            f"Retained database source snapshot checksum mismatch for id={snapshot.id}: "
+            f"expected {snapshot.checksum}, got {actual}"
+        )
+    return raw_body
 
 
 def archive_snapshot_object(payload: bytes, checksum: str, content_type: str = "application/octet-stream") -> SnapshotObjectRef | None:

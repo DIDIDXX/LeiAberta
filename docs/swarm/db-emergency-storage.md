@@ -55,6 +55,7 @@ At initial inspection, production had a pre-existing staged delete for service `
 
 - Added an additive nullable Alembic revision for `storage_backend`, `object_key`, and `size_bytes`; it does not change `raw_body` nullability or contents.
 - Added content-addressed SHA-256 S3-compatible storage with read-after-write verification, duplicate-content reuse, checksum validation, and database fallback. HTML/XML/JSON and `text/*` objects use deterministic gzip; binaries stay uncompressed. S3 ContentType/ContentEncoding are set; reads decompress before validating the original checksum. New captures use the object store only when fully configured; a storage error leaves the DB copy as the source of truth.
+- Database fallback is also SHA-256 checked before serving; if the object and retained database copy both fail verification, the reader raises `SnapshotObjectError` and does not serve potentially corrupted legal evidence.
 - Added a one-batch, max-100-row migrator, dry-run by default. `--apply` must be explicit; each object is read back and verified before pointers are committed. Failed SQL commits can leave reusable object orphans; batch retry skips committed pointers.
 - Updated source-document audit call sites to use the verified dual-read helper.
 - Added ADR-0002 and an operator runbook covering text-only gzip, integrity/backup gates, rollback, and conservative job/outbox retention. No destructive cleanup command was added.
@@ -81,8 +82,8 @@ At initial inspection, production had a pre-existing staged delete for service `
 
 ## Tests
 
-- `pytest -q tests/test_source_snapshot_storage.py tests/test_jobs.py tests/test_api.py tests/test_audit.py tests/test_backup_postgres_to_s3.py`: 43 passed, one existing Starlette/httpx deprecation warning.
-- Focused tests cover duplicate-content reuse, deterministic gzip/text round trip and MIME, binary bytes without compression, checksum mismatch/corrupt object rejection, verified external read and DB fallback, dry-run without upload, small batches, resume, and idempotence.
+- `pytest -q tests/test_source_snapshot_storage.py tests/test_jobs.py tests/test_api.py tests/test_audit.py tests/test_backup_postgres_to_s3.py`: 44 passed, one existing Starlette/httpx deprecation warning.
+- Focused tests cover duplicate-content reuse, deterministic gzip/text round trip and MIME, binary bytes without compression, checksum mismatch/corrupt object rejection, verified external read and DB fallback, rejection when both copies fail checksum, dry-run without upload, small batches, resume, and idempotence.
 - Backup metadata unit test verifies per-table sizes/tuple estimates, grouped job/outbox counts, JSON parsing, and that the SQL does not select raw payloads or use `SELECT *`.
 - Local isolated SQLite migration check: `alembic upgrade head` adds all three nullable metadata columns; `alembic downgrade 20261005_0010` removes them and preserves the base schema.
 - `python -m compileall` passed for changed Python modules; `git diff --check` passed.

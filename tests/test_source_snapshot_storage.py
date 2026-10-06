@@ -139,6 +139,21 @@ def test_dual_read_verifies_object_and_falls_back_to_database_copy(db_session, a
     assert read_source_snapshot(snapshot, store) == body
 
 
+def test_dual_read_rejects_when_object_and_database_fallback_are_corrupt(db_session, add_law):
+    law = add_law()
+    body = b"verified source bytes"
+    digest = hashlib.sha256(body).hexdigest()
+    client = FakeS3()
+    store = SourceSnapshotObjectStore(client, "snapshots")
+    ref = store.put_verified(body, digest, content_type="text/html")
+    snapshot = _snapshot(law, body, storage_backend=ref.backend, object_key=ref.object_key)
+    client.objects[("snapshots", ref.object_key)]["body"] = b"corrupt object"
+    snapshot.raw_body = b"corrupt database copy"
+
+    with pytest.raises(SnapshotObjectError, match="Retained database source snapshot checksum mismatch"):
+        read_source_snapshot(snapshot, store)
+
+
 def test_snapshot_migration_is_bounded_restartable_and_idempotent(db_session, add_law):
     law = add_law()
     db_session.add(law)
