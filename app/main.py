@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from anyio import to_thread
 from redis import Redis
@@ -1044,7 +1044,7 @@ def law_page(slug: str, request: Request, session: Session = Depends(get_session
             f"<p><a rel=\"nofollow noopener\" href=\"{html_escape(law.source_url, quote=True)}\">"
             "Consultar fonte oficial</a></p>"
         )
-    page = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    page = _inject_support_link((ROOT / "static" / "index.html").read_text(encoding="utf-8"))
     page = page.replace("<title>LeiAberta — entenda como uma lei chegou ao texto atual</title>", f"<title>{html_escape(title)}</title>")
     page = page.replace(
         '<meta name="description" content="Pesquise legislação brasileira e acompanhe o texto, as fontes oficiais e as alterações documentadas." />',
@@ -1081,6 +1081,29 @@ def law_page(slug: str, request: Request, session: Session = Depends(get_session
     return HTMLResponse(page)
 
 
+def _inject_support_link(page: str) -> str:
+    """Show the optional support link only for a valid HTTPS URL."""
+    configured_url = os.getenv("SUPPORT_URL", "").strip()
+    link = ""
+    try:
+        parsed = urlsplit(configured_url)
+        if (not any(ord(char) < 0x21 or ord(char) == 0x7F for char in configured_url) and
+                parsed.scheme.lower() == "https" and parsed.hostname and
+                parsed.username is None and parsed.password is None):
+            # Accessing .port validates malformed port values before emitting a link.
+            _ = parsed.port
+            href = html_escape(parsed.geturl(), quote=True)
+            link = (
+                f'<a class="footer-support-link" href="{href}" target="_blank" '
+                'rel="noopener noreferrer" aria-label="Apoie o LeiAberta (abre em nova guia)">'
+                '<span aria-hidden="true">♡</span> Apoie o LeiAberta</a>'
+            )
+    except ValueError:
+        link = ""
+    return page.replace('<span data-support-link-slot></span>', link)
+
+
+
 @app.get("/{path:path}", include_in_schema=False)
 def public_app(path: str, request: Request, session: Session = Depends(get_session)):
     if path.startswith("api/"):
@@ -1093,4 +1116,4 @@ def public_app(path: str, request: Request, session: Session = Depends(get_sessi
     index = ROOT / "static" / "index.html"
     if not index.exists():
         return JSONResponse({"detail": "Interface não encontrada."}, status_code=500)
-    return FileResponse(index)
+    return HTMLResponse(_inject_support_link(index.read_text(encoding="utf-8")))
