@@ -691,9 +691,12 @@ def sync_sapl_latest_page(instance: SaplInstance, *, force: bool = False,
             checkpoints = scope.get("page_checkpoints") or []
             if checkpoints:
                 known_max = checkpoints[-1].get("last_id")
-        if not str(known_max or "").isdigit():
-            return {"source_id": instance.source_id, "skipped": "full_scan_required"}
-        known_max = int(known_max)
+        # Older enumerated sources may have no saved page checkpoint. Probe the
+        # newest page from a zero baseline so the attempt persists a watermark
+        # and cannot occupy the oldest-probe slots forever. A complete bounded
+        # first page is not proof of a full catalog scan, so it marks the
+        # regular paginated scan as due below.
+        known_max = int(known_max) if str(known_max or "").isdigit() else 0
 
     if deadline is not None and time.monotonic() >= deadline:
         return {"source_id": instance.source_id, "skipped": "cycle_budget_exhausted"}
@@ -722,7 +725,10 @@ def sync_sapl_latest_page(instance: SaplInstance, *, force: bool = False,
         registry = session.get(SourceRegistry, instance.source_id)
         scope = dict(registry.scope or {})
         highest_seen = max(remote_ids, default=known_max)
-        full_page_of_new_ids = len(records) == PAGE_SIZE and all(remote_id > known_max for remote_id in remote_ids)
+        full_page_of_new_ids = (
+            len(records) == PAGE_SIZE and total > len(records)
+            and all(remote_id > known_max for remote_id in remote_ids)
+        )
         scope.update({
             "max_remote_id": str(max(known_max, highest_seen)),
             "last_incremental_at": observed_at.isoformat(),
