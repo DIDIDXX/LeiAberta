@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import runpy
 from pathlib import Path
 
@@ -21,6 +22,8 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=100, help="1-100 snapshots per transaction")
     parser.add_argument("--after-id", type=int, default=0, help="resume after a prior batch cursor")
     args = parser.parse_args()
+    if os.getenv("SOURCE_SNAPSHOT_MIGRATION_APPLY", "").strip().lower() in {"1", "true", "yes"}:
+        args.apply = True
     if not 1 <= args.batch_size <= 100:
         parser.error("--batch-size must be between 1 and 100")
     store = SourceSnapshotObjectStore.from_env() if args.apply else None
