@@ -438,6 +438,29 @@ def test_queued_text_hydration_does_not_claim_history_is_being_prepared(db_sessi
     assert payload["job"] is None
 
 
+def test_job_status_hides_internal_background_backfill_marker(db_session, add_law):
+    db_session.add(add_law())
+    db_session.add(HydrationJob(
+        id="marked-backfill-job", law_slug="13709-2018", job_type="hydrate", status="queued",
+        stage_name="queued", message="[background-backfill] Aguardando captura integral da fonte oficial",
+        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+    ))
+    db_session.commit()
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        response = TestClient(app).get("/api/jobs/marked-backfill-job")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["message"] == "Aguardando captura integral da fonte oficial"
+    assert "background-backfill" not in response.text
+
+
 def test_history_prepare_creates_a_persisted_job(db_session, add_law, monkeypatch):
     import app.jobs as jobs
     from app.models import JobOutbox

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 import os
 from pathlib import Path
@@ -11,16 +12,19 @@ from app.jobs import (
     MAX_INTERACTIVE_JOB_BATCH,
     QUEUE_GROUP,
     QUEUE_NAME,
+    background_backfill_mode,
     dispatch_outbox,
     process_hydration_job,
     queue_official_history_batch,
     queued_interactive_job_ids,
+    should_process_job,
 )
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.worker")
 MAX_HYDRATION_CONCURRENCY = MAX_INTERACTIVE_JOB_BATCH
 MAX_CATALOG_CONCURRENCY = 4
+QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS = 300
 
 
 def hydration_concurrency() -> int:
@@ -31,6 +35,70 @@ def hydration_concurrency() -> int:
 def catalog_concurrency() -> int:
     """Serialize catalog writers by default; raise this only after measuring DB headroom."""
     return min(MAX_CATALOG_CONCURRENCY, max(1, int(os.getenv("CATALOG_SYNC_CONCURRENCY", "1"))))
+
+
+def is_transient_worker_error(exc: Exception) -> bool:
+    """Recognize database/Redis transport failures without logging their details."""
+    from redis.exceptions import ConnectionError as RedisConnectionError
+    from redis.exceptions import TimeoutError as RedisTimeoutError
+    from sqlalchemy.exc import OperationalError
+
+    if isinstance(exc, (RedisConnectionError, RedisTimeoutError)):
+        return True
+    if isinstance(exc, OperationalError):
+        if exc.connection_invalidated:
+            return True
+        detail = str(exc.orig).casefold()
+        return any(marker in detail for marker in (
+            "connection refused", "connection reset", "connection timed out",
+            "could not connect", "connection to server", "connection is closed",
+            "connection already closed", "terminating connection", "server closed",
+            "in recovery", "starting up", "timeout", "timed out",
+            "network is unreachable", "broken pipe", "temporarily unavailable",
+            "could not receive", "could not send", "too many clients",
+        ))
+    return False
+
+
+class WorkerLoopBackoff:
+    """Capped retry delays and sparse summaries for repeated transport failures."""
+
+    def __init__(self, initial: float = 3.0, maximum: float = 30.0, log_every: int = 10):
+        self.initial = initial
+        self.maximum = maximum
+        self.log_every = log_every
+        self.reset()
+
+    def reset(self) -> None:
+        self.delay = self.initial
+        self.error_type: str | None = None
+        self.error_fingerprint: str | None = None
+        self.consecutive = 0
+        self.suppressed = 0
+
+    def on_success(self) -> None:
+        self.reset()
+
+    def on_error(self, exc: Exception) -> tuple[float, int, int] | None:
+        if not is_transient_worker_error(exc):
+            self.reset()
+            return None
+        error_type = type(exc).__name__
+        exception_detail = str(getattr(exc, "orig", exc)).encode("utf-8", errors="replace")
+        fingerprint = hashlib.sha256(exception_detail).hexdigest()
+        if error_type != self.error_type or fingerprint != self.error_fingerprint:
+            self.reset()
+            self.error_type = error_type
+            self.error_fingerprint = fingerprint
+        retry_after = self.delay
+        self.delay = min(self.delay * 2, self.maximum)
+        self.consecutive += 1
+        if self.consecutive == 1 or self.consecutive % self.log_every == 0:
+            suppressed = self.suppressed
+            self.suppressed = 0
+            return retry_after, self.consecutive, suppressed
+        self.suppressed += 1
+        return retry_after, self.consecutive, -1
 
 
 def publish_worker_heartbeat(redis, consumer: str, concurrency: int,
@@ -61,12 +129,30 @@ def start_worker_heartbeat(redis, consumer: str, concurrency: int) -> tuple[Even
     return stop, thread
 
 
-def process_queue_messages(redis, messages, executor: ThreadPoolExecutor) -> None:
+def publish_queue_depth_summary(redis) -> None:
+    """Log aggregate Redis queue counts without exposing any job or consumer IDs."""
+    try:
+        stream_length = int(redis.xlen(QUEUE_NAME))
+        pending_summary = redis.xpending(QUEUE_NAME, QUEUE_GROUP)
+        pending_count = int(pending_summary.get("pending", 0))
+        logger.info("worker_queue_depth stream_length=%s pending_count=%s",
+                    stream_length, pending_count)
+    except Exception as exc:
+        # Telemetry is best-effort and must never interrupt queue work.
+        logger.warning("worker_queue_depth_unavailable error_type=%s", type(exc).__name__)
+
+
+def process_queue_messages(redis, messages, executor: ThreadPoolExecutor, *, backfill_mode: str | None = None) -> None:
     """Process independent source jobs concurrently; ACK only after durable handling."""
     futures = {}
     for message_id, fields in messages:
         job_id = fields.get("job_id")
         if job_id:
+            # A paused bulk item remains in the stream/DB for a later resume.
+            # Do not ACK or claim work by changing its durable job status.
+            if not should_process_job(job_id, mode=backfill_mode):
+                logger.info("worker_backfill_job_paused job=%s mode=%s", job_id, backfill_mode)
+                continue
             futures[executor.submit(process_hydration_job, job_id)] = (message_id, job_id)
         else:
             redis.xack(QUEUE_NAME, QUEUE_GROUP, message_id)
@@ -104,6 +190,7 @@ def wait_for_database_schema(*, timeout: float = 300, interval: float = 3) -> No
 
     deadline = time.monotonic() + timeout
     attempts = 0
+    retry_delay = min(max(float(interval), 0.01), 30.0)
     while True:
         attempts += 1
         try:
@@ -118,12 +205,14 @@ def wait_for_database_schema(*, timeout: float = 300, interval: float = 3) -> No
                         return
             last_error = f"database is not at Alembic head {sorted(expected_heads)}"
         except Exception as exc:
-            last_error = str(exc)[:200]
+            last_error = f"database check failed ({type(exc).__name__})"
         if time.monotonic() >= deadline:
             raise SystemExit(f"Database schema was not ready before timeout: {last_error}")
         if attempts == 1 or attempts % 10 == 0:
             logger.info("worker_waiting_for_database_schema attempt=%s detail=%s", attempts, last_error)
-        time.sleep(interval)
+        remaining = max(0.0, deadline - time.monotonic())
+        time.sleep(min(retry_delay, remaining))
+        retry_delay = min(retry_delay * 2, 30.0)
 
 
 def run() -> None:
@@ -136,14 +225,15 @@ def run() -> None:
 
     redis = Redis.from_url(redis_url, decode_responses=True, socket_connect_timeout=5, socket_timeout=35)
     consumer = f"worker-{uuid.uuid4()}"
+    backfill_mode = background_backfill_mode()
     try:
         redis.xgroup_create(QUEUE_NAME, QUEUE_GROUP, id="0-0", mkstream=True)
     except Exception as exc:
         if "BUSYGROUP" not in str(exc):
             raise
     concurrency = hydration_concurrency()
-    logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s",
-                QUEUE_NAME, QUEUE_GROUP, consumer, concurrency)
+    logger.info("worker_started queue=%s group=%s consumer=%s concurrency=%s background_backfill_mode=%s",
+                QUEUE_NAME, QUEUE_GROUP, consumer, concurrency, backfill_mode)
     executor = ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="hydration")
     # Catalog adapters write the same primary-key index; serialize them by default
     # to prevent concurrent index-page contention during large imports.
@@ -165,6 +255,8 @@ def run() -> None:
     history_batch_seconds = max(300, int(os.getenv("HISTORY_BACKFILL_BATCH_SECONDS", "300")))
     history_batch_size = min(500, max(1, int(os.getenv("HISTORY_BACKFILL_BATCH_SIZE", "500"))))
     next_history_batch = time.monotonic()
+    next_queue_depth_summary = time.monotonic() + QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS
+    loop_backoff = WorkerLoopBackoff()
     start_worker_heartbeat(redis, consumer, concurrency)
     while True:
         try:
@@ -211,12 +303,12 @@ def run() -> None:
                     logger.exception("sapl_manaus_catalog_sync_failed")
                     next_refresh_check = min(next_refresh_check, time.monotonic() + 300)
                 sapl_sync_future = None
-            if time.monotonic() >= next_senado_batch:
+            if backfill_mode != "off" and time.monotonic() >= next_senado_batch:
                 next_senado_batch = time.monotonic() + senado_batch_seconds
                 try:
                     from app.jobs import queue_senado_text_batch
 
-                    result = queue_senado_text_batch(limit=senado_batch_size)
+                    result = queue_senado_text_batch(limit=senado_batch_size, mode=backfill_mode)
                     if result["queued_count"]:
                         logger.info("senado_text_backfill_enqueued count=%s batch_limit=%s",
                                     result["queued_count"], senado_batch_size)
@@ -225,12 +317,12 @@ def run() -> None:
                                     result["active_jobs"], result["active_job_limit"])
                 except Exception:
                     logger.exception("senado_text_backfill_enqueue_failed")
-            if time.monotonic() >= next_subnational_batch:
+            if backfill_mode != "off" and time.monotonic() >= next_subnational_batch:
                 next_subnational_batch = time.monotonic() + subnational_batch_seconds
                 try:
                     from app.jobs import queue_subnational_text_batch
 
-                    result = queue_subnational_text_batch(limit=subnational_batch_size)
+                    result = queue_subnational_text_batch(limit=subnational_batch_size, mode=backfill_mode)
                     if result["queued_count"]:
                         logger.info("subnational_text_backfill_enqueued count=%s by_source=%s",
                                     result["queued_count"], result["queued_by_source"])
@@ -239,10 +331,10 @@ def run() -> None:
                                     result["active_jobs"], result["active_job_limit"])
                 except Exception:
                     logger.exception("subnational_text_backfill_enqueue_failed")
-            if time.monotonic() >= next_history_batch:
+            if backfill_mode != "off" and time.monotonic() >= next_history_batch:
                 next_history_batch = time.monotonic() + history_batch_seconds
                 try:
-                    result = queue_official_history_batch(limit=history_batch_size)
+                    result = queue_official_history_batch(limit=history_batch_size, mode=backfill_mode)
                     if result["queued_count"]:
                         logger.info("official_history_backfill_enqueued count=%s by_source=%s",
                                     result["queued_count"], result["queued_by_source"])
@@ -290,21 +382,37 @@ def run() -> None:
                         sapl_sync_future = catalog_executor.submit(sync_all_sapl_catalogs)
                     except Exception:
                         logger.exception("sapl_manaus_catalog_refresh_start_failed")
+            if time.monotonic() >= next_queue_depth_summary:
+                next_queue_depth_summary = time.monotonic() + QUEUE_DEPTH_SUMMARY_INTERVAL_SECONDS
+                publish_queue_depth_summary(redis)
             priority_job_ids = queued_interactive_job_ids(limit=concurrency)
             if priority_job_ids:
                 process_priority_jobs(priority_job_ids, executor)
+                loop_backoff.on_success()
                 continue
-            dispatch_outbox()
+            dispatch_outbox(mode=backfill_mode)
             claimed = redis.xautoclaim(QUEUE_NAME, QUEUE_GROUP, consumer, min_idle_time=300_000,
                                        start_id="0-0", count=concurrency)
             messages = claimed[1] if claimed and len(claimed) > 1 else []
             if not messages:
                 batch = redis.xreadgroup(QUEUE_GROUP, consumer, {QUEUE_NAME: ">"}, count=concurrency, block=5000)
                 messages = batch[0][1] if batch else []
-            process_queue_messages(redis, messages, executor)
-        except Exception:
-            logger.exception("worker_queue_error queue=%s", QUEUE_NAME)
-            time.sleep(3)
+            process_queue_messages(redis, messages, executor, backfill_mode=backfill_mode)
+        except Exception as exc:
+            retry = loop_backoff.on_error(exc)
+            if retry is None:
+                logger.exception("worker_queue_error queue=%s", QUEUE_NAME)
+                time.sleep(3)
+                continue
+            retry_after, consecutive, suppressed = retry
+            if suppressed >= 0:
+                logger.error(
+                    "worker_transient_error type=%s consecutive=%s suppressed=%s retry_in_seconds=%s",
+                    type(exc).__name__, consecutive, suppressed, retry_after,
+                )
+            time.sleep(retry_after)
+        else:
+            loop_backoff.on_success()
 
 
 if __name__ == "__main__":
