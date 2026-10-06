@@ -17,7 +17,7 @@ from anyio import to_thread
 from redis import Redis
 from redis.exceptions import RedisError
 from sqlalchemy import case, func, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from xml.sax.saxutils import escape
 
@@ -270,7 +270,7 @@ def readiness(session: Session = Depends(get_session)):
 
     try:
         applied_heads = set(session.scalars(text("SELECT version_num FROM alembic_version")).all())
-    except OperationalError as exc:
+    except SQLAlchemyError as exc:
         _log_database_failure()
         raise HTTPException(status_code=503, detail="Database schema is unavailable") from exc
     expected_heads = set(ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini"))).get_heads())
