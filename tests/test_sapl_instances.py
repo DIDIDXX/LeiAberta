@@ -412,6 +412,54 @@ def test_sapl_latest_page_probe_adds_new_norm_without_full_scan(db_session, monk
     assert db_session.get(SourceRegistry, instance.source_id).scope["max_remote_id"] == "4"
 
 
+def test_sapl_latest_page_bootstraps_legacy_source_without_watermark(db_session, monkeypatch):
+    from sqlalchemy.orm import sessionmaker
+
+    from app.catalog_sync import sapl as sapl_catalog
+    from app.catalog_sync.sapl import SaplInstance
+    from app.models import SourceRegistry
+
+    instance = SaplInstance(
+        ibge_code="9900004", municipality="Cidade Legada", state_code="ZZ",
+        host="https://sapl.legacy.zz.leg.br", source_id="municipality:9900004:sapl",
+        source_name="Câmara Legada — SAPL", authority_url="https://camara.legacy.zz/",
+    )
+    monkeypatch.setattr(sapl_catalog, "SessionLocal", sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, expire_on_commit=False,
+    ))
+    monkeypatch.setattr(sapl_catalog, "PAGE_SIZE", 2)
+    db_session.add(SourceRegistry(
+        id=instance.source_id, name=instance.source_name, adapter="sapl_catalog",
+        base_url=instance.norms_url, evidence_url=instance.authority_url, status="enumerated",
+        scope={},
+    ))
+    db_session.commit()
+    monkeypatch.setattr(sapl_catalog, "fetch_type_names", lambda **_kwargs: {"1": "Lei"})
+
+    def fetch_latest(page, *, descending=False, instance, **_kwargs):
+        assert page == 1
+        assert descending is True
+        return ({"pagination": {"page": 1, "total_entries": 4, "total_pages": 2}, "results": [
+            {"id": 4, "__str__": "Lei nova", "tipo": 1, "numero": "4", "ano": 2026,
+             "esfera_federacao": "M", "data": "2026-01-01", "ementa": "Lei nova"},
+            {"id": 3, "__str__": "Lei recente", "tipo": 1, "numero": "3", "ano": 2025,
+             "esfera_federacao": "M", "data": "2025-01-01", "ementa": "Lei recente"},
+        ]}, instance.norms_url)
+
+    monkeypatch.setattr(sapl_catalog, "fetch_catalog_page", fetch_latest)
+    result = sapl_catalog.sync_sapl_latest_page(instance, force=True)
+
+    assert result["incremental"] is True
+    assert result["new_records"] == result["added"] == 2
+    assert result["incremental_backlog"] is True
+    db_session.expire_all()
+    scope = db_session.get(SourceRegistry, instance.source_id).scope
+    assert scope["max_remote_id"] == "4"
+    assert scope["last_incremental_attempt_at"]
+    assert scope["last_incremental_at"]
+    assert db_session.query(Law).filter_by(source_name=instance.source_name).count() == 2
+
+
 def test_sapl_cycle_caps_bootstrap_sources_and_total_pages(db_session, monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
