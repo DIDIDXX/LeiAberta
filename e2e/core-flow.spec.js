@@ -37,6 +37,18 @@ test("LGDP typo search and mobile home stay usable", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
   const search = page.getByRole("searchbox", { name: "Pesquisar legislação" });
   await search.fill("LGDP");
-  await expect(page.getByRole("link", { name: /Lei Geral de Proteção de Dados Pessoais/ }).first()).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  const result = page.getByRole("listbox").getByRole("link", { name: /Lei Geral de Proteção de Dados Pessoais/ }).first();
+  await expect(result).toBeVisible();
+  await search.press("ArrowDown");
+  await expect(result).toHaveAttribute("aria-selected", "true");
+  await search.press("Enter");
+  await expect(page).toHaveURL(/\/lei\/13709-2018/);
+
+  for (const width of [390, 430, 768, 1440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { name: /Entenda como uma lei/ })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      `home should not overflow horizontally at ${width}px`).toBeTruthy();
+  }
 });
