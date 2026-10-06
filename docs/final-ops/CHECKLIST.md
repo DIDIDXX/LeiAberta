@@ -47,3 +47,18 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [ ] Obtain explicit owner approval before deleting the old Postgres service or volume; approval has not been given.
 - [ ] Final decision: **NO-GO** until critical checks and owner action above are resolved.
 - [x] No domain purchase, plan upgrade, VPS migration or social post was performed.
+
+## Rechecagem pós-PR #91 — 2026-10-06 19:50 UTC
+
+- [x] `main`, deploy de web/worker e staged changes reinspecionados; SHA `5d49fb5956096173e3094aa422f746f0782eb92e`, sem alterações staged.
+- [x] Banco azul abaixo de 70% na janela: pico 3.3036/5 GB (66.1%), atual 3.2868/5 GB; amostra 61 pontos/1 h com um ciclo catalog SAPL.
+- [x] Backfill de texto OFF e concurrency efetiva 1 observada; discovery SAPL ativo; limite de full scan reduzido para 4 páginas/ciclo, deploy de variável `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` SUCCESS e log confirmou `full_pages=4`, 8 probes, zero erros.
+- [x] Backup pós-cutover em S3 com SHA, readback, restore isolado, row counts e schema signature válidos.
+- [x] 14.201/14.201 objetos S3 íntegros; nenhum payload relacional removido.
+- [x] Smoke HTTP real das 17 rotas e APIs retornou 200; QA visual anterior cobriu os breakpoints documentados.
+- [x] Serviços temporários `postgres-blue-restore` e `source-snapshot-migration` removidos após inspeção: sem volumes e sem uso recente; nenhum volume foi removido.
+- [ ] Deploy versionado de `Dockerfile.backup` + wrapper e próxima execução diária do cron ainda não observados.
+- [ ] Política de retenção/recuperação independente dos objetos de snapshot pendente.
+- [ ] 30–60 min após novo limite, mais 24 h de observação e hidratação cold com resultado estruturado pendentes.
+- [ ] Aprovação do proprietário para remover o Postgres antigo pendente; não executar exclusão.
+- [ ] **GO público: não aprovado. Decisão atual: NO-GO** até gates pendentes acima.

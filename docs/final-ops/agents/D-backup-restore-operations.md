@@ -38,3 +38,9 @@
 - The coordinator must deploy/integrate this branch before these checks apply to the Railway backup job, then execute and inspect one post-change one-shot backup before calling it verified.
 - If deployment or a post-change backup is unhealthy, roll back the backup-service image/commit to the prior known-good revision; retain all current and older dump/manifest objects. A failed verification skips retention. No schema migration is introduced.
 - Files changed: `scripts/backup_postgres_to_s3.py`, `tests/test_backup_postgres_to_s3.py`, `docs/runbooks/backup-restore.md`, and this handoff.
+
+## Atualização do coordenador — 2026-10-06
+
+Backup pós-cutover efetivamente finalizado e conferido no bucket, não inferido do status do serviço: `postgres/leiaberta-production/20261006T183241Z-6c86c047.dump`, 336.170.020 bytes, SHA-256 `6a6ee28d4fa5b0b57db28b1b115aa6c14ddd5ce93f7e81eb2909be17131c42c5`; manifest de 112.778 bytes, SHA `a7e895806c68987b1cd4b193a70ec7695645097eb659f66d51803abed8fb9c83`. Readback completo, checksum válido, restore isolado em 45.458 s, Alembic `20261006_0011`, assinatura do schema e contagens iguais: laws 1.927.162; legal_nodes 211.497; source_snapshots 14.203; hydration_jobs 30.668; job_outbox 30.654; history_events 4.049; law_versions 14.136; source_registry 620.
+
+Config do backup aponta para branch `main`, Dockerfile `Dockerfile.backup`, cron `0 3 * * *`, start `sh /app/run_backup_as_postgres.sh`, restart NEVER. O deployment live ainda é runner temporário sem SHA de Git; o wrapper será incluído no próximo PR e precisa deployar e concluir a próxima execução real. Serviço temporário `postgres-blue-restore` removido: sem volume e sem métrica de CPU/RAM/disco; o restore verificado permanece provado pelo objeto/manifest do backup e registro independente. PostgreSQL antigo intacto a 4.9965/5 GB.

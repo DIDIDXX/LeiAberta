@@ -11,6 +11,8 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY scripts/backup_postgres_to_s3.py /app/backup_postgres_to_s3.py
+COPY scripts/run_backup_as_postgres.sh /app/run_backup_as_postgres.sh
+RUN chmod 0755 /app/run_backup_as_postgres.sh
 ENV PATH="/opt/backup-venv/bin:${PATH}"
 USER postgres
-CMD ["python3", "/app/backup_postgres_to_s3.py"]
+CMD ["sh", "/app/run_backup_as_postgres.sh"]

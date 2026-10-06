@@ -53,3 +53,37 @@ Volumes: blue 5 GB configured / 3.334 GB used; old Postgres 5 GB / 4.997 GB; Red
 At initial inspection `main` and all primary service deployments were on `eb7cea7ddf22737b30bd4f21285f7ea15e26891d`; backup's latest scheduled deployment on that revision is `ea5b459b-e572-4f21-b975-c639bcdbeb83`. Current production deploy SHAs must be refreshed after the integrated PR is merged; update this report with per-service SHA and deployment ID before declaring release complete.
 
 **Decision: NO-GO.** The remaining release gates are: final candidate deployment and production Why/Blame recheck; full bucket integrity audit result; strengthened post-change backup with schema signature and isolated restore; cold-law hydration through the real worker; representative disk soak and 24-hour observation; object retention/recovery strategy; and owner approval before removing the old DB. The old service has disk errors, so keep it intact for forensics while acknowledging it is not a reliable rollback. No old database, bucket, or legal payload was deleted.
+
+## Atualização autoritativa de produção — 2026-10-06 19:50 UTC
+
+Esta atualização substitui estados “pendente” do retrato inicial quando marcada como comprovada abaixo; não substitui nem reescreve os relatórios históricos.
+
+### SHA, topologia e proteção
+
+`main` no início desta atualização: `5d49fb5956096173e3094aa422f746f0782eb92e`. Web `192d8752-8712-492f-a786-d243a9c8924a` e worker `04bf9413-3d40-4e7b-85af-614baeea50d2` estão nesse SHA; configuração Railway descreve `postgres-blue` como DB novo, Postgres antigo separado e nenhum staged change. Os valores de `DATABASE_URL` estão redacted pela integração OAuth; o CLI local solicitou login, portanto não foi possível reler host nessa amostragem. O inventário anterior registrou as referências como `postgres-blue`; a rodada de backup/row counts concorda com o banco atual. Não escrever essa limitação como nova verificação independente.
+
+### Volume, sync e métrica
+
+Postgres azul, janela Railway 1 h/61 amostras: capacidade 5 GB; max 3.303645184 GB (66.1%), min 3.302301696 GB, último 3.286777856 GB (65.7%). A janela inclui ciclo representativo SAPL; queda de ~17 MB no último ponto pode ser rotação/reuso de arquivos e não se atribui a `raw_body` (intacto). CPU 0.0021 média/0.0060 max; RAM 2.637/2.944 GB. Worker CPU 0.00117/0.00936, RAM 0.0808/0.0833 GB, concurrency observada 1. Web RAM 0.0742 GB; Redis RAM 0.0137 GB e disco 0.1527 GB. Banco antigo permaneceu em 4.996513792/5 GB, CPU média 0.243, RAM 0.218 GB.
+
+O ciclo após fix do watermark retornou `incremental_probes=8`, `full_pages=20`, `records=4000`, `sources=12`, `errors=0`, `full_scans_incomplete=4`, 300 s de teto; as páginas completas observadas atualizaram 100 linhas com `added=0`. O worker check é horário; 589 fontes e 8 probes/ciclo implicam rotação teórica de ~74 h. O cap de bootstrap foi reduzido para 4 páginas/ciclo em config Railway, deployment `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` concluiu SUCCESS: `incremental_probes=8`, `full_pages=4`, `records=1400` no checkpoint, `sources=9`, `errors=0`, uma fonte ainda incompleta, e quatro páginas com `added=0`. O teto por ciclo está ativo; limite diário em bytes/novos registros não existe. Se houver exatamente um ciclo/h, 4×100×24 = 9.600 linhas de página/dia como limite aritmético aproximado, mas falhas provocam retry mais cedo e não existe contador persistente de orçamento diário em bytes. Não declarar teto diário rígido.
+
+### S3 e bytes relacionais
+
+Migração e auditoria: 14.202 snapshots apontam para 14.201 objetos únicos; 64.972.169 bytes no bucket, 252.701.649 bytes brutos verificados em download/descompressão/SHA-256; zero faltando, órfão, divergência ou erro. O job migrou 14.200 linhas em 569 lotes; uma duplicata content-addressed explica a cardinalidade. DB manteve `raw_body` nas 14.202 linhas. Reclaim físico atribuído à remoção: 0 bytes; tabela completa ~107.683.840 B / TOAST 93.536.256 B, menor que `laws` 2.330.796.032 B. D1/D2 não passaram: bucket-only dual-read e restore de objetos, retenção/versionamento independente não provados.
+
+### Backup pós-cutover
+
+Backup completo: `postgres/leiaberta-production/20261006T183241Z-6c86c047.dump`, 336.170.020 B, SHA dump `6a6ee28d4fa5b0b57db28b1b115aa6c14ddd5ce93f7e81eb2909be17131c42c5`; manifest `postgres/leiaberta-production/20261006T183241Z-6c86c047.dump.json`, 112.778 B, SHA `a7e895806c68987b1cd4b193a70ec7695645097eb659f66d51803abed8fb9c83`. Ambos foram lidos de volta; restore isolado `restore_verified=true` em 45.458 s; row counts/schema signature/Alembic `20261006_0011` conferiram. Contagens: laws 1.927.162, legal_nodes 211.497, snapshots 14.203, hydration_jobs 30.668, job_outbox 30.654, history_events 4.049, law_versions 14.136, source_registry 620.
+
+Os serviços temporários `postgres-blue-restore` e `source-snapshot-migration` foram removidos após confirmar zero volumes e zero uso recente; buckets e os três volumes persistentes do Postgres antigo, blue e Redis permanecem.
+
+Config de backup foi definida como start `sh /app/run_backup_as_postgres.sh`, cron `0 3 * * *`, restart NEVER, mas o container live continua sendo runner one-shot iniciado pela CLI e não contém ainda o wrapper versionado. O próximo deploy precisa provar que imagem Dockerfile inicia como `postgres` e o cron executa; até lá, há backup manual comprovado, cron configurado, mas não cron operacional verificado.
+
+### Produto, custo e decisão
+
+Smoke HTTP novo: 17/17 rotas e APIs com HTTP 200; APIs incluem busca `LGDP`, estatísticas/fontes, Código Civil art. 389, nodes, histórico, blame, provenance e diff. QA visual prévio em 390/430/768/1440 px passou; caveat do comparativo arquivado de Art. 389 ainda é Normas.leg.br não oficial, sem transcrição primária exata before/after salva. Cold hydration real completou processamento, mas com resultado parcial e `article_count=0`, então o resultado deve seguir como revisão necessária.
+
+Estimativa publicada com tarifas Railway e uso anterior: US$ 40.2–40.7/mês incluindo Postgres antigo; US$ 32.9–33.4 depois de aposentadoria aprovada, antes de mudanças de tráfego/uso. Fatura real não acessível; alvo aspiracional US$ 10–15 não atendido. Permanecem ~15 GB de volumes configurados (três volumes de 5 GB); soma de ocupação em 1 h: azul 3.287 GB, antigo 4.997 GB, Redis 0.153 GB. Bucket backup+snapshots estimado no relatório anterior ~1.36 GB.
+
+**Decisão: NO-GO para lançamento público agora.** Gates restantes: deployment e execução real do cron wrapper; observar worker cap pós-deploy e 24 h; política de retenção/recuperação de objetos; confirmar referência DB atual via ferramenta autorizada; revalidar hidratação cold estruturada e fontes com falha sem inferir ausência; aprovação expressa antes de retirar DB antigo. Fatura e custo alvo não foram comprovados.

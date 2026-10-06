@@ -21,3 +21,12 @@ Após os gates de backup, restore, estabilidade e observação, o proprietário 
 - Não comprar domínio, migrar para VPS, fazer upgrade pago nem publicar posts em redes sociais.
 - A comparação arquivada do Art. 389 continua baseada em transcrição do Normas.leg.br classificada como não oficial. Os trechos exatos anterior e posterior ainda não foram comprovados em documentos primários armazenados.
 - A integração GitHub havia recusado com 403 a edição de descrição/homepage/topics. Se ainda desejar esses metadados, o mantenedor pode atualizá-los nas configurações do repositório; isso não bloqueia o funcionamento da aplicação.
+
+## Decisões e validações ainda necessárias — 2026-10-06
+
+- Aguardar confirmação do deployment `postgres-backup` construído do `Dockerfile.backup` na branch `main`, start wrapper como usuário `postgres` e próxima execução real do cron `03:00 UTC`. Backup manual atual passou readback e restore isolado; isso ainda não prova o cron.
+- Observar Postgres azul e sync com limite SAPL 4 páginas/ciclo por 24 h; verificar crescimento, retries e hidratação interativa. O limite não mede bytes diários e fonte indisponível não significa inexistência de alteração.
+- Definir e provar retenção/versionamento e amostragem de restore dos objetos do bucket antes de remover payloads relacionais. Nenhum `raw_body` foi removido; reclaim físico = 0.
+- Aprovar ou recusar explicitamente o descarte do Postgres antigo (4.9965/5 GB). Está preservado; não interpretar o pedido atual como autorização para sua exclusão.
+- Revisar resultado cold hydration `sp-alesp-212364` (worker real; estado parcial, zero artigos estruturados) e confirmar textos primários before/after da alteração do art. 389. A transcrição Normas.leg.br permanece rotulada não oficial.
+- A fatura Railway real não foi acessada; estimativa permanece ~US$40.2–40.7/mês com banco antigo, ~US$32.9–33.4 após aposentadoria aprovada. Meta aspiracional US$10–15 não comprovada.

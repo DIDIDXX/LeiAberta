@@ -82,3 +82,9 @@ Only terminal rows (`succeeded`, `failed`, or `cancelled`) older than 180 days m
 5. Obtain explicit coordinator approval, perform a small transaction-bounded batch, then verify counts, FK integrity, worker/outbox recovery and core routes.
 
 The current outbox schema has no durable ACK field, so operator verification of Redis pending state is required; do not interpret `dispatched_at` as ACK. Cleanup stays unexecuted until SQL sizes/counts and backup/restore verification are available. No destructive cleanup script should be added without separate tests and coordinator review.
+
+## Verificação de migração em produção — 2026-10-06
+
+Final audit comprovado por readback: 14.201 objetos únicos para 14.202 linhas; 64.972.169 bytes armazenados, 252.701.649 bytes originais reconstituídos e SHA-256 conferido; zero missing/orphan/mismatch/erro. A execução registrou 14.200 updates em 569 lotes e não foi considerada concluída pelo status SUCCESS, mas por cursores/contagens e leitura de cada objeto.
+
+Os `raw_body` continuam presentes nas 14.202 linhas; reclaimed bytes = 0. Para D1 ainda é obrigatório validar dual-read quando DB payload é nulo e retenção/restore independente do bucket. Não rodar nulling nem rebuild agora: a relação é ~108 MB, contra `laws` ~2.33 GB.

@@ -45,3 +45,9 @@
 ## Risk and decision note
 
 No live byte consumer can be identified from repository inspection alone. The code makes ongoing full catalog enumeration a plausible write source while background text work is off, particularly due SAPL's paginated checkpoints and separate internal fan-out. Whether it materially explains the reported volume growth remains a production measurement question. Do not label source snapshots as the cause until exact payload totals are compared with TOAST/relation bytes, nor infer physical disk reclaim from `UPDATE raw_body = NULL`.
+
+## Atualização do coordenador — 2026-10-06
+
+Amostra Railway de 61 pontos/1 h: volume azul 5 GB, mínimo 3.3023, máximo 3.3036, atual 3.2868 GB (pequena oscilação/rotação de arquivos; não é prova de reclaim de payload). SQL anterior separou DB 2.823 GB do volume, WAL 302 MB/18 arquivos; `laws` 2.331 GB é o maior consumidor, `legal_nodes` 331 MB; `source_snapshots` 108 MB/93.5 MB TOAST. O `raw_body` é 252.7 MB lógico somado, mas snapshots não explicam sozinhos o tamanho. Nenhum payload foi nulificado, nenhum `VACUUM FULL`/repack/reindex foi executado; reclaim físico atribuído à migração = 0.
+
+No ciclo SAPL capturado, 4.000 registros foram revisados em 20 páginas; log mostrou `added=0` nas páginas exibidas. Para reduzir a taxa de bootstrap, coordenador definiu `SAPL_FULL_PAGES_PER_CYCLE=4` em produção; deployment `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` concluiu SUCCESS e processou exatamente 4 páginas com `added=0`. Crescimento de 1 h não deve ser tratado como previsão mensal nem como prova de idempotência completa.
