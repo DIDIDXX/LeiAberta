@@ -1,9 +1,9 @@
 # QA / security / release review
 
-**Reviewer:** QA/security/release agent  
-**Review base:** `main` at `22ab226` (`docs: mark v0.1.0 release complete (#80)`)  
-**Environment reviewed:** Railway production, read-only  
-**Observation time:** 2026-10-06 01:06–01:10 UTC  
+**Reviewer:** QA/security/release agent
+**Review base:** `main` at `22ab226` (`docs: mark v0.1.0 release complete (#80)`)
+**Environment reviewed:** Railway production, read-only
+**Observation time:** 2026-10-06 01:06–01:25 UTC
 **Scope:** production HTTP/health/5xx, recent runtime logs and deployment state, prior backup/restore evidence, application rate limits/log behavior, existing Python/E2E suite and failover gaps. No Railway configuration, database, data, secrets, or deployments were changed.
 
 ## Release decision
@@ -33,6 +33,10 @@ Railway HTTP metrics for `web`, production, last hour:
 - 47 total requests: 12 2xx, 2 4xx, 33 5xx.
 - 5xx rate: **70.21%**; worst observed bucket: **82.76%** (24 of 29 requests).
 - Railway HTTP logs also show repeated 500 responses from stats, search, law and history routes; static home/OpenAPI routes continued returning 200.
+
+Fresh Postgres metrics/logs read at approximately `2026-10-06T01:21Z` confirm the incident is still active: disk usage remains **4.996513792 GB** with a maximum of the same value across 61 samples in the preceding hour. Postgres logs at 01:21:51–53Z repeat `PANIC: ... No space left on device`, interrupted shutdown, automatic recovery, and FATAL recovery-mode errors. Railway still reports the Postgres and application deployments as `SUCCESS`, which is not evidence that the database is accepting traffic.
+
+Rechecked at `2026-10-06T01:25Z`: Postgres disk remains **4.996513792 GB** (61 samples; 4.996333568 GB minimum in the preceding hour). Latest Postgres runtime logs at 01:25:15–17Z again show end-of-recovery checkpoint `PANIC: ... No space left on device`, followed by process termination and recovery restarting. Railway's environment status still lists all five services Online/Ready, no issues, and deployments `SUCCESS`; the pending volume resize remains staged and not live. Recent HTTP evidence at 01:20Z still has `/health`, `/api/stats`, `/api/laws`, and `/api/search` returning 500 while `/ready` returns 503. The status/deployment fields do not reflect the live database outage.
 
 Railway runtime logs at `2026-10-06T01:09:37Z` show SQLAlchemy/psycopg failing to connect because Postgres reported recovery mode. At `01:09:40Z`, Railway reported its per-replica limit of 500 log lines/s and **1,410 messages dropped**. Worker logs show the same database recovery/connectivity failure and `wait_for_database_schema` retries at attempts 10, 20, and 30. The worker heartbeat is only started after its schema wait succeeds; it is therefore stale while the worker is waiting for the unavailable DB.
 
@@ -80,11 +84,24 @@ Other noted limitations: the rate limiter is global, not per-client; it fails op
 
 On the isolated `codex/qa-security-release` worktree at base `22ab226`:
 
-- `pytest -q`: **150 passed**, 1 upstream Starlette/httpx deprecation warning.
-- After `npm ci` and installing Chromium, `npm run test:e2e`: **2 passed** (real art. 389 before/after + device evidence; LGDP typo search and 390 px mobile home).
+- `pytest -q` on the reviewed base: **150 passed**, 1 upstream Starlette/httpx deprecation warning. After adding the prompt-aligned matrix coverage below, the focused API/history/source tests passed: **37 passed**, 1 upstream deprecation warning.
+- After `npm ci` and installing Chromium, `npm run test:e2e`: **2 passed** (real art. 389 before/after + device evidence; keyboard search selection of LGPD; home checked at 390/430/768/1440 px for horizontal overflow).
 - The E2E test setup uses a local SQLite database and seeded fixture; it does not prove production PostgreSQL availability or failover.
 - Prior launch docs record a manual browser matrix of **36 combinations** (9 routes × 390/430/768/1440 px); this review did not rerun that matrix because the live DB-backed routes are currently failing. Current automated Playwright suite has 2 tests, not 36 browser-route-width cases.
 - No destructive, outage-inducing, high-rate, or production failover test was run.
+
+### Acceptance matrix against the launch prompt
+
+| Prompt flow / viewport | Evidence exercised | Status and remaining gap |
+| --- | --- | --- |
+| Existing law before/after and provenance evidence | Browser E2E opens the existing Código Civil art. 389 comparison, checks both texts and official-source link, then opens device evidence. | **Pass locally.** Fixture is seeded in SQLite; this does not validate Railway/Postgres. |
+| Search by a typo and keyboard operation | Browser E2E types `LGDP`, moves to the LGPD result with ArrowDown, checks `aria-selected`, presses Enter, and checks navigation. | **Pass locally.** One known result/query exercised. |
+| Home at 390, 430, 768, and 1440 px | Browser E2E checks the home heading and `scrollWidth <= innerWidth` at each requested width. | **Pass for home only.** No all-route viewport sweep or visual comparison at those widths was run. |
+| Law history page, queued/running/partial states, and preparing history | Python API/job tests cover `test_history_is_explicitly_not_requested_until_a_real_job_exists`, `test_history_prepare_creates_a_persisted_job`, `test_queued_text_hydration_does_not_claim_history_is_being_prepared`, and persisted official-history fixtures. | **Backend tests only.** Browser history route, status polling, error/retry presentation, and accessibility were not E2E-tested. |
+| Cold catalog law → interactive hydration queued → worker completion | API test `test_senado_catalog_entry_can_queue_text_without_claiming_it_is_ready` and launch fixture test for catalog search/hydration/retry cover the API queue response and idempotence. | **Partial.** No browser-triggered cold-law flow or end-to-end worker completion was exercised. |
+| Coverage and sources pages | Python coverage/stats and `test_sources_api_exposes_success_freshness_and_delta_fields` exercise supporting API data. | **Partial.** Browser routes `/cobertura` and `/fontes`, their source links, and loading/error states were not E2E-tested. |
+| Keyboard/accessibility beyond search | Searchbox accessible name and ArrowDown/Enter are exercised in browser E2E. | **Partial.** No full keyboard-only route traversal, focus-order audit, screen-reader check, or automated WCAG scan was run. |
+| Browser route × width matrix | Prior launch documentation lists 9 routes × 390/430/768/1440 px (36 combinations). | **Not run as a full matrix.** Only home was checked at all four widths; comparison/provenance E2E used the default Playwright viewport. |
 
 ## Release gates
 
@@ -107,10 +124,10 @@ If any gate fails, keep release status NO-GO and retain this report as the incid
 - If recovery cannot complete, follow `docs/runbooks/backup-restore.md`: restore the verified dump into a **new isolated PostgreSQL service/volume**, compare manifest row counts and Alembic heads, validate app connections against that isolated instance, then plan a deliberate cutover with an explicit rollback target. Never test restore against the live DB.
 - Roll back an application deployment only if a separate verified app regression is found and the target commit passes compatibility checks with the current DB schema. Schema downgrade or DB volume rollback is not an application rollback.
 
-## Review status for worker/cost proposal
+## Review status for follow-up code PRs
 
-The separate worker/cost-control worktree is implementing an existing-job marker and `off`/`hot`/`continuous` backfill modes without a migration. Read-only review initially found the proposed `[background-backfill]` prefix would leak through `HydrationJob.message` into public APIs and the reader UI. The current working diff addresses that by stripping the marker at each job API serializer and adds an API regression test; this correction still requires final commit/CI review.
+PR #81 (`Protect catalog queries during database pressure`) is open and unmerged at head `fcd76635edb32a4f76754a564bab9688856fc9fa`. It now makes `/health` and `/api/health` pure liveness, keeps `/ready` as DB/schema readiness, catches schema query SQLAlchemy errors as generic 503 within `/ready`, maps request `OperationalError` to no-store 503 with `Retry-After`, limits outage log output to one event per 30 seconds, and adds shared 90/min budgets for history/proceedings/coverage/audit GETs. The broader limiter covers stats, law list, search and existing detail/job routes. I ran `pytest -q` on the corresponding isolated final worktree: **158 passed**, one upstream deprecation warning. GitHub CI run 69 passed Python, E2E, and image jobs. This is code/CI validation only; it is not deployed or production-verified and must not be deployed until storage is recovered.
 
-The agent reports adding tests for batch `off`/`hot` selection, pending outbox filtering/resume, legacy markers, and mode selection; targeted suite reportedly passes 53 tests. The final commit still needs review for priority-job bypass, outbox/lease behavior, and mode propagation. Run full CI before approval. Production DB recovery and stable storage headroom must precede any worker throughput rollout.
+PR #86 (`Control automatic bulk backfills by worker mode`) is open/unmerged at exact remote head `dcfc31b6c33a00d0f3a6d6af4a8f164261f2b2e5`; CI run 70 passed. Its tree matches the reviewed local implementation commit `4e18d548ccd8ab3824c5a81b054198b2fb4c0279`, whose full local suite passed 157 tests. The change defaults background backfills to `off`, supports `hot` and `continuous`, preserves paused DB/outbox/stream jobs, exempts explicit interactive jobs, sanitizes the marker from public job messages, and has no migration. It is not production-validated.
 
-PR #81 is also receiving a follow-up to make `/health` and `/api/health` pure liveness routes, keep `/ready` as DB/schema readiness, convert SQLAlchemy `OperationalError` to a generic 503, and cap outage logging to one record per 30 seconds with a suppressed-count summary. These are expected semantics only until the follow-up commit and tests are observed; the current measured `/health` 500 remains the release snapshot. The same PR is expected to add a conservative shared budget for expensive history/proceedings/coverage/audit GET routes; verify that before considering the P1 rate-limit gap resolved.
+**P1 reviewer follow-up:** the worker's `should_process_job()` currently classifies stream deliveries by the job's current message only, without first excluding terminal rows. A completed/failed/cancelled backfill job can retain its marker in the final message and be deferred forever in `off`; unmarked terminal rows are also deferred as unknown. This can occur if processing committed but the worker crashed before ACK, or Redis ACK failed. A priority promotion can similarly clear a marker, process the DB row directly, then leave the old stream item pending. This does not delete durable data or re-run completed work, but can retain pending stream entries and inflate pending counts. Worker owner was asked to handle terminal rows as safely ACKable and add regression coverage; re-review the follow-up before treating this queue-hygiene item as closed. Production DB recovery and stable storage headroom remain hard no-deploy gates.
