@@ -51,3 +51,7 @@ Latest backup snapshot counts: 30,667 `hydration_jobs`, 30,653 `job_outbox`, and
 Volume Railway azul (5 GB), amostra 61 pontos/1 h: min 3.3023, max 3.3036, atual 3.2868 GB. A última oscilação para baixo é temporal/arquivo WAL e não prova reclaim de payload; `raw_body` não foi alterado. O ciclo SAPL na janela revisou 20 páginas (4.000 linhas), com `added=0` nas páginas exibidas. Após isso o coordenador limitou `SAPL_FULL_PAGES_PER_CYCLE=4`; o deployment `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` terminou SUCCESS com 4 páginas e `added=0`.
 
 O Postgres antigo permanece em 4.996513792/5 GB e deve ser mantido sem escrita investigativa; não é fallback confiável e sua remoção depende de aprovação do proprietário.
+
+## Soak final — 2026-10-06 20:25 UTC
+
+Depois do deployment funcional `f6084abcea82bebe0ade4699c1ce9460947cc571`, amostra por 30 min 45 s após worker readiness: pontos finais do volume blue sem variação em 3.270852608 GB. Janela Railway 1 h no fechamento: min/current 3.270852608 GB, max 3.303645184 GB. Crescimento líquido não observável no período pós-cap; parte da amplitude na janela anterior inclui arquivo/WAL do ciclo antes do limite. `raw_body` permanece cheio e a redução de leitura do provedor não é atribuída a reclaim SQL.
