@@ -19,6 +19,11 @@ EXPECTED_TABLES = (
     "laws", "law_versions", "legal_nodes", "history_events", "source_snapshots",
     "source_registry", "hydration_jobs", "job_outbox",
 )
+REQUIRED_SCHEMA_TABLES = {
+    "alembic_version", "history_events", "hydration_jobs", "job_outbox", "jurisdictions",
+    "law_changes", "law_versions", "laws", "legal_nodes", "senate_proceedings",
+    "source_registry", "source_snapshots",
+}
 EXPECTED_KEY = "postgres/leiaberta-production/20261005T091036Z-3bc83b83.dump"
 EXPECTED_BYTES = 247_073_141
 EXPECTED_SHA256 = "d3afe0383f0b5b28124317090ce3fc16bb6acaa287f11b466ea2394774770190"
@@ -97,6 +102,10 @@ def metadata(url: str) -> dict:
     query = (
         "SELECT json_build_object('server_version_num', current_setting('server_version_num'), "
         "'database_size_bytes', pg_database_size(current_database()), "
+        "'schema_tables', COALESCE((SELECT json_agg(table_name ORDER BY table_name) "
+        "FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'), '[]'::json), "
+        "'public_constraint_count', (SELECT COUNT(*) FROM pg_constraint c "
+        "JOIN pg_namespace n ON n.oid=c.connamespace WHERE n.nspname='public'), "
         f"'row_counts', json_build_object({row_counts}), "
         "'alembic_versions', COALESCE((SELECT json_agg(version_num ORDER BY version_num) "
         "FROM public.alembic_version), '[]'::json))::text"
@@ -150,6 +159,12 @@ def main() -> None:
     actual_versions = sorted(restored["alembic_versions"])
     if actual_versions != expected_versions:
         raise RuntimeError(f"Alembic version mismatch: expected={expected_versions}; actual={actual_versions}")
+    missing_schema = sorted(REQUIRED_SCHEMA_TABLES.difference(restored["schema_tables"]))
+    if missing_schema or int(restored["public_constraint_count"]) == 0:
+        raise RuntimeError(
+            f"Restore schema validation failed: missing_tables={missing_schema}; "
+            f"constraints={restored['public_constraint_count']}"
+        )
 
     law = run([
         "psql", "--no-psqlrc", "--tuples-only", "--no-align", "--set=ON_ERROR_STOP=1",
@@ -165,9 +180,10 @@ def main() -> None:
         raise RuntimeError("Critical-data validation failed for Código Civil 10.406/2002, art. 389")
 
     logger.info(
-        "restore_validation_passed database_size_bytes=%s row_counts=%s alembic_versions=%s "
-        "civil_code_present=true article_389_present=true",
-        restored["database_size_bytes"], json.dumps(restored["row_counts"], sort_keys=True),
+        "restore_validation_passed database_size_bytes=%s schema_tables=%s public_constraints=%s "
+        "row_counts=%s alembic_versions=%s civil_code_present=true article_389_present=true",
+        restored["database_size_bytes"], json.dumps(restored["schema_tables"]),
+        restored["public_constraint_count"], json.dumps(restored["row_counts"], sort_keys=True),
         json.dumps(actual_versions),
     )
 
