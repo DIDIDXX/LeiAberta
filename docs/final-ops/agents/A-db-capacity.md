@@ -51,3 +51,7 @@ No live byte consumer can be identified from repository inspection alone. The co
 Amostra Railway de 61 pontos/1 h: volume azul 5 GB, mínimo 3.3023, máximo 3.3036, atual 3.2868 GB (pequena oscilação/rotação de arquivos; não é prova de reclaim de payload). SQL anterior separou DB 2.823 GB do volume, WAL 302 MB/18 arquivos; `laws` 2.331 GB é o maior consumidor, `legal_nodes` 331 MB; `source_snapshots` 108 MB/93.5 MB TOAST. O `raw_body` é 252.7 MB lógico somado, mas snapshots não explicam sozinhos o tamanho. Nenhum payload foi nulificado, nenhum `VACUUM FULL`/repack/reindex foi executado; reclaim físico atribuído à migração = 0.
 
 No ciclo SAPL capturado, 4.000 registros foram revisados em 20 páginas; log mostrou `added=0` nas páginas exibidas. Para reduzir a taxa de bootstrap, coordenador definiu `SAPL_FULL_PAGES_PER_CYCLE=4` em produção; deployment `d0f1361b-eda1-41b6-b7c3-9bfcd6036869` concluiu SUCCESS e processou exatamente 4 páginas com `added=0`. Crescimento de 1 h não deve ser tratado como previsão mensal nem como prova de idempotência completa.
+
+## Fechamento pós-deploy — 2026-10-06 20:25 UTC
+
+No soak >30 min após worker pronto em 19:54:51 UTC, os pontos do volume azul ficaram estáveis em 3.270852608 GB; janela Railway de 1 h no fechamento: current/min 3.270852608, max 3.303645184 GB, capacidade 5 GB. A janela final inclui a transição e resíduo de WAL; nenhuma remoção SQL foi feita. Últimos CPU/RAM azul: 0.00474 média/0.08120 max de CPU, 2.371/2.413 GB de RAM na janela. Pressão está abaixo de 70%, mas aguardar 24 h.

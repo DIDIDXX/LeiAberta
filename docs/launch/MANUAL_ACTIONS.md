@@ -30,3 +30,10 @@ Após os gates de backup, restore, estabilidade e observação, o proprietário 
 - Aprovar ou recusar explicitamente o descarte do Postgres antigo (4.9965/5 GB). Está preservado; não interpretar o pedido atual como autorização para sua exclusão.
 - Revisar resultado cold hydration `sp-alesp-212364` (worker real; estado parcial, zero artigos estruturados) e confirmar textos primários before/after da alteração do art. 389. A transcrição Normas.leg.br permanece rotulada não oficial.
 - A fatura Railway real não foi acessada; estimativa permanece ~US$40.2–40.7/mês com banco antigo, ~US$32.9–33.4 após aposentadoria aprovada. Meta aspiracional US$10–15 não comprovada.
+
+### Atualização após o deploy de 2026-10-06 20:25 UTC
+
+- Wrapper do backup foi incluído na imagem e deployou no SHA `f6084abcea82bebe0ade4699c1ce9460947cc571`; o próximo cron às 03:00 UTC ainda precisa concluir e produzir manifesto/SHA/readback.
+- A janela de 30 min pós-sync passou, mas continuar a observação por 24 h antes de qualquer aposentadoria do rollback.
+- Remoção de `postgres-blue-restore` e `source-snapshot-migration` já concluída; volumes/buckets persistentes foram preservados.
+- Decidir explicitamente sobre o Postgres antigo após os gates; permanece intacto e 99.93% cheio.

@@ -62,3 +62,15 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [ ] 30–60 min após novo limite, mais 24 h de observação e hidratação cold com resultado estruturado pendentes.
 - [ ] Aprovação do proprietário para remover o Postgres antigo pendente; não executar exclusão.
 - [ ] **GO público: não aprovado. Decisão atual: NO-GO** até gates pendentes acima.
+
+## Fechamento pós-deploy f6084ab — 2026-10-06 20:25 UTC
+
+- [x] Web/worker/backup deploys SUCCESS no SHA `f6084abcea82bebe0ade4699c1ce9460947cc571`; Railway sem staged changes.
+- [x] Build do backup incluiu o shell wrapper e o Dockerfile; config cron `0 3 * * *`, start wrapper e restart NEVER.
+- [ ] Próxima execução do cron às 03:00 UTC ainda precisa gravar objeto+manifest e passar leitura/restore; backup manual atual já passou.
+- [x] Soak pós-deploy >30 min: disk azul permaneceu 3.2709 GB nos últimos pontos; amostra 1 h 3.2709–3.3036 GB, sempre <70%.
+- [x] Worker após deploy: 8 probes incrementais, 4 páginas históricas, zero erros, BACKGROUND_BACKFILL_MODE=off, concurrency=1; descoberta adicionou normas.
+- [x] Smoke proxy pós-deploy 19/19 HTTP 200; ready/worker heartbeat fresh.
+- [ ] Observação por 24 h, limite diário persistente de ingestão, recuperação independente/retention dos objetos S3 e resultado estruturado da hidratação cold ainda pendentes.
+- [ ] Aprovação expressa do proprietário para descartar Postgres antigo continua pendente; banco intacto em 4.9965/5 GB.
+- **Decisão segue NO-GO para lançamento público.**
