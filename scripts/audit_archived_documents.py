@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.audit import audit_archived_document
 from app.db import SessionLocal
 from app.models import Law, LawVersion, LegalNode, SourceSnapshot
+from app.storage.source_snapshots import read_source_snapshot
 
 
 def audit_archived_catalog(*, limit: int = 1_000) -> dict:
@@ -35,7 +36,7 @@ def audit_archived_catalog(*, limit: int = 1_000) -> dict:
                 LegalNode.version_id == version.id,
             ).order_by(LegalNode.order_index)))
             coverage = dict(law.coverage or {})
-            coverage["document_audit"] = audit_archived_document(snapshot.raw_body, nodes)
+            coverage["document_audit"] = audit_archived_document(read_source_snapshot(snapshot), nodes)
             coverage["document_audit"]["source_checksum"] = snapshot.checksum
             coverage["document_audit"]["audited_at"] = snapshot.retrieved_at.isoformat()
             law.coverage = coverage

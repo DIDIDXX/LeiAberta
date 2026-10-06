@@ -25,6 +25,7 @@ from app.audit import audit_archived_document
 from app.jobs import public_job_message, queue_history, queue_hydration, queue_provenance
 from app.catalog_sync.sapl import SAPL_SOURCE_NAMES
 from app.models import HistoryEvent, HydrationJob, Jurisdiction, Law, LawChange, LawVersion, LegalNode, SenateProceeding, SourceRegistry, SourceSnapshot
+from app.storage.source_snapshots import read_source_snapshot
 from app.search import search_laws
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
@@ -617,7 +618,7 @@ def law_document_audit(slug: str, session: Session = Depends(get_session)):
         "parser_version": version.parser_version,
         "source": {"url": snapshot.source_url, "format": snapshot.raw_format,
                    "checksum": snapshot.checksum, "retrieved_at": snapshot.retrieved_at.isoformat()},
-        "audit": audit_archived_document(snapshot.raw_body, nodes),
+        "audit": audit_archived_document(read_source_snapshot(snapshot), nodes),
     }
 
 
