@@ -10,7 +10,7 @@
 
 **NO-GO: production currently has a P0 data-service availability incident.** At the observation time, Railway's web deployment was `SUCCESS`, but PostgreSQL connections failed with `FATAL: the database system is in recovery mode`. Web and API health checks consequently failed, and Railway's HTTP metrics showed a 70.21% 5xx rate (33 of 47 requests) over the preceding hour. The current public deployment must not be described as healthy or fully operational until the recovery gates below pass.
 
-The immediate observed failure is in Postgres availability/recovery. Evidence does not establish why PostgreSQL entered recovery or how much time recovery will take. Do not infer corruption from the recovery-mode message alone.
+The immediate observed failure is in Postgres availability/recovery. The separate DB emergency review corroborated disk exhaustion: Railway reported the 5 GB Postgres volume at **4.996513792 GB used (~99.93%, about 3.49 MB nominally free)** and Postgres logs at 01:08 UTC included `PANIC: could not write to file "pg_logical/replorigin_checkpoint.tmp": No space left on device`. This is the supported cause of the recovery loop. It does not establish corruption or which relation/filesystem consumer should be removed.
 
 ## Measured production results
 
@@ -42,20 +42,21 @@ Railway service inventory at review time:
 - Worker: latest deployment `SUCCESS`, commit `22ab226`, 1 replica.
 - PostgreSQL and Redis deployment statuses: `SUCCESS`.
 - Backup service: `SUCCESS`, daily cron `0 3 * * *` UTC.
-- There is a staged Railway patch with **2 changes**, including a staged delete for `pg-diagnostic-8187f5d5-103d-45b9-992c-d60926ae3276` and a staged Postgres-volume config change. This review did not apply or inspect the per-field staged change. Do not accept this patch as part of incident response without separately reviewing the exact diff and impact.
+- PostgreSQL volume: 5,000 MB allocated; current disk 4.996513792 GB of nominal 5 GB per the 24-hour Railway metrics read (1,441 samples; max 4.996521984 GB). Exact filesystem accounting may differ.
+- A fresh read-only inspection of the staged Railway patch shows **one non-destructive volume update only**: `postgres-volume` size **5,000 → 6,500 MB** (`destructive=false`). The earlier staged diagnostic-service delete has been cleared. This resize is not live; the owner must complete Railway's 2FA to apply it. No change was made by this review.
 
 A deployment's Railway `SUCCESS` state reflects the deploy lifecycle, not current end-to-end availability. The public checks and HTTP metrics above take precedence for release gating.
 
 ## Backup and restore evidence
 
-The existing runbook and Railway runtime log show a prior verified backup from **2026-10-05 09:15:50 UTC**:
+The existing runbook and Railway runtime log show a prior verified backup from **2026-10-05 09:15:50 UTC**, about 16 hours before the emergency storage review:
 
 - Object: `postgres/leiaberta-production/20261005T091036Z-3bc83b83.dump`
 - Size: 247,073,141 bytes
 - SHA-256: `d3afe0383f0b5b28124317090ce3fc16bb6acaa287f11b466ea2394774770190`
 - Isolated restore verification: `restore_verified=true`; core row counts and Alembic revisions compared.
 
-This is positive evidence for that backup only. During this review I could not verify current bucket inventory, retention, whether a newer backup object exists, or the contents of its manifest via the available read-only interface. No backup was run while production Postgres was in recovery. The scheduled next attempt is `03:00 UTC` if the service schedule remains active; success must be confirmed from the backup completion log and manifest rather than the deployment's status.
+This is positive evidence for that backup only. The emergency storage review likewise could not verify current bucket inventory, retention, whether a newer backup object exists, or the contents of its manifest via the available read-only interface. No backup was run while production Postgres was in recovery. The scheduled next attempt is `03:00 UTC` if the service schedule remains active; success must be confirmed from the backup completion log and manifest rather than the deployment's status.
 
 The documented restore exercise restores to an isolated temporary PostgreSQL and does not cut production over. Production failover/recovery cutover, measured RTO, actual PITR, and recovery-point validation remain untested. The runbook's nominal backup interval is daily, so do not claim zero data loss or a known RPO.
 
@@ -89,9 +90,9 @@ On the isolated `codex/qa-security-release` worktree at base `22ab226`:
 
 Do not declare release/production healthy until all of the following are observed after database recovery:
 
-1. Postgres accepts normal read and write connections; current recovery cause is understood from Railway DB logs/metrics. Verify data and migration head without destructive changes.
-2. `/health` and `/ready` return 200; `/worker-health` returns 200 with a fresh heartbeat.
-3. `/api/stats`, `/api/search?q=LGPD`, the art. 389 change endpoint, history, and the public hero flow return expected non-5xx responses.
+1. Postgres accepts normal read and write connections; recovery cause is understood from Railway DB logs/metrics. Verify data and migration head without destructive changes. Confirm actual volume headroom after the staged 6.5 GB resize is applied by the owner.
+2. `/health` returns 200 as process liveness, `/ready` returns 200 as DB/schema readiness, and `/worker-health` returns 200 with a fresh heartbeat. A liveness 200 by itself does not mean DB-backed requests are ready.
+3. `/api/stats`, `/api/search?q=LGPD`, the art. 389 change endpoint, history, and the public hero flow return expected responses; DB connection failures should surface as bounded generic 503 responses rather than traceback-driven 500s.
 4. Railway HTTP 5xx rate remains below 1% over at least 30 minutes with enough real requests to make the rate meaningful; no renewed logger cap/drop warnings.
 5. A post-recovery backup completes, object and manifest are present, checksum/size match, and the backup reports `restore_verified=true` (or an isolated restore is re-run against the new object).
 6. Recheck at least the documented browser matrix or an agreed representative route/viewport matrix against the recovered release.
@@ -101,11 +102,13 @@ If any gate fails, keep release status NO-GO and retain this report as the incid
 ## Rollback and recovery guidance
 
 - **Do not roll back or redeploy app code as the first response to this evidence.** Current web source is `main` commit `22ab226` (docs-only after the validated app commits); logs identify Postgres recovery as the immediate failure, and the Postgres service's last deployment predates this docs commit.
-- **Do not accept the staged Railway patch, delete the staged diagnostic service, alter the Postgres volume, restart Postgres, or overwrite production from a backup under this review.** Those operations risk destroying diagnostic or recovery state and are outside the read-only QA authorization.
+- **Do not overwrite production from a backup under this review.** The disk emergency reviewer found no measured safe cleanup candidate. The owner can apply the separately reviewed, non-destructive 5.0 → 6.5 GB Postgres volume resize after completing the required 2FA; it is not yet live. Restarting/altering Postgres is outside this read-only QA authorization.
 - Preserve current deployment IDs, DB/volume state, logs, and latest usable backup evidence. Have the platform/database incident owner inspect Postgres recovery logs, storage/volume health, and Railway events first.
 - If recovery cannot complete, follow `docs/runbooks/backup-restore.md`: restore the verified dump into a **new isolated PostgreSQL service/volume**, compare manifest row counts and Alembic heads, validate app connections against that isolated instance, then plan a deliberate cutover with an explicit rollback target. Never test restore against the live DB.
 - Roll back an application deployment only if a separate verified app regression is found and the target commit passes compatibility checks with the current DB schema. Schema downgrade or DB volume rollback is not an application rollback.
 
 ## Review status for worker/cost proposal
 
-The worker/cost-control branch was not yet available for review at the time this document was first drafted. The separate reviewer proposal described an existing-job marker and `off`/`hot`/`continuous` backfill modes, with no migration, while preserving marked pending jobs. Before approval, inspect the exact diff for queue ACK/deletion behavior, priority job exemption, lease/outbox recovery, and mode changes; run its focused tests and full CI; then compare worker query/HTTP/log volume in a non-production or safely observable rollout. Production DB recovery must be stable before changing worker throughput policy.
+The separate worker/cost-control worktree is implementing an existing-job marker and `off`/`hot`/`continuous` backfill modes without a migration. Read-only review of its working diff found one confirmed user-facing issue: the proposed `[background-backfill]` prefix is stored in `HydrationJob.message`, returned by the public job APIs, and displayed by the frontend. It must be kept out of public status text or sanitized in all serializers and covered by an API test.
+
+At the time of this review, the patch also lacked focused tests for batch `off`/`hot` selection, pending outbox filtering/resume, legacy markers, and mode transitions; only mode parsing and a paused-stream no-ACK case had been added. Review the final commit for those cases, priority-job bypass, outbox/lease behavior, and whether producers propagate the explicit mode into dispatch. Run focused tests and full CI before approval. Production DB recovery and stable storage headroom must precede any worker throughput rollout.
