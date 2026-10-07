@@ -10,6 +10,8 @@
 
 **Escopo:** QA somente de leitura na produção; correção de texto e teste local isolado nesta branch. Nenhuma alteração de produção ou de dados jurídicos.
 
+> O resultado e o bloqueio descritos abaixo registram a captura de 2026-10-06. A seção “Revalidação de produção — 2026-10-07” ao fim deste arquivo substitui o estado de produção daquele retrato.
+
 ## Resultado de produção
 
 ### Disponibilidade e APIs
@@ -55,11 +57,13 @@ Em [static/app.js](../../static/app.js), o painel selecionado agora escolhe o te
 
 Atualizei o E2E em [core-flow.spec.js](../../e2e/core-flow.spec.js) para verificar o caveat, conferir que o painel não diz “em fonte oficial” e validar o rótulo/link do Normas.leg.br. Esse teste usa fixture no servidor local e não altera produção.
 
+Após a revalidação de 2026-10-07, também acrescentei um separador de apresentação antes do marcador anexado `Produção de efeitos`, sem mudar o payload/API ou texto armazenado. O teste local de renderização injeta o marcador somente na resposta da fixture de teste; isso não simula cobertura ou evidência jurídica.
+
 **Teste focalizado:**
 
 ```text
-npm run test:e2e -- --grep 'real existing article|federal article'
-2 passed (3.5s)
+npm run test:e2e -- --grep 'real existing article|federal article|renders a separator'
+3 passed (5.2s)
 git diff --check — passou
 ```
 
@@ -84,10 +88,42 @@ As capturas de Diff mostram a comparação em duas colunas no desktop e em pain�
 - Também não houve teste end-to-end de hidratação sob demanda nem confirmação de trechos anterior/posterior em fonte primária; manter esses limites explícitos.
 - Rollback do patch: reverter somente o commit desta branch que altera `static/app.js` e `e2e/core-flow.spec.js`; nenhuma migration ou dado foi alterado.
 
-## Atualização do coordenador — 2026-10-06
+## Revalidação de produção — 2026-10-07
 
-Após web/worker SHA `5d49fb5956096173e3094aa422f746f0782eb92e`, smoke real em 17 endpoints/páginas (health, ready, worker health, stats, sources, busca com typo, fontes/cobertura/sobre, OpenAPI, sitemap, deep link do art. 389, law/nodes/history/blame/provenance/diff) retornou HTTP 200. Duração dos endpoints do art. 389 ~0.43–2.05 s neste request; isso não substitui QA visual. Teste de navegador anterior passou nos tamanhos 390/430/768/1440 px, sem overflow/erros, com teclado e cópia de deep link. Caveat preservado: texto arquivado Normas.leg.br é transcrição classificada não oficial; trechos primários anterior/posterior não foram armazenados/provados. Hidratação cold `sp-alesp-212364` processada por worker real, porém parcial e sem artigo estruturado; exibir estado honesto e revisar antes de GO.
+**Janela observada:** 13:55–14:03 UTC. Nenhuma mudança de produção foi feita.
 
-## Revalidação pós-deploy — 2026-10-06 20:25 UTC
+O inventário Railway indicou `web` na branch `main`, deploy `SUCCESS` `e161e005-7ead-456b-b92a-4a5f5829e994`, SHA `a17ad2c415d9f036096d07719c710d9be58f1a08`, região `asia-southeast1-eqsg3a`; não havia mudança staged. O deploy foi criado em 2026-10-06 20:28:52Z. Esse deploy contém a correção local da ressalva descrita acima.
 
-SHA funcional `f6084abcea82bebe0ade4699c1ce9460947cc571`, web deploy `69750e48-27eb-47d7-af3b-9acdfa20f7c1`. Smoke proxy entre 19:54–20:25 observou 19 requests e 19 HTTP 200; endpoints incluíram home, health/ready/worker-health, stats, sources, `LGDP`, páginas fontes/cobertura/sobre, sitemap/OpenAPI, deep link Art.389, law/nodes/history/blame/provenance/diff. `ready` e heartbeat do worker frescos. Browser responsivo prévio em 390/430/768/1440 px sem overflow permanece válido porque este merge não alterou arquivos de produto. Caveat jurídico permanece; cold hydration real continua parcial/sem artigos estruturados.
+### Smokes HTTP e APIs
+
+Às 13:55:58 UTC, todas as 16 rotas consultadas responderam HTTP 200: `/`, `/health`, `/ready`, `/worker-health`, `/api/stats`, `/api/sources`, `/api/search?q=LGDP`, `/api/laws/10406-2002`, histórico, blame selecionado, provenance, change `be3a1531-edaa-5a78-94ca-70c6544e3853`, `/fontes`, `/cobertura`, `/sobre`, `/openapi.json` e `/sitemap.xml`. As latências medidas ficaram entre 449 ms e 1.550 ms; `/api/sources` retornou cerca de 2,75 MB.
+
+Às 13:59:54 UTC, a API publicou 1.927.327 registros catalogados, 14.108 normas com texto, 51.360 artigos estruturados, 376 alterações documentadas, 620 fontes configuradas e 612 enumeradas. `/api/sources` retornou 620 itens. A busca `LGDP` continuou sugerindo Lei 13.709/2018 (LGPD). O histórico do Código Civil permanece parcial, com redações anteriores ainda pendentes em parte das referências.
+
+O provenance de Art. 389 continua `status=verified`, `evidence.level=verified_source`, `source_host=normas.leg.br`; a API da comparação também não a classifica como `verified_primary`. O metadado `legal_value=UnofficialLegalValue` e a ressalva de vigência permanecem visíveis.
+
+### Navegador real e imagens
+
+Playwright headless abriu 10 rotas públicas (home, busca, Código Civil, Art. 389, histórico, Why/Blame, Diff, fontes, cobertura e sobre) nos viewports 390, 430, 768 e 1440 px: 40 combinações. Todas receberam HTTP 200, encontraram o conteúdo esperado e apresentaram `scrollWidth == clientWidth`. Não houve `pageerror`, `console.error`, request failed ou HTTP 5xx nos percursos finais.
+
+Fluxos exercitados: hero da home → Diff; Diff → evidência Why/Blame; Art. 389 → link Why; histórico → Diff específico do Art. 389; busca aproximada com typo; cópia de deep links do artigo, comparação e evidência. Os três botões anunciaram “Link copiado.” e a área de transferência recebeu o URL correto. Primeiro Tab na home focou “Pular para o conteúdo”, com outline sólido de 3 px.
+
+As capturas de tela são do site público no deploy `a17ad2c`:
+
+- 390 px: [home](../evidence/2026-10-07-home-390.png), [Diff Art. 389](../evidence/2026-10-07-diff-390.png), [Why/Blame](../evidence/2026-10-07-why-390.png)
+- 1440 px: [home](../evidence/2026-10-07-home-1440.png), [Diff Art. 389](../evidence/2026-10-07-diff-1440.png), [Why/Blame](../evidence/2026-10-07-why-1440.png)
+
+### Limite observado
+
+O corpo atual do Art. 389 é servido pela API com “...honorários de advogado.Produção de efeitos”, sem espaço ou quebra entre o texto e a anotação. A captura de produção reproduz essa junção tanto no artigo quanto em Why/Blame. Acrescentei nesta branch um separador somente de apresentação; não alterei o parser, payload/API nem texto armazenado. A alteração continua local e não foi implantada.
+
+Hidratação de norma fria/job de usuário continua sem teste de produção: qualquer POST poderia criar fila e gravar dados, fora do escopo read-only desta revalidação.
+
+## Rechecagem de lançamento — 2026-10-07
+
+- Produção `a17ad2c` revalidada: 16+ rotas/APIs usadas no smoke responderam 200. Stats: 1.927.327 indexados, 14.108 materializados, 51.360 artigos, 376 alterações, 620 fontes configuradas/612 enumeradas. Busca `LGDP` apresentou sugestão para LGPD.
+- Playwright real: 10 rotas × 390/430/768/1440 = 40 casos, zero overflow, console/page error, request failure ou HTTP 5xx. Art.389/Why/Blame/History/Diff, fonte, keyboard skip link e cópia de deep links passaram. Capturas de 07/10 estão em `docs/final-ops/evidence/2026-10-07-*.png`.
+- Caveat Normas.leg.br está agora explícito no Why/Blame e Diff como transcrição de valor jurídico não oficial; trechos exatos primários anterior/posterior não foram comprovados.
+- Correção local separa a anotação visual `Produção de efeitos`; não modifica texto, parser, API ou fonte. E2E focal da agente: 3 passed. Também é preciso integrar/deploy e verificar essa tela de produção.
+- Hidratação fria real `manaus-sapl-2198`, job `b5104e15-f6ec-41c7-a16b-f295dcf8bfad`: worker iniciou o fetch com backfill OFF e a fonte oficial time-out às 14:13:47Z; status permaneceu `retry_wait` na última amostra 14:19:31Z. Coordenador identificou gate do retry interativo e preparou patch local. A resposta final permanece pendente de deploy/retry até status terminal.
+- Site público e release `v0.1.0` estão ativos, mas About GitHub ainda não tem metadados; a sessão GitHub disponível está deslogada e a credencial local `gh` inválida. Posts não foram publicados.

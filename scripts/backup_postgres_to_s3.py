@@ -17,8 +17,8 @@ from pathlib import Path
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"), format="%(message)s")
 logger = logging.getLogger("leiaberta.backup")
 ROW_COUNT_TABLES = (
-    "laws", "law_versions", "legal_nodes", "history_events", "source_snapshots",
-    "source_registry", "hydration_jobs", "job_outbox",
+    "laws", "law_versions", "legal_nodes", "law_changes", "history_events",
+    "senate_proceedings", "source_snapshots", "source_registry", "hydration_jobs", "job_outbox",
 )
 
 
@@ -76,6 +76,18 @@ def _db_metadata(database_url: str) -> dict:
         "'server_version_num', current_setting('server_version_num'), "
         "'database_size_bytes', pg_database_size(current_database()), "
         f"'row_counts', json_build_object({row_counts}), "
+        "'legal_content_checks', json_build_object("
+        "'civil_code_exists', EXISTS(SELECT 1 FROM public.laws WHERE slug = '10406-2002'), "
+        "'art389_node_exists', EXISTS(SELECT 1 FROM public.laws l "
+        "JOIN public.legal_nodes n ON n.version_id = l.current_version_id "
+        "WHERE l.slug = '10406-2002' AND n.node_id = 'art:389'), "
+        "'art389_text_md5', COALESCE((SELECT md5(n.text) FROM public.laws l "
+        "JOIN public.legal_nodes n ON n.version_id = l.current_version_id "
+        "WHERE l.slug = '10406-2002' AND n.node_id = 'art:389' LIMIT 1), ''), "
+        "'art389_change_exists', EXISTS(SELECT 1 FROM public.law_changes "
+        "WHERE id = 'be3a1531-edaa-5a78-94ca-70c6544e3853' "
+        "AND law_slug = '10406-2002' AND node_id = 'art:389')"
+        "), "
         "'relation_sizes', COALESCE(("
         "SELECT json_agg(json_build_object("
         "'schema', schemaname, 'table', relname, "
@@ -173,6 +185,14 @@ def _validate_restore_metadata(restored: dict, expected: dict) -> None:
         raise RuntimeError("Restore validation failed: database migration versions differ")
     if restored.get("schema_signature") != expected.get("schema_signature"):
         raise RuntimeError("Restore validation failed: public schema signature differs")
+    expected_legal = expected.get("legal_content_checks") or {}
+    restored_legal = restored.get("legal_content_checks") or {}
+    required_checks = ("civil_code_exists", "art389_node_exists", "art389_change_exists")
+    if (any(expected_legal.get(key) is not True for key in required_checks)
+            or not expected_legal.get("art389_text_md5")):
+        raise RuntimeError("Restore validation failed: source is missing required Civil Code Article 389 records")
+    if restored_legal != expected_legal:
+        raise RuntimeError("Restore validation failed: critical legal record checks differ")
 
 
 def _verify_restore(dump_path: Path, expected: dict) -> dict:

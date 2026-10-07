@@ -109,3 +109,57 @@ Proxy produziu 19/19 HTTP 200 durante o smoke pós-deploy; `/ready` retornou rea
 Serviços temporários `postgres-blue-restore` e `source-snapshot-migration` removidos, sem volumes. Custo estimado, calculado por uso/tarifas publicados e não pela fatura real: US$ 40.2–40.7/mês com antigo Postgres lotado presente; US$ 32.9–33.4 após descarte somente com aprovação do proprietário. O acesso à fatura não estava disponível; alvo aspiracional US$ 10–15 não atingido.
 
 **Decisão: NO-GO.** Bloqueios atuais: 24 h de observação; próxima execução cron ainda não concluída; ausência de quota diária persistente; política independente de retenção/restore dos objetos; hidratação cold parcial sem artigos estruturados; host atual de DATABASE_URL redacted nesta sessão; custo acima do alvo aspiracional; aprovação explícita antes de aposentar Postgres antigo. O banco antigo e `raw_body` seguem intactos.
+
+## Fechamento da missão de lançamento — 2026-10-07
+
+### SHA e deploys atuais
+
+GitHub `main` continua em `a17ad2c415d9f036096d07719c710d9be58f1a08` (CI run #113 passou). Railway: web `e161e005-7ead-456b-b92a-4a5f5829e994`, worker `5b543cd8-6589-44ee-808a-e0dc2427259a`, backup `bb483ded-08b5-4491-ba6e-8e288ed883f3` estão SUCCESS no SHA `a17ad2c`; postgres-blue `d7743494-246d-472c-bca2-13847dad4b49`; Redis `e0cc2708-a527-4918-aa06-3f994675234a`. Nenhuma mudança staged foi vista no fechamento desta captura.
+
+### Backup observado pelo cron
+
+Às 03:04:54.219Z o cron diário de 03:00 UTC iniciou e às 03:06:25.723Z concluiu como sucesso. Backup lido de volta do bucket: `postgres/leiaberta-production/20261007T030453Z-aa430f1a.dump`, 336.126.530 B, SHA-256 `d2d156c7992c0ebba720616363ded58b5b10a18cdd12d7b162c2317ca0d55485`. Manifest `.dump.json`, 112.783 B, SHA-256 `e2f8ca5bc1379880660b61fd0ed58fd9abb66eb022b32bccacda560325718dea`. Runner reportou `uploaded_object_verified=true`, `restore_verified=true`, `expired_objects_removed=0`, `retention_skipped=false`; restore isolado durou 26,406 s. Alembic `20261006_0011`, assinatura de schema e as contagens principais foram iguais entre origem e restore. Restore: laws 1.927.298; legal_nodes 211.497; snapshots 14.203; versions 14.136; history_events 4.049; hydration_jobs 30.668; job_outbox 30.654; source_registry 620.
+
+**Limite da prova:** essa execução ainda não incluiu contagem/verificação de `law_changes`, `senate_proceedings` ou hash/ID do registro do Código Civil art. 389. Alteração local adiciona essas checagens ao runner e tem 9 testes focados passando, mas precisa CI/deploy e nova execução do backup para ser prova. O restore de hoje não pode ser descrito como confirmação específica do artigo.
+
+### Inventário e snapshot
+
+Railway metrics API consultada em 07/10: janela móvel de 24 h, 289 amostras. Blue atual 3,1950 GB, média 3,2580, máximo 3,3343 GB/5 GB; 63,9% atual e 66,7% máximo. Serviço permanece abaixo de 70%, mas não há uma nova série de 15/30/60 min de SQL de bytes depois do patch candidato.
+
+Último tamanho de banco SQL disponível nesta rodada: 2.830.522.047 B; `laws` 2.338.455.552 B; `legal_nodes` 331.358.208 B; `source_snapshots` 107.683.840 B. Snapshot brutos eram 252.701.649 B distintos; tabela `laws` é aproximadamente 21,7× a relação de snapshots. Não nulificar raw bodies: physical reclaim comprovado = 0 B. A auditoria de 14.201 objetos únicos com SHA verificado ocorreu em 06/10; backup de 07/10 contém 14.203 rows de snapshot, então pointer/object coverage da nova row não foi recontada.
+
+O banco velho permanece ligado ao volume `postgres-volume`, 4,996513792/5 GB. Log registra PANIC por `No space left on device`; tentativa read-only recebeu “database system is in recovery mode”. Manifests não identificam host/serviço de origem, não contêm hash por registro e omitem `law_changes`. Não há evidência segura de ausência de dados únicos. O serviço/volume não foi excluído; sua autorização era condicional e condição C não passou.
+
+### Produto, sync e hidratação
+
+Smoke coordenado real passou 16+ rotas e APIs, todas HTTP 200; `/ready`, `/worker-health`, `/api/stats`, `/api/sources`, busca LGPD/LGDP, página art.389, Why/Blame, History, Diff e provenance. A API descreve art.389 e history como parcial. E cobriu 10 rotas em 390/430/768/1440 px via Playwright (40 combinações), sem overflow, console errors, falha de request ou 5xx; capturas reais 07/10 estão em `docs/final-ops/evidence`. Caveat da transcrição Normas.leg.br está na tela; não há verificação dos trechos primários anterior/posterior armazenados.
+
+Worker mantém backfill OFF e concurrency 1; quatro páginas SAPL full por ciclo e probes incrementais continuam. Job frio real Manaus `b5104e15-f6ec-41c7-a16b-f295dcf8bfad` chegou ao fetch e sofreu timeout da fonte externa. Ele ficou em `retry_wait`, tentativa 1. A inspeção do código revelou que o retry interativo podia ser bloqueado como ambíguo; fix local usa marcador de work class e mantém o backoff. Depois de deploy, reclassificar job, deixá-lo terminar e reportar `succeeded`/`failed` com o estado honesto da fonte.
+
+### Custos medidos e estimados
+
+Tarifas atuais consultadas na página pública de [preços Railway](https://railway.com/pricing): CPU US$20/vCPU-mês, RAM US$10/GB-mês, volumes US$0,15/GB-mês, egress US$0,05/GB e Object Storage US$0,015/GB-mês. Estimativa calculada pelas médias de CPU/RAM da janela Railway de 24 h, storage dos volumes de 5 GB; buckets aproximados 2,3 GB backups + 0,065 GB snapshots. Egress é excluído porque a interface retornou métricas agregadas sem total diário confiável. A fatura real não foi disponibilizada pelas ferramentas.
+
+| Serviço | CPU média / pico (vCPU) | RAM média / pico (GB) | Disco atual | Uso estimado/mês |
+|---|---:|---:|---:|---:|
+| web | 0,0021 / 0,0332 | 0,1136 / 0,2872 | — | US$1,18 |
+| worker | 0,0053 / 0,1328 | 0,1498 / 0,2951 | — | US$1,60 |
+| postgres-blue | 0,0055 / 0,1203 | 1,2301 / 2,9441 | 3,195 GB / 5 GB | US$13,16 |
+| Postgres antigo | 0,3048 / 0,4451 | 0,2836 / 0,3930 | 4,9965 GB / 5 GB | US$9,68 |
+| Redis | 0,0026 / 0,0040 | 0,0136 / 0,0165 | 0,1527 GB / 5 GB | US$0,94 |
+| postgres-backup | 0,0062 / 0,7782 | 0,2902 / 2,5339 | — | US$3,03* |
+| Buckets | — | — | ~2,365 GB | ~US$0,04 |
+| **Total observado pela média 24 h** |  |  |  | **~US$29,63 + egress** |
+| **Sem Postgres antigo** |  |  |  | **~US$19,95 + egress** |
+
+* O valor de backup usa a média do serviço durante essa janela. O job do backup é diário e a telemetria agregada não permite decompor exatamente compute ocioso versus a execução; não multiplicar o pico de 03:00 pelo mês. Para cobrança efetiva, usar invoice/usage do workspace, que não estava acessível.
+
+O cenário sem o antigo ainda supera a meta de US$15 em aproximadamente US$4,95, antes de egress. Picos medidos no período foram blue 0,120 vCPU/2,944 GB, worker 0,133/0,295 GB, backup 0,778/2,534 GB; não há duração representativa suficiente para monetizar uma operação pesada como regime mensal. Próximas duas otimizações de maior impacto: (1) resolver com segurança o Postgres antigo, que representa ~US$9,68/mês; (2) reduzir o componente de RAM do postgres-blue (~US$12,30/mês na média) por avaliação de configuração/uso após soak, sem sacrificar margem de capacidade. Snapshot export não é otimização material aqui.
+
+### GitHub e materiais de publicação
+
+MIT público, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY e templates presentes; release pública `v0.1.0` existe e mantém os caveats, mas seu tag é anterior à aplicação atual. CI #113 em `a17ad2c` passou. Cinco issues de colaboração e dez Dependabot PRs seguem abertos, sem merge em massa. About está vazio e não pôde ser atualizado: sessão GitHub deslogada, token `gh` local inválido e connector sem escrita de settings. Posts LinkedIn/X foram atualizados, sem métricas dinâmicas não verificadas, e não foram publicados. Capturas com alt text e `demo.webm` de 20,52 s estão documentados em `docs/launch/MEDIA.md`.
+
+### Decisão
+
+**NO-GO para anúncio público neste fechamento.** Necessários: publicar o fix de retry e fechar o job cold com resposta terminal honesta; integrar o check legal específico no runner, fazer nova execução/restore; salvar About GitHub com autenticação e revalidar deploy/código. O antigo Postgres permanece preservado por risco de dados exclusivos. Não houve exclusão de evidência, upgrade, contratação, compra de domínio ou publicação social.

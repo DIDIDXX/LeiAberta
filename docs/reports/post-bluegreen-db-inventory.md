@@ -55,3 +55,12 @@ O Postgres antigo permanece em 4.996513792/5 GB e deve ser mantido sem escrita i
 ## Soak final — 2026-10-06 20:25 UTC
 
 Depois do deployment funcional `f6084abcea82bebe0ade4699c1ce9460947cc571`, amostra por 30 min 45 s após worker readiness: pontos finais do volume blue sem variação em 3.270852608 GB. Janela Railway 1 h no fechamento: min/current 3.270852608 GB, max 3.303645184 GB. Crescimento líquido não observável no período pós-cap; parte da amplitude na janela anterior inclui arquivo/WAL do ciclo antes do limite. `raw_body` permanece cheio e a redução de leitura do provedor não é atribuída a reclaim SQL.
+
+## Reinspeção de 2026-10-07
+
+- Produção Railway `main=a17ad2c415d9f036096d07719c710d9be58f1a08`. Web/worker/backup deployment ids e fontes estão no worklog final. Variáveis foram conferidas por referência/host sanitizado: os três apontam a `postgres-blue`; nenhum TCP proxy nem relação de serviço liga aplicação ao banco antigo. Railway não tinha staged changes no momento da captura.
+- Capacidade Railway (amostra de 24 h, 289 pontos): blue 3,1950 GB atual; média 3,2580; máximo 3,3343/5 GB; 63,9% atual e 66,7% pico. `pg_database_size` medido no inventário recente: 2.830.522.047 B. Top relações: `laws` 2.338.455.552 B, `legal_nodes` 331.358.208 B e `source_snapshots` 107.683.840 B. A diferença para filesystem não é atribuída artificialmente: sem telemetria completa de `tmp`, WAL e reserva não há decomposição total atual.
+- Railway CPU/RAM média e pico (24 h): blue 0,0055/0,1203 vCPU e 1,2301/2,9441 GB; worker 0,0053/0,1328 e 0,1498/0,2951; web 0,0021/0,0332 e 0,1136/0,2872. Redis 0,0026/0,0040 e 0,0136/0,0165 GB, disco 0,1527 GB. Métricas são serviço/janela; picos de backup não são extrapolados como carga mensal contínua.
+- 24 h após a inspeção: Postgres antigo 4,996513792/5 GB sem queda, CPU média 0,3048 vCPU, RAM 0,2836 GB. SSH read-only falhou por recovery; log de 13:49:55Z mostra PANIC checkpoint `No space left on device`. O volume não foi alterado.
+- Backup/manifests históricos antigos não contêm origem por serviço, `law_changes` nem hashes por registro. Diferenças de contagem por datas não provam perda nem superconjunto. A condição de exclusão falha; preserve serviço e volume para eventual recuperação de dados exclusivos.
+- A explicação do crescimento permanece: `laws` foi ampliada por enumeração de catálogo SAPL mesmo com text backfill OFF. O limite `SAPL_FULL_PAGES_PER_CYCLE=4` dá limite por ciclo, não por dia/bytes. A relação de snapshots é menor que a tabela `laws` e nenhum `raw_body` foi removido.

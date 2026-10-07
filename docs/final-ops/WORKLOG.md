@@ -45,3 +45,63 @@ Append exact commit/PR and Railway SHAs, production checks, strengthened one-sho
 - Ciclo do worker nesse deploy: 8 probes incrementais, 4 páginas full, 1 fonte ainda incompleta, erros=0; páginas adicionadas=0 no scan, probes registraram novas normas. Backfill textual off, concurrency 1, fila pendente=0. A variável capada permanece por ciclo (não é limite diário rígido por bytes). 24 h ainda pendentes.
 - Smoke pós-deploy: 19 requests vistos no proxy, todos HTTP 200; `/ready` ready e `/worker-health` heartbeat fresh/database ready/processing ready. API/UI real inclui hero do art.389, diff, blame, why, history, typo search e `/fontes`/`/cobertura`; caveat Normas.leg.br permanece.
 - Custos/decisão permanecem: ~$40.2–40.7/mês incluindo o DB antigo lotado, ~$32.9–33.4 se sua remoção for aprovada; sem acesso à fatura. NO-GO ainda por 24 h, cron ainda não executado, ausência de limite diário persistente, durabilidade/restore de bucket não definidos e hidratação cold parcial. Nenhum dado relacional foi removido.
+
+## Fechamento de lançamento — revalidação 2026-10-07 (UTC)
+
+### Estado atual confirmado
+
+- `origin/main` / GitHub `main`: `a17ad2c415d9f036096d07719c710d9be58f1a08`. Deploys web `e161e005-7ead-456b-b92a-4a5f5829e994`, worker `5b543cd8-6589-44ee-808a-e0dc2427259a` e backup `bb483ded-08b5-4491-ba6e-8e288ed883f3` são SUCCESS em `a17ad2c`; PostgreSQL azul é `d7743494-246d-472c-bca2-13847dad4b49`, Redis `e0cc2708-a527-4918-aa06-3f994675234a`. Confirmação feita pelo estado Railway e pela branch da origem; nenhum segredo ou URL de conexão foi registrado.
+- Referências efetivas de `web`, `worker` e `postgres-backup` apontam para `postgres-blue`; o grafo Railway não tem aresta para o Postgres antigo. Não há TCP proxy nos dois bancos. Os serviços temporários `postgres-blue-restore` e `source-snapshot-migration` já não existem; Redis e os dois buckets continuam preservados. Nenhuma mudança Railway staged foi observada na última inspeção.
+- Worker: `BACKGROUND_BACKFILL_MODE=off`, concorrência 1, refresh de catálogo de hora em hora, `SAPL_FULL_PAGES_PER_CYCLE=4`, `SAPL_SYNC_CONCURRENCY=1`; logs recentes ainda mostram heartbeat. Catálogo integrado continua atualizando. Esse limite é por ciclo e não é uma quota diária persistente de bytes.
+- `/api/stats` em produção: 1.927.327 itens indexados, 14.108 materializados, 51.360 artigos, 376 alterações, 620 fontes configuradas e 612 enumeradas. `/api/search?q=LGDP` apresentou a sugestão para LGPD.
+
+### Banco azul, crescimento e bytes
+
+- Consulta SQL de capacidade mais recente registrada: `pg_database_size=2.830.522.047 B`; `laws=2.338.455.552 B`; `legal_nodes=331.358.208 B`; `source_snapshots=107.683.840 B`. O heap/índices/TOAST exatos e as consultas read-only estão em `scripts/sql/postgres_capacity_inventory.sql` e `scripts/sql/postgres_snapshot_payload_inventory.sql`.
+- Railway, janela móvel de 24 h com 289 amostras, consultada às 14:20 UTC: volume azul atual 3,1950 GB, média 3,2580 GB, máximo 3,3343 GB de 5 GB (63,9% atual; máximo 66,7%). Essa é a telemetria de volume e não a diferença física isolada entre timestamps de tabela; não prova reclaim. A diferença banco/volume continua incluindo WAL e outros arquivos não discriminados.
+- A causa documentada da expansão anterior é enumeração de catálogo SAPL enquanto backfill de texto estava OFF: `laws` subiu 821.980 linhas em ~10,7 h com snapshots praticamente estáveis. O limite por ciclo foi reduzido para quatro páginas full mais oito probes incrementais observados. O limite reduz o bootstrap, mas não limita bytes totais/dia nem garante descoberta imediata de inserções retroativas.
+- Os snapshots ocupam ~107,7 MB como relação e os payloads brutos somam ~252,7 MB antes de compressão/deduplicação. `laws`, com ~2,34 GB, é o consumidor dominante. Na auditoria de 06/10, as 14.202 rows com pointer ainda tinham `raw_body`; o backup de hoje conta 14.203 snapshots. A cobertura da row nova não foi recontada. Nenhum payload foi nulificado e o reclaim físico atribuível a essa operação é **0 B**.
+
+### Banco antigo — decisão condicional não satisfeita
+
+- Serviço `Postgres`: id `94ed1c2a-cc3f-4a39-b458-ba7d04d15b43`; volume `postgres-volume`, id `ea3681d1-4c02-402d-a4e4-7e668fe93234`, 5.000 MB. Telemetria de 24 h: 4,996513792/5 GB constante. Às 13:49:55 UTC os logs registraram PANIC de checkpoint por `No space left on device`; SSH read-only falhou com `FATAL: the database system is in recovery mode`.
+- Manifests históricos usam o rótulo fixo `leiaberta-production`, sem host/serviço de origem ou checksums por registro; não incluem comparação de `law_changes`. As contagens do snapshot anterior são menores por data e não provam superconjunto nem ausência de dados exclusivos. **Não excluí serviço nem volume.** A autorização do proprietário é condicional e o gate de unicidade falhou; inacessibilidade não é prova de inexistência.
+
+### Migração de snapshots e integridade
+
+- O módulo `scripts.migrate_all_source_snapshots_to_object_storage` não existe; o comando antigo estava errado. O serviço temporário foi removido após inspeção de ausência de volume/dado único. O script real versionado em `main` é `scripts/migrate_source_snapshots_to_object_storage.py` e a implementação retomável foi aprovada em testes locais.
+- Prova operacional de produção preservada de 06/10: 14.200 linhas apontadas em 569 lotes; full audit por `read_verified()` em 14.201 chaves únicas, download/descompressão/SHA-256: 14.201 válidas, zero ausentes/órfãs/divergentes/erros; 64.972.169 B no bucket e 252.701.649 B brutos distintos verificados. Não chamar esse dado de auditoria executada hoje.
+- `raw_body` continua sendo cópia autoritativa no Postgres. Não há dual-read bucket-only validado nem política independente de recuperação/retention do bucket de snapshots; D1 falha. Não se executou `UPDATE ... NULL`, `VACUUM FULL`, `REINDEX` ou rebuild.
+
+### Backup automático e restore isolado
+
+- Cron real do dia 07/10 iniciou às `03:04:54.219Z` e terminou às `03:06:25.723Z`, com status Railway `succeeded`. Runner `bb483ded-08b5-4491-ba6e-8e288ed883f3`, SHA `a17ad2c`; config `0 3 * * *`, restart `NEVER`, fonte de DB confirmada como `postgres-blue`.
+- Dump `postgres/leiaberta-production/20261007T030453Z-aa430f1a.dump`: 336.126.530 B, SHA-256 `d2d156c7992c0ebba720616363ded58b5b10a18cdd12d7b162c2317ca0d55485`. Manifest `.dump.json`: 112.783 B, SHA-256 de bytes `e2f8ca5bc1379880660b61fd0ed58fd9abb66eb022b32bccacda560325718dea`. Dump e manifesto lidos de volta; `uploaded_object_verified=true`, `restore_verified=true`, retenção removeu zero objetos. Restore isolado terminou em 26,406 s, Alembic `20261006_0011`; assinatura de schema/constraints/indexes e contagens coincidiram.
+- Contagens do restore: laws 1.927.298; legal_nodes 211.497; source_snapshots 14.203; law_versions 14.136; history_events 4.049; hydration_jobs 30.668; job_outbox 30.654; source_registry 620. O runner atual ainda não comparou um hash/registro específico do Art. 389; a mudança local acrescenta essa checagem antes da próxima rodada. O restore é comprovado para schema e contagens, não para conteúdo do Art. 389 na execução de hoje.
+- Retenção: 30 dias; execução de hoje não apagou objeto. A política de backup SQL não cobre os corpos S3 de snapshots.
+
+### QA e hidratação sob demanda
+
+- Smoke HTTP coordenado em 07/10 retornou 200 para home, health/ready/worker-health, stats/sources/search LGPD/LGDP, fontes, cobertura, sobre, OpenAPI/sitemap, Código Civil, art. 389, diff, history, blame, provenance, law nodes e change detail. `/ready` confirmou DB/schema; `/worker-health` heartbeat e processing readiness. API do Art. 389 informa estado parcial/histórico parcial; UI preserva a ressalva Normas.leg.br não oficial.
+- Playwright da agente E: 10 rotas × 4 viewports (390/430/768/1440), 40 casos; sem overflow, erro JS/console, request falha ou 5xx. Fluxos Home→Diff→Why, artigo→Why, History→diff do art.389, busca typo, teclado/skip link e copiar deep links passaram. Seis capturas reais de 07/10 estão em `docs/final-ops/evidence/`.
+- Uma consulta de lei fria, `manaus-sapl-2198`, criou o job real `b5104e15-f6ec-41c7-a16b-f295dcf8bfad`. Worker iniciou fetch com backfill OFF e recebeu timeout da fonte SAPL às 14:13:47Z; job entrou em `retry_wait`, attempts=1. Acompanhamento até 14:19:31Z ainda o encontrou aguardando. Encontrado bug no gate do worker: retry sem marcador era classificado como ambíguo. A correção local dá marcador durável para jobs interativos, conserva o backoff e mantém backfill marcado pausado. Ainda precisa deploy e revalidação do job até terminal; outage de fonte não deve ser descrita como ausência de norma.
+- E encontrou concatenação visual `advogado.Produção de efeitos`; ajuste de separação apenas na camada de apresentação e teste foram adicionados localmente. O payload jurídico, fonte, parser e dado persistido não mudam. Essa correção e a do retry aguardam testes integrados/CI/deploy.
+
+### GitHub, custo e lançamento
+
+- Repositório é público, MIT, com README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY, templates e CI. Release `v0.1.0` existe, publicada em 05/10; tag não contém o código de produção mais recente e não tem assets anexados. Main CI #113 em `a17ad2c` passou; 5 issues e 10 PRs Dependabot permaneceram abertos para contribuição/revisão.
+- About GitHub continua vazio (`description`, `homepage`, `topics`). A ferramenta conectada só lê esses metadados; `gh` local está com token inválido e o navegador mostra sessão deslogada. Nenhum valor foi salvo; detalhes para o mantenedor em `docs/launch/MANUAL_ACTIONS.md`.
+- Railway 24 h, 289 amostras, estimativa com tarifas públicas: web CPU/RAM média 0,0021 vCPU/0,1136 GB; worker 0,0053/0,1498; blue 0,0055/1,2301, disco 3,195–3,334 GB; antigo 0,3048/0,2836, disco 4,9965 GB; Redis 0,0026/0,0136, disco 0,1527 GB; backup 0,0062/0,2902, com máximos de processamento 0,778 vCPU/2,534 GB RAM. Estimativa de recursos ~US$29,59/mês + buckets ~US$0,04 e egress não incluído; sem antigo ~US$19,91 + buckets/egress. Fatura inacessível. US$15 aspiracionais ficam ~US$4,95 abaixo do cenário sem o banco antigo.
+- Arquivo de lançamento em `docs/launch/POSTS.md` e [MEDIA](../launch/MEDIA.md); textos não publicados. Há vídeo real 20,52 s, WebM VP8, 1440×900, 1.147.043 B e capturas atualizadas com alt text.
+
+### Alterações ainda não implantadas e decisão atual
+
+O branch local `codex/final-launch-20261007` parte do `main` atual e inclui: QA/capturas da agente E, separador visual; marcação durável dos jobs interativos e retry seguro; verificação de conteúdo do Código Civil/Art. 389 e contagens de `law_changes`/`senate_proceedings` no runner de backup; posts e mídia atualizados. Testes focados de worker/jobs passaram (24) e backup runner passou (9). Ainda falta suíte integral, E2E integral, CI na branch, merge/deploy Railway e repetição do backup com validação jurídica específica.
+
+**Decisão no fechamento desta captura: NO-GO para divulgação pública.** Bloqueadores concretos: o fix do worker e o teste final de hidratação ainda não chegaram a produção; o backup de hoje não validou especificamente o Art. 389 (a correção do runner espera CI/deploy/nova execução); About GitHub não foi salvo por falta de sessão autenticada; soak de 24 h depois das mudanças finais ainda não existe. Banco antigo segue intacto por falta de comparação de dados únicos. Nenhum post foi publicado.
+
+### Verificação do candidato antes do PR — 2026-10-07
+
+- Branch local `codex/final-launch-20261007`, base `a17ad2c`; candidato `4c36e7c` com documentação/evidências, correção de retry interativo, espaçamento de anotação jurídica só em display e checks de restore Art.389/`law_changes`.
+- `pytest -q`: 210 passed, 6 warnings upstream de deprecation. `npm run test:e2e`: 6 passed, incluindo 9 rotas × quatro viewports em servidor local, cópia de deep links e separator regression. `python -m compileall -q app scripts` e `git diff --check` passaram.
+- Estes são gates locais do candidato; os E2E locais não substituem o Playwright real de produção. Ainda não há CI GitHub no candidato, deploy, nova execução do backup ou repetição do job cold após fix.

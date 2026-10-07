@@ -1,39 +1,20 @@
-# Ações manuais pendentes
+# Ações manuais restantes
 
-Este arquivo substitui a fotografia desatualizada do início do incidente. O retrato medido em 06/10/2026 mostra `web`, `/ready` e o worker respondendo; confirme novamente após cada deploy.
+Atualizado em 2026-10-07 com revalidação de produção, backup diário e inspeção do repositório.
 
-## Antes de anunciar lançamento público
+## Antes da divulgação
 
-- Revalidar produção depois do deploy final: caveat do Why/Blame, rotas/APIs, sincronização incremental limitada e uma hidratação sob demanda concluída pelo worker real.
-- Conferir os resultados completos da auditoria SHA dos 14.201 objetos do bucket e do backup/restore com a nova verificação de schema.
-- Observar ao menos 30–60 minutos sob sync representativo, registrar crescimento do volume, e manter a janela de 24 horas antes de encerrar o fallback.
-- Definir e comprovar retenção, versionamento ou cópia recuperável dos snapshots no bucket antes de qualquer `raw_body = NULL`.
-- Verificar a fatura Railway real quando o mantenedor tiver acesso. A estimativa atual é aproximadamente US$ 40,20–40,70/mês com o banco antigo e US$ 32,90–33,40/mês depois de uma eventual aposentadoria; a meta aspiracional US$ 10–15/mês ainda não foi atingida.
+1. **GitHub About:** o repositório está público, mas descrição, homepage e topics permanecem vazios. O navegador e o token local não estão autenticados; não consegui gravar esses metadados. Com uma sessão GitHub autenticada, abrir `https://github.com/DIDIDXX/LeiAberta` → About → Edit e salvar:
+   - Description: `Open-source platform for exploring Brazilian legislation, verified amendments and legal provenance.`
+   - Website: `https://web-production-12e95.up.railway.app`
+   - Topics: `brazil`, `legislation`, `civic-tech`, `open-data`, `legaltech`, `data-engineering`, `fastapi`, `postgresql`, `open-source`.
+2. Revisar os textos em [POSTS.md](POSTS.md) e as mídias em [MEDIA.md](MEDIA.md). O proprietário publica no LinkedIn e no X; nenhum post foi publicado.
+3. Não excluir o serviço `Postgres` antigo agora. A tentativa read-only encontrou o serviço em recovery e os manifests antigos não identificam o banco de origem nem incluem chaves/checksums suficientes para provar que seus dados exclusivos estejam preservados. O serviço e o volume seguem intactos.
 
-## Aprovação explícita necessária
+## Evidência atual importante
 
-O Postgres antigo continua conectado ao volume de 5 GB, quase cheio em 4,9965 GB, e seus logs registram `No space left on device`. Ele está preservado para inspeção, mas não é um fallback confiável no estado atual.
-
-Após os gates de backup, restore, estabilidade e observação, o proprietário deve decidir se autoriza excluir o serviço **Postgres** antigo e seu volume `postgres-volume` no Railway. A autorização para esta execução não inclui essa exclusão; nenhum serviço ou volume antigo foi apagado. Se aprovado, revise as mudanças pendentes do Railway e confirme que removem apenas o serviço/volume antigos esperados. Não inclua outros recursos na mesma aplicação.
-
-## Limites desta etapa
-
-- Não comprar domínio, migrar para VPS, fazer upgrade pago nem publicar posts em redes sociais.
-- A comparação arquivada do Art. 389 continua baseada em transcrição do Normas.leg.br classificada como não oficial. Os trechos exatos anterior e posterior ainda não foram comprovados em documentos primários armazenados.
-- A integração GitHub havia recusado com 403 a edição de descrição/homepage/topics. Se ainda desejar esses metadados, o mantenedor pode atualizá-los nas configurações do repositório; isso não bloqueia o funcionamento da aplicação.
-
-## Decisões e validações ainda necessárias — 2026-10-06
-
-- Aguardar confirmação do deployment `postgres-backup` construído do `Dockerfile.backup` na branch `main`, start wrapper como usuário `postgres` e próxima execução real do cron `03:00 UTC`. Backup manual atual passou readback e restore isolado; isso ainda não prova o cron.
-- Observar Postgres azul e sync com limite SAPL 4 páginas/ciclo por 24 h; verificar crescimento, retries e hidratação interativa. O limite não mede bytes diários e fonte indisponível não significa inexistência de alteração.
-- Definir e provar retenção/versionamento e amostragem de restore dos objetos do bucket antes de remover payloads relacionais. Nenhum `raw_body` foi removido; reclaim físico = 0.
-- Aprovar ou recusar explicitamente o descarte do Postgres antigo (4.9965/5 GB). Está preservado; não interpretar o pedido atual como autorização para sua exclusão.
-- Revisar resultado cold hydration `sp-alesp-212364` (worker real; estado parcial, zero artigos estruturados) e confirmar textos primários before/after da alteração do art. 389. A transcrição Normas.leg.br permanece rotulada não oficial.
-- A fatura Railway real não foi acessada; estimativa permanece ~US$40.2–40.7/mês com banco antigo, ~US$32.9–33.4 após aposentadoria aprovada. Meta aspiracional US$10–15 não comprovada.
-
-### Atualização após o deploy de 2026-10-06 20:25 UTC
-
-- Wrapper do backup foi incluído na imagem e deployou no SHA `f6084abcea82bebe0ade4699c1ce9460947cc571`; o próximo cron às 03:00 UTC ainda precisa concluir e produzir manifesto/SHA/readback.
-- A janela de 30 min pós-sync passou, mas continuar a observação por 24 h antes de qualquer aposentadoria do rollback.
-- Remoção de `postgres-blue-restore` e `source-snapshot-migration` já concluída; volumes/buckets persistentes foram preservados.
-- Decidir explicitamente sobre o Postgres antigo após os gates; permanece intacto e 99.93% cheio.
+- Release pública `v0.1.0`: https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0.
+- Cinco issues abertas e dez PRs de Dependabot foram preservados para colaboração e revisão individual; nenhum foi fechado/mesclado em massa.
+- O site não apresenta cobertura nacional completa. A comparação arquivada do art. 389 continua com a ressalva explícita de que a transcrição do Normas.leg.br é classificada como valor jurídico não oficial.
+- O backup diário de 2026-10-07 terminou com dump e manifesto lidos de volta, SHA-256 válidos e restore isolado `restore_verified=true`. A validação de conteúdo do Art. 389 será incluída na rodada pós-deploy da correção do runner.
+- As faturas Railway não estão disponíveis pelas ferramentas conectadas; os custos registrados são estimativas calculadas com métricas de 24 h e tarifas públicas.
