@@ -189,6 +189,18 @@ def test_backfill_policy_pauses_legacy_jobs_and_hot_mode_only_allows_hot_laws(db
     assert promoted.message == jobs.INTERACTIVE_JOB_MARKER + "Aguardando worker"
     assert jobs.should_process_job(promoted.id, mode="off") is True
 
+    retryable_law = Law(slug="retryable-law", title="Retryable", hot=False,
+                        coverage={"text_source_status": "retryable", "text_source_error": "timeout",
+                                  "text_source_retry_after": "2099-01-01T00:00:00+00:00"}, **common)
+    db_session.add(retryable_law)
+    db_session.commit()
+    retry_job = jobs.queue_job("retryable-law", "hydrate", priority=True)
+    refreshed_law = db_session.get(Law, "retryable-law")
+    assert retry_job.status == "queued"
+    assert refreshed_law.coverage["text_source_status"] == "queued"
+    assert "text_source_retry_after" not in refreshed_law.coverage
+    assert "text_source_error" not in refreshed_law.coverage
+
 
 def test_terminal_jobs_ack_stale_stream_entries_but_ambiguous_queued_jobs_stay_pending(db_session, monkeypatch):
     from sqlalchemy.orm import sessionmaker
