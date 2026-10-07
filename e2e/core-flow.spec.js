@@ -121,6 +121,42 @@ test("renders a separator before an appended legal-effects annotation", async ({
   await expect(page.locator(".why-current")).not.toContainText("honorários de advogado.Produção");
 });
 
+test("reports a terminal source timeout without showing false progress or re-polling", async ({ page }) => {
+  let detailGets = 0;
+  await page.route("**/lei/manaus-sapl-2198", async route => {
+    const rootURL = new URL("/", route.request().url()).href;
+    await route.fulfill({ response: await route.fetch({ url: rootURL }) });
+  });
+  await page.route("**/api/laws/manaus-sapl-2198", async route => {
+    detailGets += 1;
+    await route.fulfill({ json: {
+      law: {
+        slug: "manaus-sapl-2198", jurisdiction: "municipality", law_type: "Lei",
+        number: "2.198", year: 2012, title: "Lei nº 2.198, de 2012",
+        description: "Norma registrada no catálogo legislativo de Manaus.",
+        status: "Não verificado", source_name: "Câmara Municipal de Manaus — SAPL",
+        source_url: "https://sapl.manaus.am.leg.br/norma/2198", article_count: 0,
+        materialization_status: "catalog",
+        coverage: { text_source_status: "retryable" },
+      },
+      version: null,
+      job: { id: "failed-hydration", status: "failed", stage: 0,
+        message: "A fonte oficial não respondeu após as tentativas. Nenhum texto estruturado foi obtido; consulte a fonte ou tente novamente mais tarde." },
+      materializable: true,
+    } });
+  });
+
+  await page.goto("/lei/manaus-sapl-2198");
+  await expect(page.getByRole("alert")).toContainText("Nenhum texto estruturado foi obtido");
+  await expect(page.getByText("Estamos preparando esta norma")).toHaveCount(0);
+  await expect(page.getByText("Fonte sem resposta")).toBeVisible();
+  await expect(page.getByText("Não obtido", { exact: true })).toBeVisible();
+  await expect(page.getByText("O texto estruturado não foi obtido.")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Fonte oficial/ }).first()).toHaveAttribute("href", /sapl\.manaus\.am\.leg\.br/);
+  await expect(page.getByRole("button", { name: "Tentar novamente" })).toBeVisible();
+  expect(detailGets).toBe(1);
+});
+
 test("route and viewport smoke matrix: 9 routes across 390, 430, 768 and 1440 px", async ({ page }) => {
   test.setTimeout(120_000);
   const routes = [
