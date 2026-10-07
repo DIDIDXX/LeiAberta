@@ -103,3 +103,27 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [x] `npm run test:e2e`: 6 passed; executado no servidor local para regressões, além do Playwright real de produção já documentado.
 - [x] `compileall` e `git diff --check`.
 - [ ] CI do PR, deploy e produção ainda pendentes; testes locais não substituem esses gates.
+
+## Fechamento coordenador — 2026-10-07 15:09 UTC
+
+- [x] PR #94 integrou o candidato anterior no `main` `c6e74a3c47fa7b5edb4a596ecf10c59a27860370`; deploys web/worker online SUCCESS nesse SHA.
+- [x] Backup runner do SHA `c6e74a3` teve execução iniciada pelo agendador com cadência temporária; objeto + manifesto lidos de volta, SHA-256 válido, restore isolado passou (`restore_verified=True`), nenhuma remoção por retenção.
+- [x] Cron diário retornou para `0 3 * * *` UTC e deployment `be50e6a7-320f-4d02-8777-35383a16b17b` SUCCESS; execução do próximo horário diário normal continua pendente.
+- [x] Regressão de produção da lei fria identificada: após timeout da fonte e job terminal failed, GET re-enfileirava durante cooldown de 6 h e mostrava falso “aguardando”. Correção local agora retorna erro honesto e evita repetição em GET; cobertura do cooldown expirado também testada.
+- [x] Novos screenshots reais Diff/Blame desktop e texto Art. 389 mobile, pós-deploy c6, revisados e incluídos em `MEDIA.md` com alt text; nenhum post enviado.
+- [x] Testes locais candidatos: pytest 212 passed/6 warnings; Playwright E2E 7 passed (inclui UI de timeout com API local roteada); compileall e diff check passaram.
+- [ ] CI, PR, deploy e smoke browser de produção do novo fix ainda pendentes.
+- [ ] Soak de 30–60 min após o próximo deploy final; 24 h ainda pendentes para qualquer descarte de rollback.
+- [ ] Sobrepor a prova atual de cron com a próxima execução diária normal, agora com `0 3 * * *` restaurado.
+- [ ] Atualizar About GitHub após recuperar sessão autenticada; não conseguimos gravar Description/homepage/topics.
+- [ ] Definir retenção e restauração independente dos objetos S3 antes de qualquer remoção de `raw_body`.
+- [x] Manter `raw_body` e o Postgres antigo intactos: reclaim físico de `raw_body` = 0 B; dados exclusivos do antigo continuam inconclusivos. Não excluir banco/volume.
+- [x] Decisão atual **NO-GO** até ao menos o fix de hidratação em produção, soak, próximo cron diário e About serem verificados; preço estimado segue ~$29.99/mês com antigo e ~$20.18/mês sem antigo (+ egress), sem invoice real.
+
+## Reinspeção final de integração — 2026-10-07 15:20 UTC
+
+- [x] Railway services/volumes/buckets recontados: seis serviços live, três volumes de 5 GB, dois buckets e nenhuma mudança staged; web/worker/backup usam postgres-blue.
+- [x] Sample pós-c6 em postgres-blue 61 pontos: 3.19500288–3.195150336 GB/5 GB (~63,9%); RAM média/pico 2.61/2.83 GB. Janela limitada sem ciclo horário de catálogo comprovado; não declarar soak representativo.
+- [x] Nova job Manaus real falhou com timeout de SAPL sob código c6; GET da página ainda pode re-enfileirar dentro do cooldown. Fix local + regressão testados, mas não no Railway.
+- [ ] PR/CI/deploy do fix não completados: GitHub API write respondeu erro interno; Git push sem sessão autenticada falhou, Browser GitHub deslogado e Mac bloqueado.
+- [ ] GO permanece bloqueado; branch local contém o patch; serviço em produção ainda está no SHA c6.
