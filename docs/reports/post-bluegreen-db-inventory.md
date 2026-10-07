@@ -74,3 +74,11 @@ Depois do deployment funcional `f6084abcea82bebe0ade4699c1ce9460947cc571`, amost
 - Custos por média de 24 h (~15:00Z), usando tarifa publicada: total ~US$29.99/mês + egress com Postgres antigo; ~US$20.18/mês + egress caso antigo seja aposentado após gates. Buckets ~US$0.04/mês. Sem acesso à invoice; não é valor faturado.
 - `laws` continua o consumidor dominante (~2.338 GB SQL); `source_snapshots` ~107.7 MB e `raw_body` não foi removido. Reclaim físico de payload: **0 B**. A política de armazenamento externo recuperável ainda é pendente; não se fez cleanup jurídico nem rebuild.
 - Decisão de descarte continua NÃO: gate de dados exclusivos falha. Nenhum segredo, string de conexão ou conteúdo bruto entrou no relatório.
+
+
+## Snapshot posterior ao deploy final — 2026-10-07 18:06 UTC
+
+- Railway: web, worker e postgres-backup usam `DATABASE_URL` apontando para o host interno `postgres-blue.railway.internal`; Postgres antigo tem zero TCP proxies. A leitura ocorreu pelo Railway CLI e somente os nomes de host foram apresentados, sem imprimir URLs ou credenciais.
+- Postgres-blue online: 3.178 GB usados de 5 GB (63.6%) na amostra atual; máximo de 1 h 3.195 GB (63.9%). Sem escrita SQL manual ou reclaim físico novo nesta rodada.
+- `laws` permanece o consumidor dominante medido anteriormente; snapshots S3 verificados não implicam `raw_body=NULL`, portanto bytes físicos removidos continuam 0 B. Nada jurídico foi apagado.
+- Postgres antigo `Postgres`/`postgres-volume`: 4.996513792/5 GB durante toda a amostra de 1 h; CPU média 0.402 vCPU, RAM média 0.421 GB. Não foi excluído: serviço em recuperação no diagnóstico anterior e a diferença de dados exclusivos permanece inconclusiva. Sua retirada exige comparação recuperável e autorização/decisão do proprietário.
