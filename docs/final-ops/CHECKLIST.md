@@ -127,3 +127,20 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [x] Nova job Manaus real falhou com timeout de SAPL sob código c6; GET da página ainda pode re-enfileirar dentro do cooldown. Fix local + regressão testados, mas não no Railway.
 - [ ] PR/CI/deploy do fix não completados: GitHub API write respondeu erro interno; Git push sem sessão autenticada falhou, Browser GitHub deslogado e Mac bloqueado.
 - [ ] GO permanece bloqueado; branch local contém o patch; serviço em produção ainda está no SHA c6.
+
+
+## Fechamento final — 2026-10-07 18:06 UTC
+
+Os itens desta seção substituem o retrato de integração anterior; as entradas antigas permanecem como histórico.
+
+- [x] PR #95, CI Python/E2E/image #116 e deployments Railway de web/worker/backup no SHA `73a2216b47d1e077777902f45197c8f2b5feccb8` concluídos.
+- [x] Testes: pytest 212/212; Playwright E2E 7/7; compileall e diff check passaram.
+- [x] Browser gráfico real em produção: fluxo Art. 389 e busca por typo, fonte externa, deep link copiado/aberto, páginas públicas, resultado vazio e falha honesta da lei fria; inspeção visual em 390/430/768/1440 px e teclado/foco.
+- [x] Lei fria: SAPL timeout reportado sem texto falso; a UI oferece retry explícito; três reloads e duas leituras mantiveram o mesmo job failed, sem gerar retry por GET.
+- [x] Smoke 22/22; soak 36 requests/3 min sem não-200/5xx; Railway 5xx 0% na janela de 1 h; worker heartbeat/concurrency 1/backfill off; Postgres-blue 3.178/5 GB.
+- [x] Backup diário verificado com objeto, tamanho, SHA, manifesto e restore; execução equivalente do runner atualizado também verificada.
+- [x] Postgres antigo preservado porque sua unicidade não foi provada; não é bloqueio técnico de produto.
+- [ ] GitHub About: Description, Website e Topics ainda não salvos; página pública foi inspecionada visualmente e está vazia. Requer sessão autenticada do proprietário.
+- [x] Release v0.1.0 e pacote de posts/mídia acessíveis; nenhum post publicado.
+
+**Status:** NO-GO estrito por uma única pendência de apresentação autenticada do GitHub About. O produto e a produção passaram os gates técnicos desta execução.
