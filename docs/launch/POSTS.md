@@ -18,11 +18,11 @@ Quero que mais pessoas testem, apontem problemas e contribuam com adaptadores de
 - Código e documentação: https://github.com/DIDIDXX/LeiAberta
 - Release: https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0
 
-## X — post único
+## X — post único (267 caracteres com URLs contadas como 23 caracteres)
 
-Como provar que um artigo de lei mudou — e por qual ato?
+Como um artigo de lei mudou — e qual ato prova isso?
 
-O LeiAberta conecta texto, histórico e proveniência quando há evidência suficiente. A demo do art. 389 do Código Civil mostra também quando a transcrição histórica é não oficial. Cobertura parcial, sem histórico inventado.
+LeiAberta liga texto, histórico e fontes; no art. 389, identifica a transcrição histórica como não oficial. Cobertura parcial, sem inventar histórico.
 
 Demo: https://web-production-12e95.up.railway.app
 Código: https://github.com/DIDIDXX/LeiAberta
