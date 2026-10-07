@@ -127,3 +127,18 @@ Hidratação de norma fria/job de usuário continua sem teste de produção: qua
 - Correção local separa a anotação visual `Produção de efeitos`; não modifica texto, parser, API ou fonte. E2E focal da agente: 3 passed. Também é preciso integrar/deploy e verificar essa tela de produção.
 - Hidratação fria real `manaus-sapl-2198`, job `b5104e15-f6ec-41c7-a16b-f295dcf8bfad`: worker iniciou o fetch com backfill OFF e a fonte oficial time-out às 14:13:47Z; status permaneceu `retry_wait` na última amostra 14:19:31Z. Coordenador identificou gate do retry interativo e preparou patch local. A resposta final permanece pendente de deploy/retry até status terminal.
 - Site público e release `v0.1.0` estão ativos, mas About GitHub ainda não tem metadados; a sessão GitHub disponível está deslogada e a credencial local `gh` inválida. Posts não foram publicados.
+
+## Revalidação do coordenador — 2026-10-07 15:09 UTC
+
+- Produção agora está no SHA `c6e74a3c47fa7b5edb4a596ecf10c59a27860370`; o browser passou pelo art. 389, Why/Blame/Diff e caveat Normas.leg.br não oficial. As capturas visuais publicáveis foram regeneradas pós-deploy e adicionadas à pasta `docs/launch/assets/` (Diff desktop, Blame desktop, artigo mobile), com alt text em `docs/launch/MEDIA.md`.
+- O teste controlado da lei fria `manaus-sapl-2198` chegou ao worker e falhou honestamente após cinco tentativas por timeout SAPL, sem texto ou artigos estruturados. O código revalida o job real como `failed`, mas a interface escondia o estado: GET seguinte criava outro job durante cooldown de seis horas. Isso foi corrigido localmente em `app/main.py`/`static/app.js`; o patch só será considerado validado quando o PR chegar à produção, a interface mostrar falha da fonte e o GET subsequente não criar job. O botão de retry explícito continua possível.
+- Regressões locais desse patch: pytest total 212 passed, Playwright 7 passed, incluindo renderização de timeout terminal com API local roteada, compileall e diff check passaram. Nenhum desses testes locais substitui o smoke visual na produção após deploy.
+- Registros, contagens jurídicas ou evidências não foram alterados para maquiar o timeout; a fonte Manaus permanece linkada para consulta e o status tem de dizer que nenhum texto estruturado foi obtido.
+- **Handoff atual:** code patch e screenshots aguardam PR/deploy; About GitHub ainda depende de sessão autenticada. GO continua bloqueado até o novo comportamento ser verificado visualmente e houver janela de soak pós-deploy. Não há post publicado.
+
+## Integração final — 2026-10-07 15:20 UTC
+
+- O patch está no branch de trabalho local `codex/launch-hydration-cooldown-20261007`; E2E de regressão adicional cobre a tela local (falha terminal visível, sem falso progresso e sem polling repetido). Python 212/212 e E2E 7/7 passaram antes do commit local.
+- A atualização não chegou a produção: serviço live permanece no commit `c6e74a3`. GitHub app write deu erro interno em blob/file; HTTPS push não autenticado e SSH sem public key. Não foi aberto PR nem disparado CI. Sessão web mostrou “Sign in”; Mac bloqueado.
+- Job real de Manaus em produção falhou após timeout externo e foi novamente enfileirado sob código anterior, confirmação do bug de apresentação/retry que a regressão cobre localmente. É necessária integração autenticada para revisar/deployar e então repetir o browser QA na lei fria sem criar novas tentativas por GET.
+- Decisão permanece NO-GO. Nenhum artigo, fonte ou evidência jurídica foi modificado; nenhum post publicado.
