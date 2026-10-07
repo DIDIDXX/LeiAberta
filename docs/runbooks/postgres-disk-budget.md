@@ -71,3 +71,11 @@ O coordenador ajustou `SAPL_FULL_PAGES_PER_CYCLE=4` (deploy `d0f1361b-eda1-41b6-
 ## Soak pós-deploy final — 2026-10-06 20:25 UTC
 
 Com worker pronto às 19:54:51 UTC, observado até 20:25:36 (>30 min): Postgres azul permaneceu em 3.270852608 GB nos pontos finais; amostra de 1 h: min/current 3.270852608, max 3.303645184 GB, todas <70%. Sync limitado reportou 4 páginas, 8 probes, zero erros; full scan fez `added=0`. Medição de 24 h segue obrigatória, assim como quota diária persistente; alerta/pausa 70/80/85 permanece operacional manual.
+
+## Captura atual — 2026-10-07
+
+- Railway metrics 24 h/289 amostras: `postgres-blue` 3,1950 GB atual; 3,2580 GB média; 3,3343 GB pico de 5 GB (63,9% atual; 66,7% pico). Valor da janela não substitui amostragem 15/30/60 min de uma mudança final.
+- Último SQL disponível: DB 2.830.522.047 B; `laws` 2.338.455.552 B, `legal_nodes` 331.358.208 B, `source_snapshots` 107.683.840 B. Os dados apontam o catálogo relacional como consumidor dominante; sem nova lista do filesystem, o restante de volume não é atribuído a tabela/WAL/tmp.
+- Sync SAPL em production tem `BACKGROUND_BACKFILL_MODE=off`, concurrency 1 e limite de quatro full pages por ciclo; probes incrementais seguem ligados. Não há limite persistente de bytes/novas linhas por dia. Reaja a 70% com alerta, 80% pausando bootstrap opcional, 85% suspendendo escrita não essencial.
+- Banco antigo está em recovery com 4,9965/5 GB; não é fallback saudável e permanece preservado porque manifests acessíveis não excluem registros jurídicos exclusivos.
+- Não rodar VACUUM FULL/rebuild nem nular `raw_body` como resposta a essa captura. Registrar bytes e locks antes de toda ação física.

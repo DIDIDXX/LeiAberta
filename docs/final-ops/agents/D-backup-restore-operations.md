@@ -48,3 +48,12 @@ Config do backup aponta para branch `main`, Dockerfile `Dockerfile.backup`, cron
 ## Atualização final — 2026-10-06 20:25 UTC
 
 PR #92 deployou `postgres-backup` em `f6084abcea82bebe0ade4699c1ce9460947cc571` (`4e4e9f6b-63e5-4453-86e0-500e8235bf24`) com `Dockerfile.backup`; o build log prova `COPY scripts/run_backup_as_postgres.sh` e `chmod 0755`. Config live start `sh /app/run_backup_as_postgres.sh`, cron `0 3 * * *`, restart NEVER. Não há `postgres_backup_finished` novo nesse deployment até 20:25; cron ainda não chegou. O backup manual 18:32Z listado nesta handoff continua com SHA/readback/restore válidos; cron automático precisa do próximo ciclo para passar. Nenhum serviço restore/migrator permanece ativo.
+
+## Rechecagem do coordenador — 2026-10-07
+
+- `postgres-backup` ainda aponta para `postgres-blue`; cron real do dia iniciou 03:04:54.219Z e terminou 03:06:25.723Z em deployment `bb483ded-08b5-4491-ba6e-8e288ed883f3`, main `a17ad2c`.
+- Dump de 336.126.530 B e manifest de 112.783 B foram lidos de volta e seus SHA-256 coincidiram; runner retornou `uploaded_object_verified=true`, `restore_verified=true`, zero objetos expirados. Restore isolado durou 26,406 s; Alembic `20261006_0011`, schema signature e counts principais coincidiram. Buckets/volumes foram preservados.
+- Restore row counts: laws 1.927.298; legal_nodes 211.497; source_snapshots 14.203; law_versions 14.136; history_events 4.049; hydration_jobs 30.668; job_outbox 30.654; source_registry 620. Essa versão não comparou diretamente o registro Art. 389 nem count/hash de `law_changes`.
+- Coordenador adicionou localmente `law_changes`, `senate_proceedings` e checks de existência/MD5 para Civil Code 10.406/2002 art.389 e change conhecido. Testes unitários 9/9 passaram; runner ainda não foi implantado nem executado com os checks novos.
+- Retention configurada 30 dias; rodada atual removeu zero. RPO nominal é um intervalo de cron diário (potencialmente ~24 h; não garantido se falhar). 26,406 s é duração de pg_restore observada, não RTO fim a fim.
+- Postgres antigo foi mantido: serviço em recovery/sem espaço, manifest não identifica origem nem prova unicidade. Nenhum volume antigo ou backup foi excluído.

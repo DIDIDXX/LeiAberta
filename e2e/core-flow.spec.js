@@ -94,6 +94,33 @@ test("federal article, history, recorded before/after, official source and prove
   await expect(page.getByRole("link", { name: /Versão da comparação no Normas\.leg\.br/ })).toHaveAttribute("href", /normas\.leg\.br/);
 });
 
+test("renders a separator before an appended legal-effects annotation", async ({ page }) => {
+  // Alter only the local fixture response to check presentation; no database or production data is changed.
+  await page.route("**/api/laws/10406-2002/nodes", async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    const article = payload.items.find(item => item.id === "art:389");
+    article.text += "Produção de efeitos";
+    await route.fulfill({ response, json: payload });
+  });
+  await page.route("**/api/laws/10406-2002/nodes/**/provenance", async route => {
+    const response = await route.fetch();
+    const payload = await response.json();
+    payload.current_text += "Produção de efeitos";
+    payload.node.text += "Produção de efeitos";
+    await route.fulfill({ response, json: payload });
+  });
+
+  await page.goto("/lei/10406-2002/artigo/389");
+  const articleText = page.locator("#article-389 .article-lead");
+  await expect(articleText).toContainText("honorários de advogado. Produção de efeitos");
+  await expect(articleText).not.toContainText("honorários de advogado.Produção");
+
+  await page.goto("/lei/10406-2002/blame?node=art%3A389");
+  await expect(page.locator(".why-current")).toContainText("honorários de advogado. Produção de efeitos");
+  await expect(page.locator(".why-current")).not.toContainText("honorários de advogado.Produção");
+});
+
 test("route and viewport smoke matrix: 9 routes across 390, 430, 768 and 1440 px", async ({ page }) => {
   test.setTimeout(120_000);
   const routes = [

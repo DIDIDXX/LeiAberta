@@ -62,3 +62,10 @@ PR #91 corrigiu starvation de 13 fontes SAPL enumeradas sem watermark: o probe a
 ## Fechamento pós-deploy — 2026-10-06 20:25 UTC
 
 Worker final no SHA funcional `f6084abcea82bebe0ade4699c1ce9460947cc571`, deployment `fe448b29-bab9-4cbe-a4bb-2fedcc068394`. Primeiro ciclo: 8 probes, `full_pages=4`, erros=0, 1 scan incompleto; full scan sem novas linhas, probes reportaram normas novas. `BACKGROUND_BACKFILL_MODE=off`, concurrency 1; fila pendente=0. Soak >30 min após readiness e disk estável. Não há limite diário persistente de bytes/novos registros; 24h de observação segue bloqueando GO.
+
+## Rechecagem do coordenador — 2026-10-07
+
+- Código de probes incrementais e full scan limitado está no SHA funcional de production `a17ad2c` (deploy worker `5b543cd8-6589-44ee-808a-e0dc2427259a`). Environment: `BACKGROUND_BACKFILL_MODE=off`, concurrency 1, `SAPL_FULL_PAGES_PER_CYCLE=4`, sync concurrency 1, refresh check 3600 s. Logs recentes continuam heartbeat; um ciclo observado anteriormente usou 8 probes e até 4 páginas. Discovery não foi desligada.
+- A amostra Railway de 24 h mostrou worker CPU 0,0053 média/0,1328 pico e RAM 0,1498/0,2951 GB. Não atribuir RAM de sync pesada à média ou declarar limite abaixo de 100 MB para qualquer carga.
+- Catálogo cresceu no período histórico mesmo com texto OFF porque enumeração SAPL escreve novos `laws`/checkpoints. Limite continua em páginas/ciclo, não bytes/novos registros diários.
+- Teste frio de Manaus iniciou, sofreu timeout da fonte às 14:13:47Z e ficou em `retry_wait`, attempts=1. O código atual não preserva claramente a classe interativa no retry; coordenador adicionou patch local com marcador persistente, preservando backoff e jobs de backfill marcados em pausa. Patch aguarda CI/deploy e retomada do job.

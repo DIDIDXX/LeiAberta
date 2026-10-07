@@ -13,7 +13,10 @@ def test_db_metadata_includes_relation_sizes_and_job_outbox_counts(monkeypatch):
         "server_version": "18.0",
         "server_version_num": "180000",
         "database_size_bytes": 123456,
-        "row_counts": {"source_snapshots": 12, "hydration_jobs": 9, "job_outbox": 8},
+        "row_counts": {"source_snapshots": 12, "hydration_jobs": 9, "job_outbox": 8,
+                       "law_changes": 4, "senate_proceedings": 2},
+        "legal_content_checks": {"civil_code_exists": True, "art389_node_exists": True,
+                                 "art389_text_md5": "abc123", "art389_change_exists": True},
         "relation_sizes": [{
             "schema": "public", "table": "source_snapshots", "total_bytes": 5000,
             "heap_bytes": 4000, "index_bytes": 1000,
@@ -60,6 +63,8 @@ def test_db_metadata_includes_relation_sizes_and_job_outbox_counts(monkeypatch):
     assert "FROM pg_sequences WHERE schemaname = 'public'" in args[-1]
     assert "FROM pg_views WHERE schemaname = 'public'" in args[-1]
     assert "raw_body" not in args[-1]
+    assert "law_changes" in args[-1] and "senate_proceedings" in args[-1]
+    assert "art:389" in args[-1] and "art389_text_md5" in args[-1]
     assert "SELECT *" not in args[-1].upper()
     assert result["schema_signature"] == backup._schema_signature(metadata["schema_inventory"])
 
@@ -71,13 +76,16 @@ def test_schema_signature_is_stable_for_object_key_order():
 
 
 def test_restore_validation_requires_counts_revision_and_schema_match():
-    expected = {"row_counts": {"laws": 3}, "alembic_versions": ["head"], "schema_signature": "sig"}
+    expected = {"row_counts": {"laws": 3}, "alembic_versions": ["head"], "schema_signature": "sig",
+                "legal_content_checks": {"civil_code_exists": True, "art389_node_exists": True,
+                                         "art389_text_md5": "abc123", "art389_change_exists": True}}
     backup._validate_restore_metadata(expected, expected)
 
     for key, value, message in (
         ("row_counts", {"laws": 2}, "row counts differ"),
         ("alembic_versions", ["older"], "migration versions differ"),
         ("schema_signature", "different", "schema signature differs"),
+        ("legal_content_checks", {"civil_code_exists": True}, "critical legal record checks differ"),
     ):
         restored = {**expected, key: value}
         with pytest.raises(RuntimeError, match=message):
@@ -143,6 +151,8 @@ def test_backup_gates_destructive_retention_on_restore_verification(
     source = {
         "server_version": "18.0", "server_version_num": "180000", "database_size_bytes": 1,
         "row_counts": {"laws": 1}, "alembic_versions": ["head"], "schema_inventory": {},
+        "legal_content_checks": {"civil_code_exists": True, "art389_node_exists": True,
+                                 "art389_text_md5": "abc123", "art389_change_exists": True},
         "schema_signature": backup._schema_signature({}),
     }
 

@@ -27,6 +27,7 @@ ACTIVE_STATUSES = ["queued", "running"]
 MAX_INTERACTIVE_JOB_BATCH = 24
 BACKGROUND_BACKFILL_MODES = {"off", "hot", "continuous"}
 BACKGROUND_BACKFILL_MARKER = "[background-backfill] "
+INTERACTIVE_JOB_MARKER = "[interactive-job] "
 LEGACY_BACKFILL_MESSAGES = (
     "Aguardando captura do texto legislativo",
     "Aguardando captura integral da fonte oficial",
@@ -58,17 +59,24 @@ def _backfill_message(message: str | None) -> bool:
                              or message in LEGACY_BACKFILL_MESSAGES))
 
 
+def _tag_interactive_message(message: str) -> str:
+    return message if message.startswith(INTERACTIVE_JOB_MARKER) else INTERACTIVE_JOB_MARKER + message
+
+
 def _job_message(job: HydrationJob, message: str) -> str:
-    """Retain the durable bulk marker as progress text changes during retries."""
-    if _backfill_message(job.message):
+    """Retain durable work-class markers as progress text changes or retries."""
+    if _backfill_message(job.message) or job.message in LEGACY_BACKFILL_MESSAGES:
         return _tag_backfill_message(message)
+    if job.message.startswith(INTERACTIVE_JOB_MARKER):
+        return _tag_interactive_message(message)
     return message
 
 
 def public_job_message(job: HydrationJob) -> str:
-    """Hide the internal queue marker from API clients and the reader UI."""
-    if job.message.startswith(BACKGROUND_BACKFILL_MARKER):
-        return job.message[len(BACKGROUND_BACKFILL_MARKER):]
+    """Hide internal queue markers from API clients and the reader UI."""
+    for marker in (BACKGROUND_BACKFILL_MARKER, INTERACTIVE_JOB_MARKER):
+        if job.message.startswith(marker):
+            return job.message[len(marker):]
     return job.message
 
 
@@ -94,7 +102,7 @@ def should_process_job(job_id: str, *, mode: str | None = None) -> bool:
         # The process function's durable terminal guard returns False; ACKing
         # that stale stream delivery cannot erase retryable or queued work.
         return True
-    if message in INTERACTIVE_JOB_MESSAGES:
+    if message in INTERACTIVE_JOB_MESSAGES or message.startswith(INTERACTIVE_JOB_MARKER):
         return True
     if _backfill_message(message):
         return _backfill_mode_allows(policy, hot=bool(law_is_hot))
@@ -136,7 +144,7 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
         )
         if existing:
             if priority and existing.status == "queued" and existing.message != "Aguardando worker":
-                existing.message = "Aguardando worker"
+                existing.message = _tag_interactive_message("Aguardando worker")
                 session.commit()
                 session.refresh(existing)
             return existing
@@ -153,9 +161,11 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
                 ).order_by(HydrationJob.updated_at.desc()).limit(1))
                 if done:
                     return done
+        initial_message = "Aguardando worker" if priority else "Aguardando fila de processamento"
+        if priority:
+            initial_message = _tag_interactive_message(initial_message)
         job = HydrationJob(id=str(uuid.uuid4()), law_slug=law_slug, job_type=job_type,
-                           stage_name="queued",
-                           message="Aguardando worker" if priority else "Aguardando fila de processamento")
+                           stage_name="queued", message=initial_message)
         session.add(job)
         session.add(JobOutbox(job_id=job.id))
         if job_type == "hydrate" and not stored_law.current_version_id:
@@ -562,6 +572,7 @@ def queued_interactive_job_ids(*, limit: int = 4) -> list[str]:
                     and_(HydrationJob.job_type == "history", HydrationJob.message == "Aguardando worker"),
                     and_(HydrationJob.job_type == "provenance", HydrationJob.message == "Aguardando worker"),
                     and_(HydrationJob.job_type == "hydrate", HydrationJob.message == "Aguardando worker"),
+                    HydrationJob.message.like(f"{INTERACTIVE_JOB_MARKER}Aguardando worker"),
                 ),
             )
             .order_by(HydrationJob.created_at, HydrationJob.id)
@@ -635,7 +646,8 @@ def dispatch_outbox(limit: int = 100, *, mode: str | None = None) -> int:
     try:
         backfill = or_(HydrationJob.message.like(f"{BACKGROUND_BACKFILL_MARKER}%"),
                        HydrationJob.message.in_(LEGACY_BACKFILL_MESSAGES))
-        interactive = HydrationJob.message.in_(INTERACTIVE_JOB_MESSAGES)
+        interactive = or_(HydrationJob.message.in_(INTERACTIVE_JOB_MESSAGES),
+                          HydrationJob.message.like(f"{INTERACTIVE_JOB_MARKER}%"))
         terminal = HydrationJob.status.in_(["succeeded", "failed", "cancelled"])
         eligible = (HydrationJob.id.is_not(None) if policy == "continuous" else
                     or_(terminal, interactive, and_(backfill, Law.hot.is_(True))) if policy == "hot" else

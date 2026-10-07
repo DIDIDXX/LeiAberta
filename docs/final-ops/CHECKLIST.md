@@ -74,3 +74,32 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [ ] Observação por 24 h, limite diário persistente de ingestão, recuperação independente/retention dos objetos S3 e resultado estruturado da hidratação cold ainda pendentes.
 - [ ] Aprovação expressa do proprietário para descartar Postgres antigo continua pendente; banco intacto em 4.9965/5 GB.
 - **Decisão segue NO-GO para lançamento público.**
+
+## Fechamento de lançamento — 2026-10-07 (substitui o estado pendente anterior quando há prova direta)
+
+- [x] Reinspecionar serviços, deploy SHA, volume e staged changes; confirmar `web`, `worker` e backup em `postgres-blue`; nenhum segredo gravado no relatório.
+- [x] Backup iniciado pelo cron 03:00 UTC observado em 07/10; objeto de 336.126.530 B, SHA-256 válido; manifesto 112.783 B/SHA válido; restore isolado 26,406 s, schema/Alembic/contagens conferidos; retenção removeu zero.
+- [ ] Reexecutar backup após integrar a checagem do registro/hash do Art. 389 e `law_changes`; prova atual confirma counts/schema, não conteúdo jurídico específico restaurado.
+- [x] Banco azul abaixo de 70% na amostra Railway de 24 h: atual 3,1950/5 GB, máximo 3,3343 GB (66,7%). Isso não é uma série física SQL 15/30/60 minutos pós-fix.
+- [x] Encontrado consumidor dominante: `laws` ~2,338 GB (em query SQL de 07/10); snapshots relação ~107,7 MB. Backfill textual está OFF, mas SAPL/catalog escreve dados e checkpoints; full scan está limitado a quatro páginas/ciclo e probes incrementais continuam.
+- [x] Script de migração S3 atual em main é retomável e testado; auditoria de produção documentada em 06/10 verificou 14.201/14.201 objetos únicos. Essa auditoria não foi refeita em 07/10.
+- [x] Na auditoria anterior, `raw_body` permaneceu nas 14.202 rows com pointer; backup atual conta 14.203 snapshots e a row nova não foi recontada. Recuperação física por nulificação/rebuild = 0 B. Não remover: laws domina e D1 (dual-read, durabilidade/recovery independente) não foi provado.
+- [x] Old Postgres/volume preservados: 4,9965/5 GB, PANIC por disco e banco em recovery. Manifests não provam serviço de origem nem cobrem `law_changes`; gate de dados exclusivos falhou. Não apagar.
+- [x] QA Playwright real 40 rota/viewport combinations em 07/10; APIs e art.389 smoke passaram; caveat Normas.leg.br não oficial está visível no produto.
+- [ ] Deploy do fix de retry interativo; job de hidratação Manaus `b5104e15-f6ec-41c7-a16b-f295dcf8bfad` atingiu fetch e encontrou timeout oficial, ficou em retry_wait; observar até resultado terminal com retry mantido.
+- [ ] Deploy/revalidar ajuste visual `advogado. Produção de efeitos`; ajuste de apresentação local sem mudança de payload jurídico.
+- [x] `BACKGROUND_BACKFILL_MODE=off`, worker concurrency 1; heartbeat recente; SAPL discovery segue ativo.
+- [x] Estimativa Railway por média de 24 h: ~US$29,59/mês com antigo e ~$19,91/mês sem antigo, mais ~$0,04 buckets e egress; invoice não acessível. Sem antigo ainda ~$4,95 acima da meta US$15.
+- [x] Release `v0.1.0`, MIT, README e demais documentos OSS estão públicos; cinco issues e dez Dependabot PRs mantidos abertos.
+- [ ] GitHub About description/homepage/topics: ainda vazios; atualização exige sessão GitHub autenticada que não estava disponível nesta execução.
+- [x] Textos LinkedIn/X atualizados sem métricas dinâmicas não comprovadas; capturas recentes com alt text e vídeo real de 20,52s preparados; nenhum post publicado.
+- [ ] Depois de integrar, executar CI completo e revalidar o SHA exato de todos os deploys. Esperar 24 h para decisão de aposentadoria do banco antigo; remover somente se evidência de unicidade for resolvida.
+
+**Decisão de lançamento nesta revisão: NO-GO**, até correção/produção dos itens de job/backup e acesso GitHub para About. O Postgres antigo não será excluído enquanto sua recuperação/dados exclusivos forem inconclusivos.
+
+### Validação local do candidato (antes do PR)
+
+- [x] `pytest -q`: 210 passed, 6 warnings upstream.
+- [x] `npm run test:e2e`: 6 passed; executado no servidor local para regressões, além do Playwright real de produção já documentado.
+- [x] `compileall` e `git diff --check`.
+- [ ] CI do PR, deploy e produção ainda pendentes; testes locais não substituem esses gates.

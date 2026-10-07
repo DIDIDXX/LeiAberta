@@ -148,6 +148,8 @@ def test_backfill_policy_pauses_legacy_jobs_and_hot_mode_only_allows_hot_laws(db
         Law(slug="cold-law", title="Cold", hot=False, **common),
         Law(slug="interactive-law", title="Interactive", hot=False, **common),
         Law(slug="unknown-law", title="Unknown", hot=False, **common),
+        Law(slug="retried-interactive-law", title="Retried interactive", hot=False, **common),
+        Law(slug="retried-backfill-law", title="Retried backfill", hot=False, **common),
     ])
     db_session.flush()
     now = datetime.now(timezone.utc)
@@ -161,7 +163,13 @@ def test_backfill_policy_pauses_legacy_jobs_and_hot_mode_only_allows_hot_laws(db
         HydrationJob(id="interactive", law_slug="interactive-law", job_type="history", status="queued",
                      stage_name="queued", message="Aguardando worker", created_at=now, updated_at=now),
         HydrationJob(id="unknown-legacy", law_slug="unknown-law", job_type="hydrate", status="queued",
-                     stage_name="retry_wait", message="Falha antiga sem marcador", created_at=now, updated_at=now),
+                     stage_name="queued", message="Falha antiga sem marcador", created_at=now, updated_at=now),
+        HydrationJob(id="retried-interactive", law_slug="retried-interactive-law", job_type="hydrate", status="queued",
+                     stage_name="retry_wait", message=jobs.INTERACTIVE_JOB_MARKER + "Fonte temporariamente indisponível",
+                     created_at=now, updated_at=now),
+        HydrationJob(id="retried-backfill", law_slug="retried-backfill-law", job_type="hydrate", status="queued",
+                     stage_name="retry_wait", message=jobs.BACKGROUND_BACKFILL_MARKER + "Fonte temporariamente indisponível",
+                     created_at=now, updated_at=now),
     ])
     db_session.commit()
     monkeypatch.setattr(jobs, "SessionLocal", lambda: db_session)
@@ -172,10 +180,13 @@ def test_backfill_policy_pauses_legacy_jobs_and_hot_mode_only_allows_hot_laws(db
     assert jobs.should_process_job("cold-backfill", mode="continuous") is True
     assert jobs.should_process_job("interactive", mode="off") is True
     assert jobs.should_process_job("unknown-legacy", mode="off") is False
+    assert jobs.should_process_job("retried-interactive", mode="off") is True
+    assert jobs.should_process_job("retried-backfill", mode="off") is False
+    assert jobs.public_job_message(db_session.get(HydrationJob, "retried-interactive")) == "Fonte temporariamente indisponível"
     tagged = db_session.get(HydrationJob, "cold-backfill")
     assert jobs._job_message(tagged, "retrying").startswith(jobs.BACKGROUND_BACKFILL_MARKER)
     promoted = jobs.queue_job("unknown-law", "hydrate", priority=True)
-    assert promoted.message == "Aguardando worker"
+    assert promoted.message == jobs.INTERACTIVE_JOB_MARKER + "Aguardando worker"
     assert jobs.should_process_job(promoted.id, mode="off") is True
 
 

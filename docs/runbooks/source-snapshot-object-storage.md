@@ -88,3 +88,10 @@ The current outbox schema has no durable ACK field, so operator verification of 
 Final audit comprovado por readback: 14.201 objetos únicos para 14.202 linhas; 64.972.169 bytes armazenados, 252.701.649 bytes originais reconstituídos e SHA-256 conferido; zero missing/orphan/mismatch/erro. A execução registrou 14.200 updates em 569 lotes e não foi considerada concluída pelo status SUCCESS, mas por cursores/contagens e leitura de cada objeto.
 
 Os `raw_body` continuam presentes nas 14.202 linhas; reclaimed bytes = 0. Para D1 ainda é obrigatório validar dual-read quando DB payload é nulo e retenção/restore independente do bucket. Não rodar nulling nem rebuild agora: a relação é ~108 MB, contra `laws` ~2.33 GB.
+
+## Estado revalidado — 2026-10-07
+
+- O comando histórico `scripts.migrate_all_source_snapshots_to_object_storage` não existe; o runner correto e retomável está em `scripts/migrate_source_snapshots_to_object_storage.py`. O serviço temporário de migração já foi removido e nenhum serviço de migração está ocioso.
+- Evidência mais recente de migração/auditoria é de 06/10: 14.200 rows migradas; 14.201 keys únicas lidas/descomprimidas e SHA-256 confirmadas; zero divergências, ausência ou órfãos. Backup de 07/10 conta 14.203 rows de snapshot; a nova row não foi re-auditada por chave nesta execução.
+- `raw_body` não foi limpo. O histórico de migração e bucket não comprova economia física: Postgres ainda contém payload; o reclaim por limpeza continua 0 B. A tabela `laws` tem ~2,34 GB versus relação snapshot ~108 MB.
+- Antes de qualquer bucket-only: definir versionamento/retention ou cópia independente, teste real do dual-read em DB isolado restaurado e auditoria de todas as chaves. Se o objeto falhar, manter bytes Postgres e emitir erro honesto; nunca converter falha S3 em perda.

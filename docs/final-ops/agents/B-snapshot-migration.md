@@ -47,3 +47,10 @@ Retain the final JSON and batch progress logs. Require `status=complete`, zero p
 ## Atualização do coordenador — 2026-10-06
 
 A auditoria real terminou: 14.202 linhas apontam a 14.201 objetos únicos (64.972.169 bytes comprimidos/armazenados; 252.701.649 bytes brutos verificados), zero objetos faltando, órfãos, checksum divergente ou falhas. O migrador de produção registrou 14.200 updates verificados em 569 lotes; há uma linha duplicada por checksum. `raw_body` continua presente nas 14.202 linhas. Economia física PostgreSQL: 0 bytes. A tabela snapshot representa ~108 MB contra 2.331 GB da tabela `laws`; D1/D2 seguem fechados até dual-read/backup de objeto e estratégia de retenção/restore serem demonstrados. O serviço one-shot tem zero uso medido e nenhuma montagem de volume, o serviço `source-snapshot-migration` foi removido depois de auditoria completa; não possuía volume montado e CPU/RAM/disco estavam em zero. Objetos verificados permanecem no bucket e métricas nesta handoff.
+
+## Rechecagem do coordenador — 2026-10-07
+
+- O `main` atual contém o runner finito/retomável (420 linhas) e `app.storage.source_snapshots` usado pela aplicação. A auditoria operacional de 14.201 chaves foi executada em 06/10 via download, descompressão e SHA-256; não foi repetida em 07/10.
+- 06/10: 14.200 rows migradas em 569 lotes; 14.201 objetos únicos lidos e verificados; 64.972.169 B em bucket e 252.701.649 B brutos distintos; zero missing/orphan/mismatch/erro. Backup de 07/10 relata 14.203 source_snapshot rows; pointers da nova linha não foram contados nesta auditoria.
+- Serviço temporário `source-snapshot-migration` foi removido antes desta rechecagem após inspeção de ausência de volume/dado persistente. Buckets ficam intactos. Nenhum `raw_body` foi removido; D1/dual-read, durability/recovery independente de objeto e ganho material não passaram.
+- Nenhuma operação de limpeza/SQL foi feita. Continuar preferindo Postgres para conteúdo enquanto um teste isolado bucket-only e a política de recuperação dos objetos S3 não existirem.

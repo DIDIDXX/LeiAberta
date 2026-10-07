@@ -55,3 +55,12 @@ No ciclo SAPL capturado, 4.000 registros foram revisados em 20 páginas; log mos
 ## Fechamento pós-deploy — 2026-10-06 20:25 UTC
 
 No soak >30 min após worker pronto em 19:54:51 UTC, os pontos do volume azul ficaram estáveis em 3.270852608 GB; janela Railway de 1 h no fechamento: current/min 3.270852608, max 3.303645184 GB, capacidade 5 GB. A janela final inclui a transição e resíduo de WAL; nenhuma remoção SQL foi feita. Últimos CPU/RAM azul: 0.00474 média/0.08120 max de CPU, 2.371/2.413 GB de RAM na janela. Pressão está abaixo de 70%, mas aguardar 24 h.
+
+## Rechecagem do coordenador — 2026-10-07
+
+- Último SQL de tamanho disponível: database 2.830.522.047 B; laws 2.338.455.552 B; legal_nodes 331.358.208 B; source_snapshots 107.683.840 B. Lei/catalog domina; snapshot bruto não explica sozinho o volume.
+- Railway 24 h/289 amostras: blue disco atual 3,1950 GB, média 3,2580, max 3,3343/5 GB; CPU média/pico 0,0055/0,1203 vCPU; RAM média/pico 1,2301/2,9441 GB. Não se atribui diferença DB-versus-volume ao WAL atual sem nova listagem/FS.
+- Antigo: 4,9965/5 GB constante; PANIC por disco e SSH read-only em recovery. É falha no gate de dados exclusivos, não prova de ausência. Nada foi apagado.
+- Worker tem backfill off, concurrency 1, quatro páginas full SAPL por ciclo e probes incrementais. Logs anteriores mostraram leis crescerem por catalog sync com snapshots praticamente constantes. Cap por ciclo permanece sem quota diária de bytes.
+- Snapshots: inventário S3/SQL detalhado foi feito em 06/10, não reexecutado hoje; a tabela atual está em 14.203 rows no manifest do backup. A cobertura pointer/SHA da linha mais recente não foi verificada nesta data. Raw bodies permaneceram; reclaim físico 0 B.
+- Scripts read-only e runbook seguem úteis. As consultas não foram novamente executadas nesta rechecagem; os valores de tamanho acima são evidência existente datada de 07/10, e volume é janela Railway independente.
