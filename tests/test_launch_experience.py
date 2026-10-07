@@ -10,7 +10,7 @@ from app.catalog_sync import senado
 from app.catalog_sync.senado import parse_law_catalog
 from app.db import get_session
 from app.main import app
-from app.models import Law, LawChange, LawVersion, LegalNode, SourceRegistry
+from app.models import HydrationJob, Law, LawChange, LawVersion, LegalNode, SourceRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures" / "official"
 
@@ -60,6 +60,74 @@ def test_new_senate_norm_catalog_search_hydration_and_retry_are_idempotent(db_se
     assert detail.status_code == 200
     assert detail.json()["materializable"] is True
     assert detail.json()["job"]["id"] == "fixture-hydration"
+
+
+def test_catalog_read_does_not_requeue_failed_hydration_during_retry_cooldown(db_session, add_law, monkeypatch):
+    law = add_law(slug="manaus-sapl-2198")
+    law.source_name = "Câmara Municipal de Manaus — SAPL"
+    law.source_url = "https://sapl.manaus.am.leg.br/norma/2198"
+    law.fetch_url = law.source_url
+    law.materialization_status = "catalog"
+    law.current_version_id = None
+    law.coverage = {
+        "text_source_status": "retryable",
+        "text_source_error": "<urlopen error timed out>",
+        "text_source_retry_after": (datetime.now(timezone.utc) + timedelta(hours=6)).isoformat(),
+    }
+    db_session.add(law)
+    db_session.add(HydrationJob(
+        id="failed-manaus-hydration", law_slug=law.slug, job_type="hydrate", status="failed",
+        stage_name="failed", message="O processamento falhou após novas tentativas",
+        error="<urlopen error timed out>", attempts=5,
+    ))
+    db_session.commit()
+
+    def unexpected_queue(*args, **kwargs):
+        pytest.fail("a GET must not bypass the source retry cooldown")
+
+    monkeypatch.setattr("app.main.queue_hydration", unexpected_queue)
+    client = _client_for(db_session)
+    try:
+        detail = client.get(f"/api/laws/{law.slug}")
+        nodes = client.get(f"/api/laws/{law.slug}/nodes")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["job"]["id"] == "failed-manaus-hydration"
+    assert payload["job"]["status"] == "failed"
+    assert "fonte oficial não respondeu" in payload["job"]["message"].lower()
+    assert "timed out" not in payload["job"]["message"]
+    assert nodes.status_code == 200
+    assert nodes.json()["job_status"] == "failed"
+    assert db_session.query(HydrationJob).filter_by(law_slug=law.slug).count() == 1
+
+
+def test_catalog_read_can_retry_after_source_cooldown_expires(db_session, add_law, monkeypatch):
+    law = add_law(slug="senado-expired-retry")
+    law.source_name = "Senado Federal — Dados Abertos Legislativos"
+    law.materialization_status = "catalog"
+    law.current_version_id = None
+    law.coverage = {
+        "text_source_status": "retryable",
+        "text_source_retry_after": (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(),
+    }
+    db_session.add(law)
+    db_session.commit()
+    queued = SimpleNamespace(id="new-hydration", status="queued", stage=0, message="Aguardando worker")
+    calls = []
+    monkeypatch.setattr("app.main.queue_hydration", lambda item, refresh=False: calls.append(item.slug) or queued)
+
+    client = _client_for(db_session)
+    try:
+        response = client.get(f"/api/laws/{law.slug}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["job"]["id"] == "new-hydration"
+    assert calls == [law.slug]
 
 
 def test_blame_and_node_provenance_distinguish_verified_partial_and_unknown(db_session, add_law):

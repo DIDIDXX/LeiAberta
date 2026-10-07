@@ -567,6 +567,49 @@ def search(q: str = Query("", max_length=180), limit: int = Query(10, ge=1, le=3
     return result
 
 
+def _retry_cooldown_active(law: Law) -> bool:
+    coverage = law.coverage or {}
+    retry_after = coverage.get("text_source_retry_after")
+    if coverage.get("text_source_status") != "retryable" or not retry_after:
+        return False
+    try:
+        retry_at = datetime.fromisoformat(str(retry_after).replace("Z", "+00:00"))
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    return retry_at > datetime.now(timezone.utc)
+
+
+def _hydration_job_for_catalog_law(law: Law, session: Session) -> tuple[HydrationJob | None, bool]:
+    """Avoid requeueing failed source work on every read while its retry cooldown is active."""
+    if not _retry_cooldown_active(law):
+        return queue_hydration(law), False
+    for status in ("queued", "running", "failed"):
+        existing = session.scalar(
+            select(HydrationJob)
+            .where(HydrationJob.law_slug == law.slug, HydrationJob.job_type == "hydrate",
+                   HydrationJob.status == status)
+            .order_by(HydrationJob.updated_at.desc())
+            .limit(1)
+        )
+        if existing:
+            return existing, True
+    return None, True
+
+
+def _hydration_job_payload(job: HydrationJob | None, law: Law, cooling_down: bool) -> dict | None:
+    if not job and not cooling_down:
+        return None
+    if not job:
+        return {"id": None, "status": "failed", "stage": 0,
+                "message": "A fonte oficial não respondeu. Nenhum texto estruturado foi obtido; consulte a fonte ou tente novamente mais tarde."}
+    message = public_job_message(job)
+    if cooling_down and job.status == "failed" and (law.coverage or {}).get("text_source_status") == "retryable":
+        message = "A fonte oficial não respondeu após as tentativas. Nenhum texto estruturado foi obtido; consulte a fonte ou tente novamente mais tarde."
+    return {"id": job.id, "status": job.status, "stage": job.stage, "message": message}
+
+
 @app.get("/api/laws/{slug}")
 def law_detail(slug: str, session: Session = Depends(get_session)):
     law = session.get(Law, slug)
@@ -577,9 +620,10 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
         LegalNode.version_id == law.current_version_id,
     )) if law.current_version_id else 0
     job = None
+    cooling_down = False
     materializable = law.source_name in TEXT_SOURCE_NAMES
     if not law.current_version_id and materializable:
-        job = queue_hydration(law)
+        job, cooling_down = _hydration_job_for_catalog_law(law, session)
     version = session.get(LawVersion, law.current_version_id) if law.current_version_id else None
     return {
         "law": _law_summary(law, article_count or 0),
@@ -587,7 +631,7 @@ def law_detail(slug: str, session: Session = Depends(get_session)):
             "id": version.id, "name": version.version_name, "source_url": version.source_url,
             "retrieved_at": version.retrieved_at.isoformat(), "checksum": version.checksum,
         } if version else None,
-        "job": {"id": job.id, "status": job.status, "stage": job.stage, "message": public_job_message(job)} if job else None,
+        "job": _hydration_job_payload(job, law, cooling_down),
         "materializable": materializable,
     }
 
@@ -600,8 +644,9 @@ def law_nodes(slug: str, article: str | None = None, session: Session = Depends(
     if not law.current_version_id:
         if law.source_name not in TEXT_SOURCE_NAMES:
             return {"status": "catalog", "source_url": law.source_url, "items": []}
-        job = queue_hydration(law)
-        return {"status": law.materialization_status, "job_id": job.id, "items": []}
+        job, cooling_down = _hydration_job_for_catalog_law(law, session)
+        return {"status": law.materialization_status, "job_id": job.id if job else None,
+                "job_status": job.status if job else ("failed" if cooling_down else None), "items": []}
     statement = select(LegalNode).where(LegalNode.version_id == law.current_version_id)
     if article:
         prefix = f"art:{article.lower()}"

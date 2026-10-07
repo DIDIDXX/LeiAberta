@@ -170,6 +170,11 @@ def queue_job(law_slug: str, job_type: str, *, refresh: bool = False, priority: 
         session.add(JobOutbox(job_id=job.id))
         if job_type == "hydrate" and not stored_law.current_version_id:
             stored_law.materialization_status = "preparing"
+            coverage = dict(stored_law.coverage or {})
+            coverage["text_source_status"] = "queued"
+            coverage.pop("text_source_error", None)
+            coverage.pop("text_source_retry_after", None)
+            stored_law.coverage = coverage
         if job_type == "history":
             coverage = dict(stored_law.coverage or {})
             if coverage.get("history") in {None, "not_materialized", "not_requested", "unavailable", "failed"}:

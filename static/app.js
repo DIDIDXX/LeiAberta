@@ -211,10 +211,12 @@ function lawHeader(law, activeTab, crumbsList) {
 
 function coverageCard(law, recentChange) {
   const c = law.coverage || {};
-  const val = status => ({ available: "Disponível", complete: "Completo no intervalo verificado", partial: "Parcial", queued: "Na fila", running: "Em andamento", unavailable: "Fonte indisponível", failed: "Falhou", not_requested: "Ainda não reconstruído", not_materialized: "Ainda não reconstruído", not_identified: "Não identificado", not_available: "Indisponível" }[status] || "Não verificado");
+  const val = status => ({ available: "Disponível", complete: "Completo no intervalo verificado", partial: "Parcial", queued: "Na fila", running: "Em andamento", retryable: "Fonte sem resposta", unavailable: "Fonte indisponível", failed: "Falhou", not_requested: "Ainda não reconstruído", not_materialized: "Ainda não reconstruído", not_identified: "Não identificado", not_available: "Indisponível" }[status] || "Não verificado");
+  const textStatus = c.structured_text || c.text_source_status;
+  const checksum = c.snapshot_checksum ? `<code>${esc(c.snapshot_checksum.slice(0, 12))}…</code>` : ["retryable", "unavailable"].includes(c.text_source_status) ? "Não obtido" : "Aguardando";
   return `<aside class="law-aside"><div class="aside-block"><div class="aside-heading">Cobertura desta norma</div>
     <div class="aside-row"><span>Fonte oficial</span><strong>${esc(val(c.official_source))}</strong></div>
-    <div class="aside-row"><span>Texto estruturado</span><strong>${esc(val(c.structured_text))}</strong></div>
+    <div class="aside-row"><span>Texto estruturado</span><strong>${esc(val(textStatus))}</strong></div>
     <div class="aside-row"><span>Histórico</span><strong>${esc(val(c.history))}</strong></div>
     <div class="aside-row"><span>Autoria e votos</span><strong>${esc(val(c.authors || c.votes))}</strong></div>
     <p class="coverage-caption">A cobertura indica quais dados foram localizados em documentos públicos.</p>
@@ -222,7 +224,7 @@ function coverageCard(law, recentChange) {
     ${recentChange ? `<a class="aside-update" href="/diff/${encodeURIComponent(recentChange.id)}">${esc(recentChange.source_law_label)}<span class="aside-update-meta">${datePt(recentChange.changed_at)} · ${esc(recentChange.summary)}</span></a>` : `<p class="aside-empty">${c.history === "partial" ? "Há vínculos documentados no histórico." : "Informação ainda não identificada em fonte oficial."}</p>`}
   </div><div class="aside-block"><div class="aside-heading">Documento consultado</div>
     <div class="aside-row"><span>Origem</span><strong>${esc(law.source_name || "Fonte oficial")}</strong></div>
-    <div class="aside-row"><span>Checksum</span><strong>${law.coverage?.snapshot_checksum ? `<code>${esc(law.coverage.snapshot_checksum.slice(0, 12))}…</code>` : "Aguardando"}</strong></div>
+    <div class="aside-row"><span>Checksum</span><strong>${checksum}</strong></div>
   </div></aside>`;
 }
 
@@ -271,7 +273,9 @@ async function renderLaw(slug, targetArticle = "") {
       main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Metadados registrados no acervo oficial do Senado.")}</p><div class="history-callout">Encontramos a norma no catálogo oficial, mas ainda não há adapter para baixar e estruturar seu texto integral. A data abaixo é a de assinatura; a data de publicação não foi identificada na listagem consultada.</div><p><a class="section-action" href="${esc(law.source_url)}" target="_blank" rel="noopener">Consultar registro oficial no Senado ${externalIcon}</a></p></div>${coverageCard(law, null)}</div></div>`;
       return;
     }
-    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Texto e metadados da norma federal.")}</p>${initial.job?.status === "failed" ? `<div class="error-banner" role="alert">${esc(initial.job.message)} <button class="text-button" data-retry="${esc(slug)}">Tentar novamente</button></div>` : progressPanel(initial.job)}<p class="aside-empty">Enquanto preparamos o texto, você pode consultar o documento integral na fonte oficial.</p></div>${coverageCard(law, null)}</div></div>`;
+    const failed = initial.job?.status === "failed";
+    const emptyMessage = failed ? "O texto estruturado não foi obtido. Consulte o documento integral na fonte oficial ou tente novamente." : "Enquanto preparamos o texto, você pode consultar o documento integral na fonte oficial.";
+    main.innerHTML = `<div class="content-shell">${lawHeader(law, "text", trail)}<div class="law-layout"><div class="law-content"><p class="law-intro">${esc(law.description || "Texto e metadados da norma federal.")}</p>${failed ? `<div class="error-banner" role="alert">${esc(initial.job.message)} <button class="text-button" data-retry="${esc(slug)}">Tentar novamente</button></div>` : progressPanel(initial.job)}<p class="aside-empty">${emptyMessage}</p></div>${coverageCard(law, null)}</div></div>`;
     const retry = main.querySelector("[data-retry]");
     retry?.addEventListener("click", async () => { await getJSON(`${API}/laws/${encodeURIComponent(slug)}/hydrate`, { method: "POST" }); renderLaw(slug, targetArticle); });
     if (initial.job?.status !== "failed") pollLaw(slug, targetArticle);
