@@ -185,3 +185,30 @@ MIT público, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY e templates presentes
 - Semântica de dados e backups não mudou: não se apagou Postgres antigo ou jurídico; migração bucket-only não passou gates; reclaim físico `raw_body=0 B`. O teste programado do runner novo e hashes/restore estão registrados acima; execução diária normal do próximo slot ainda pendente.
 
 **Decisão atualizada: NO-GO.** Patch crítico e capturas não estão em `main`/Railway; além disso, faltam browser QA na production do patch, soak 30–60 min com ciclo limitado representativo, cron diário normal, metadados About, recuperação independente do bucket de snapshots e prova de que Postgres antigo não possui dados únicos. Nenhum social post saiu.
+
+
+## Revalidação final após o merge — 2026-10-07 18:06 UTC
+
+### Produção e código
+
+`main`, web, worker e postgres-backup: `73a2216b47d1e077777902f45197c8f2b5feccb8`. Deployments web `32894798-94b9-4f25-b877-aa4634fed14b`, worker `5cac5b89-ae2e-4bd0-85f7-05724137b14d`, backup `6e4e0061-e1db-41fd-ac84-f8d52b8a523d`: `SUCCESS`. PR #95 foi testado no head `f377f0d…`; a tree é idêntica à do commit de merge. Actions #116: Python, E2E e imagem concluídos com sucesso.
+
+Teste local válido em Python do projeto: pytest 212 passed; Playwright 7 passed; compileall e `git diff --check` passaram. O navegador gráfico conectado à produção percorreu home, busca LGPD/LGDP, Código Civil/art. 389, histórico, comparação, Blame/Why, fonte externa, cópia/abertura do deep link, /fontes, /cobertura, /sobre, busca sem resultado e lei fria. Inspeções visuais com viewport configurado em 390, 430, 768 e 1440 px; nenhum defeito visual bloqueador ou erro de console foi observado. O caveat Normas.leg.br continua explícito.
+
+22 rotas/API smoke pós-deploy: todas HTTP 200. Soak de 3 min: 36 leituras de saúde, catálogo e leis, nenhuma resposta não-200/5xx; métricas Railway registraram 0/146 respostas 5xx em uma hora e um 499 de cliente cancelado. Heartbeat do worker foi observado até 18:01:33Z; concurrency 1, `BACKGROUND_BACKFILL_MODE=off`, SAPL 4 páginas completas por ciclo e orçamento 300 s; queue pending 0. RAM do worker ~80 MB média/~82.5 MB pico na última hora. Blue: 3.178 GB/5 GB (~63.6%), máximo da hora 3.195 GB (~63.9%).
+
+### Hidratação e backup
+
+A norma fria real `manaus-sapl-2198` falhou após timeout do SAPL, sem texto estruturado. A tela diz isso explicitamente e oferece retry manual. Três reloads visuais permaneceram no estado terminal; duas leituras retornaram o mesmo job `88b0db12-168c-455c-b071-186367d4022c`, `failed`; nenhuma tentativa foi criada por GET.
+
+O cron diário `0 3 * * *` registrou backup às 03:04:54Z. Dump em `leiaberta-backups`: `postgres/leiaberta-production/20261007T030453Z-aa430f1a.dump`, 336,126,530 bytes, SHA-256 `d2d156c7992c0ebba720616363ded58b5b10a18cdd12d7b162c2317ca0d55485`, SHA-256 do manifesto `e2f8ca5bc1379880660b61fd0ed58fd9abb66eb022b32bccacda560325718dea`; `uploaded_object_verified=true`, `restore_verified=True`. O runner atualizado executou também às 14:55Z com objeto e restore verificados.
+
+### GitHub e decisão
+
+Repo público: README renderizado, MIT, CONTRIBUTING e release v0.1.0 acessíveis; 5 issues legítimas e 10 PRs Dependabot preservados. Screenshots em `docs/launch/assets` abrem pelo GitHub e demonstram Diff desktop, Blame desktop e art. 389 mobile; screenshot home e vídeo WebM também estão no pacote. Nenhum post foi publicado.
+
+O About foi conferido visualmente e ainda diz “No description, website, or topics provided”. A sessão conectada mostra Sign in e token `gh` inválido; não foi possível salvar os três valores sem autenticação humana. O antigo `Postgres` (4.9965/5 GB) permanece: serviços web/worker/backup apontam ao blue e não há TCP proxy, mas dados jurídicos exclusivos não puderam ser descartados com segurança. Isso e o custo acima da meta não são bloqueios de produto.
+
+Estimativas documentadas por consumo/tarifa, sem invoice real: ~US$29.99/mês com banco antigo e ~US$20.18/mês após uma aposentadoria futura segura, ambos + egress. Não houve compra/upgrade.
+
+**Status de lançamento:** tecnicamente aprovado; **NO-GO estrito até salvar e confirmar visualmente Description, Website e Topics no GitHub**. Após isso, o proprietário só precisa publicar os posts em `docs/launch/POSTS.md`.
