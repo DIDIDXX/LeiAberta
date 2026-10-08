@@ -29,7 +29,7 @@ Estados: `[ ]` pendente, `[~]` em andamento, `[x]` concluído, `[!]` bloqueio t�
 
 ## OSS e kit
 - [x] README, API, quickstart, inglês, contribuição e diagrama.
-- [x] Fact sheet, case study, hero case, roteiros, posts não publicados e ações manuais.
+- [x] Fact sheet, case study, hero case, roteiros de demonstração e ações de configuração.
 - [x] 9 screenshots reais do deploy, OG PNG e demo WebM em `docs/assets/launch/`.
 - [x] Cinco issues úteis com rótulos `good first issue` e outros rótulos existentes.
 - [x] Release/tag [v0.1.0](https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0), apontada ao commit de produção com o kit integrado.
@@ -39,4 +39,3 @@ Estados: `[ ]` pendente, `[~]` em andamento, `[x]` concluído, `[!]` bloqueio t�
 - [!] Railway tem um patch destrutivo staged, anterior a esta rodada, que remove `pg-diagnostic`. Não foi aplicado junto com o deploy do app.
 - [ ] Domínio próprio opcional; produção atual no domínio Railway funciona.
 - [ ] Conferir fatura/custo; billing não estava acessível nesta sessão.
-- [ ] Publicar posts apenas quando o mantenedor decidir; os textos estão preparados.
