@@ -46,7 +46,7 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [ ] Complete 24-hour observation or document a safe shorter rollback interval before any old database retirement.
 - [ ] Obtain explicit owner approval before deleting the old Postgres service or volume; approval has not been given.
 - [ ] Final decision: **NO-GO** until critical checks and owner action above are resolved.
-- [x] No domain purchase, plan upgrade, VPS migration or social post was performed.
+- [x] No domain purchase, plan upgrade or VPS migration was performed.
 
 ## Rechecagem pós-PR #91 — 2026-10-06 19:50 UTC
 
@@ -92,7 +92,7 @@ Legend: **Pass** = evidence recorded; **Pending** = needs post-deploy evidence; 
 - [x] Estimativa Railway por média de 24 h: ~US$29,59/mês com antigo e ~$19,91/mês sem antigo, mais ~$0,04 buckets e egress; invoice não acessível. Sem antigo ainda ~$4,95 acima da meta US$15.
 - [x] Release `v0.1.0`, MIT, README e demais documentos OSS estão públicos; cinco issues e dez Dependabot PRs mantidos abertos.
 - [ ] GitHub About description/homepage/topics: ainda vazios; atualização exige sessão GitHub autenticada que não estava disponível nesta execução.
-- [x] Textos LinkedIn/X atualizados sem métricas dinâmicas não comprovadas; capturas recentes com alt text e vídeo real de 20,52s preparados; nenhum post publicado.
+- [x] Capturas recentes com texto alternativo e vídeo real de 20,52 s preparados.
 - [ ] Depois de integrar, executar CI completo e revalidar o SHA exato de todos os deploys. Esperar 24 h para decisão de aposentadoria do banco antigo; remover somente se evidência de unicidade for resolvida.
 
 **Decisão de lançamento nesta revisão: NO-GO**, até correção/produção dos itens de job/backup e acesso GitHub para About. O Postgres antigo não será excluído enquanto sua recuperação/dados exclusivos forem inconclusivos.
