@@ -158,7 +158,7 @@ O cenário sem o antigo ainda supera a meta de US$15 em aproximadamente US$4,95,
 
 ### GitHub e materiais de publicação
 
-MIT público, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY e templates presentes; release pública `v0.1.0` existe e mantém os caveats, mas seu tag é anterior à aplicação atual. CI #113 em `a17ad2c` passou. Cinco issues de colaboração e dez Dependabot PRs seguem abertos, sem merge em massa. About está vazio e não pôde ser atualizado: sessão GitHub deslogada, token `gh` local inválido e connector sem escrita de settings. Posts LinkedIn/X foram atualizados, sem métricas dinâmicas não verificadas, e não foram publicados. Capturas com alt text e `demo.webm` de 20,52 s estão documentados em `docs/launch/MEDIA.md`.
+MIT público, README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY e templates presentes; release pública `v0.1.0` existe e mantém os caveats, mas seu tag é anterior à aplicação atual. CI #113 em `a17ad2c` passou. Cinco issues de colaboração e dez Dependabot PRs seguem abertos, sem merge em massa. About está vazio e não pôde ser atualizado: sessão GitHub deslogada, token `gh` local inválido e connector sem escrita de settings. Capturas com texto alternativo e `demo.webm` de 20,52 s estão documentados em `docs/launch/MEDIA.md`.
 
 ### Decisão
 
@@ -211,4 +211,4 @@ O About foi conferido visualmente e ainda diz “No description, website, or top
 
 Estimativas documentadas por consumo/tarifa, sem invoice real: ~US$29.99/mês com banco antigo e ~US$20.18/mês após uma aposentadoria futura segura, ambos + egress. Não houve compra/upgrade.
 
-**Status de lançamento:** tecnicamente aprovado; **NO-GO estrito até salvar e confirmar visualmente Description, Website e Topics no GitHub**. Após isso, o proprietário só precisa publicar os posts em `docs/launch/POSTS.md`.
+**Status de lançamento:** tecnicamente aprovado; **NO-GO estrito até salvar e confirmar visualmente Description, Website e Topics no GitHub**. Após isso, não resta pendência técnica de apresentação identificada nesta revisão.
