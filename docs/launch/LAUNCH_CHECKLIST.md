@@ -24,9 +24,8 @@
 
 ## OSS e material de lançamento
 - [x] README, API, arquitetura, contribuição, changelog e exemplos atualizados.
-- [x] Relatório final, fact sheet, case, roteiro de demo e cópias sociais preparados.
+- [x] Relatório final, fact sheet, case e roteiro de demonstração preparados.
 - [x] 9 screenshots, imagem OG, captura dedicada do diff e demo WebM registrados na produção.
-- [x] Conteúdo de redes sociais não foi publicado.
 - [x] Release/tag [v0.1.0](https://github.com/DIDIDXX/LeiAberta/releases/tag/v0.1.0) publicada após integrar os assets.
 
 ## Bloqueios externos / opcionais
