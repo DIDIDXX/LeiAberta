@@ -1,14 +1,13 @@
 # Ações manuais para o lançamento
 
-**Estado:** 7 de outubro de 2026. A produção está no SHA `73a2216b47d1e077777902f45197c8f2b5feccb8`; o produto passou os smokes e o teste visual descritos no relatório final. Nenhuma publicação social foi feita.
+**Estado:** 7 de outubro de 2026. A produção está no SHA `73a2216b47d1e077777902f45197c8f2b5feccb8`; o produto passou os smokes e o teste visual descritos no relatório final. 
 
-## Antes de publicar
+## Configuração pública do repositório
 
 1. **Completar o About do GitHub.** A página pública ainda mostra “No description, website, or topics provided”. A sessão conectada está deslogada e a credencial local do `gh` é inválida. Desbloqueie o Mac e autentique GitHub no navegador; então salve e confirme visualmente estes valores:
    - Description: `Open-source platform for exploring Brazilian legislation, verified amendments and legal provenance.`
    - Website: `https://web-production-12e95.up.railway.app`
    - Topics: `brazil`, `legislation`, `civic-tech`, `open-data`, `legaltech`, `data-engineering`, `fastapi`, `postgresql`, `open-source`
-2. **Publicar os textos**, após revisar, em `POSTS.md`: um post no LinkedIn e um post no X. Eles continuam como rascunhos e ainda não foram enviados.
 
 Depois de salvar o About, não resta etapa técnica de lançamento indicada por esta execução. A decisão atual é **NO-GO estrito até a confirmação visual do About**.
 
