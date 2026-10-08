@@ -32,5 +32,5 @@ A amostra de dados de produção em `FACTS.md` é variável e não representa a 
 
 - Atualização da descrição, homepage e topics GitHub foi rejeitada com 403 `Resource not accessible by integration`; requer acesso administrativo do mantenedor.
 - O patch Railway destrutivo preexistente que removeria `pg-diagnostic` permaneceu intocado; não era necessário para publicar o produto e não pôde ser inspecionado.
-- Domínio customizado, fatura/billing e posts sociais são ações externas opcionais; o serviço está público no domínio Railway e os posts ficaram apenas como rascunho.
+- Domínio customizado e fatura/billing são ações externas opcionais; o serviço está público no domínio Railway.
 - Não se afirma cobertura integral de leis nem histórico completo para cada norma. A ampliação para todas as jurisdições exige adapters, fontes oficiais acessíveis, processamento e auditoria específica.
