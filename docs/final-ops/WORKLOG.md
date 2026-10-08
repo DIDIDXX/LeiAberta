@@ -92,7 +92,7 @@ Append exact commit/PR and Railway SHAs, production checks, strengthened one-sho
 - Repositório é público, MIT, com README/CONTRIBUTING/CODE_OF_CONDUCT/SECURITY, templates e CI. Release `v0.1.0` existe, publicada em 05/10; tag não contém o código de produção mais recente e não tem assets anexados. Main CI #113 em `a17ad2c` passou; 5 issues e 10 PRs Dependabot permaneceram abertos para contribuição/revisão.
 - About GitHub continua vazio (`description`, `homepage`, `topics`). A ferramenta conectada só lê esses metadados; `gh` local está com token inválido e o navegador mostra sessão deslogada. Nenhum valor foi salvo; detalhes para o mantenedor em `docs/launch/MANUAL_ACTIONS.md`.
 - Railway 24 h, 289 amostras, estimativa com tarifas públicas: web CPU/RAM média 0,0021 vCPU/0,1136 GB; worker 0,0053/0,1498; blue 0,0055/1,2301, disco 3,195–3,334 GB; antigo 0,3048/0,2836, disco 4,9965 GB; Redis 0,0026/0,0136, disco 0,1527 GB; backup 0,0062/0,2902, com máximos de processamento 0,778 vCPU/2,534 GB RAM. Estimativa de recursos ~US$29,59/mês + buckets ~US$0,04 e egress não incluído; sem antigo ~US$19,91 + buckets/egress. Fatura inacessível. US$15 aspiracionais ficam ~US$4,95 abaixo do cenário sem o banco antigo.
-- Arquivo de lançamento em `docs/launch/POSTS.md` e [MEDIA](../launch/MEDIA.md); textos não publicados. Há vídeo real 20,52 s, WebM VP8, 1440×900, 1.147.043 B e capturas atualizadas com alt text.
+- Capturas técnicas documentadas em [MEDIA](../launch/MEDIA.md), com vídeo real de 20,52 s (WebM VP8, 1440×900, 1.147.043 B) e texto alternativo.
 
 ### Alterações ainda não implantadas e decisão atual
 
