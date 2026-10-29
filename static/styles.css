@@ -27,6 +27,9 @@ a { color: inherit; text-decoration: none; }
 button, input { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid #7db39b; outline-offset: 3px; }
+/* Context announced to assistive technology only, where the visible words
+   alone would repeat without saying which provision they belong to. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .skip-link { position: absolute; top: -60px; left: 12px; padding: 10px 14px; z-index: 50; border-radius: 6px; background: var(--green-dark); color: white; }
 .skip-link:focus { top: 12px; }
 
@@ -220,6 +223,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .diff-panes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .diff-pane { overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
 .diff-pane-head { display: flex; justify-content: space-between; align-items: center; padding: 11px 15px; border-bottom: 1px solid var(--line); color: #6d7971; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.diff-pane-head h2 { margin: 0; font: inherit; }
 .diff-pane.before .diff-pane-head { color: #915550; background: #fcf3f1; }
 .diff-pane.after .diff-pane-head { color: #3c7959; background: #eff6f0; }
 .diff-text { min-height: 170px; margin: 0; padding: 18px; color: #46534b; font-family: var(--serif); font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
@@ -254,6 +258,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .evidence-badge.partial { border-color: #eadfbd; color: #795f25; background: #fbf5e6; }
 .evidence-badge.not_identified { border-color: #e0e4e0; color: #68736b; background: #f4f5f2; }
 .why-panel { margin: 20px 0 24px; padding: 22px; border: 1px solid var(--line-dark); border-radius: 8px; background: #fff; }
+/* Focus is moved here after following a provision link, so the landing spot
+   is drawn for a sighted keyboard user too. */
+.why-panel:focus-visible { outline: 3px solid #7db39b; outline-offset: 3px; }
 .why-panel h2 { margin: 8px 0; font: 400 22px var(--serif); }
 .why-current { padding: 14px 16px; border-left: 2px solid #9db8a2; color: #3e4a43; background: #f5f7f3; font: 16px/1.7 var(--serif); white-space: pre-wrap; }
 .why-note, .source-note { color: #6b776f; font-size: 11px; line-height: 1.7; }

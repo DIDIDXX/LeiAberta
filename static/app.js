@@ -9,6 +9,13 @@ const datePt = value => value ? new Intl.DateTimeFormat("pt-BR", { day: "2-digit
 const lawPath = law => `/lei/${encodeURIComponent(law.slug)}`;
 const externalIcon = '<svg class="external-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7M21 3l-10 10"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>';
 const searchIcon = `<svg class="search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="1.7"/><path d="m16 16 4.3 4.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
+const arrow = '<span aria-hidden="true">→</span>';
+// The same short provenance link repeats on every provision, so a screen
+// reader hears one identical name hundreds of times. The provision and the
+// destination are appended for assistive technology only; the visible words
+// stay at the start of the accessible name so they remain the spoken label.
+const whyLinkContext = (provision, article = "") =>
+  `<span class="sr-only"> — ${esc(provision)}${article ? ` do ${esc(article)}` : ""}, abrir evidências no Blame</span>`;
 
 async function getJSON(url, options) {
   const response = await fetch(url, options);
@@ -197,15 +204,19 @@ function badgeClass(status) {
 }
 
 function lawHeader(law, activeTab, crumbsList) {
+  // The active section was signalled only by colour and an underline, so
+  // aria-current states it for assistive technology too.
+  const tab = (key, label, href) =>
+    `<a class="law-tab ${activeTab === key ? "active" : ""}"${activeTab === key ? ' aria-current="page"' : ""} href="${href}">${label}</a>`;
   return `${crumbs(crumbsList)}<header class="law-header">
     <div class="law-eyebrow"><span class="eyebrow-line"></span>${esc(law.jurisdiction === "federal" ? "Legislação federal" : law.jurisdiction)} · ${esc(law.law_type)}</div>
     <h1>${esc(law.title)}</h1><div class="law-number">${esc(lawLabel(law))}</div>
     <div class="law-meta"><span class="law-status">${esc(law.status.toUpperCase())}</span><span>Publicada em <b>${datePt(law.published_at)}</b></span>${law.signed_at ? `<span>Assinada em <b>${datePt(law.signed_at)}</b></span>` : ""}<span>${law.article_count || 0} artigos estruturados</span></div>
   </header><div class="law-toolbar"><nav class="law-tabs" aria-label="Seções da norma">
-    <a class="law-tab ${activeTab === "text" ? "active" : ""}" href="${lawPath(law)}">Texto</a>
-    <a class="law-tab ${activeTab === "history" ? "active" : ""}" href="${lawPath(law)}/historico">Histórico</a>
-    <a class="law-tab ${activeTab === "blame" ? "active" : ""}" href="${lawPath(law)}/blame">Blame</a>
-    <a class="law-tab ${activeTab === "proceedings" ? "active" : ""}" href="${lawPath(law)}/tramitacao">Tramitação</a>
+    ${tab("text", "Texto", lawPath(law))}
+    ${tab("history", "Histórico", `${lawPath(law)}/historico`)}
+    ${tab("blame", "Blame", `${lawPath(law)}/blame`)}
+    ${tab("proceedings", "Tramitação", `${lawPath(law)}/tramitacao`)}
   </nav><a class="source-link" href="${esc(law.source_url)}" target="_blank" rel="noopener">Fonte oficial ${externalIcon}</a></div>`;
 }
 
@@ -255,9 +266,9 @@ function articleHtml(nodes, slug) {
     const clauses = group.clauses.map(node => {
       const kind = node.type === "item" ? " item" : node.type === "subitem" ? " subitem" : "";
       const label = node.type === "paragraph" ? `${node.label} ` : `${node.label} — `;
-      return `<p class="article-clause${kind}" id="${esc(node.id.replaceAll(":", "-"))}"><strong class="article-clause-label">${esc(label)}</strong>${esc(displayLegalText(node.text))} <a class="why-inline" href="${lawPath({ slug })}/blame?node=${encodeURIComponent(node.id)}">Por que este trecho?</a></p>`;
+      return `<p class="article-clause${kind}" id="${esc(node.id.replaceAll(":", "-"))}"><strong class="article-clause-label">${esc(label)}</strong>${esc(displayLegalText(node.text))} <a class="why-inline" href="${lawPath({ slug })}/blame?node=${encodeURIComponent(node.id)}">Por que este trecho?${whyLinkContext(node.label, group.article.label)}</a></p>`;
     }).join("");
-    return `<section class="law-article" id="article-${esc(number)}"><div class="article-index">${esc(number)}</div><div class="article-body"><h3>${esc(title)}</h3>${intro}<a class="why-inline" href="${provenanceHref}">Por que este artigo está assim? →</a>${clauses}</div></section>`;
+    return `<section class="law-article" id="article-${esc(number)}"><div class="article-index">${esc(number)}</div><div class="article-body"><h3>${esc(title)}</h3>${intro}<a class="why-inline" href="${provenanceHref}">Por que este artigo está assim?${whyLinkContext(group.article.label)} ${arrow}</a>${clauses}</div></section>`;
   }).join("")}</div>`;
 }
 
@@ -379,11 +390,22 @@ async function renderBlame(slug) {
     const evidenceLinkLabel = normasComparison
       ? "Abrir versão da comparação no Normas.leg.br"
       : "Abrir norma modificadora oficial";
-    const selectedBlock = provenance ? `<section class="why-panel"><div class="evidence-badge ${esc(provenance.evidence?.level || "partial")}">${esc(provenance.evidence?.label || humanStatus(provenance.status))}</div><h2>${esc(provenance.node?.label || selected)}</h2><p class="why-current">${esc(displayLegalText(provenance.current_text || "O texto atual ainda não está materializado."))}</p><p class="why-note">${whyEvidenceNote}</p>${provenance.last_verified_change ? `<div class="why-change"><p><strong>Última comparação registrada</strong> · ${datePt(provenance.last_verified_change.changed_at)}</p><p>${esc(provenance.last_verified_change.source_law_label)}</p><a class="section-action" href="/diff/${encodeURIComponent(provenance.last_verified_change.id)}">Ver antes e depois →</a><p><a href="${safeHttpHref(provenance.last_verified_change.source_url)}" target="_blank" rel="noopener">${evidenceLinkLabel} ${externalIcon}</a></p></div>` : ""}${provenance.relations?.length ? `<div class="relation-note"><strong>Relações oficiais encontradas</strong>${provenance.relations.map(item => `<p>${esc(item.label)} · ${esc(item.notice)} <a href="${safeHttpHref(item.source_url)}" target="_blank" rel="noopener">Fonte ${externalIcon}</a></p>`).join("")}</div>` : ""}</section>` : `<p class="history-intro">Blame jurídico mostra qual ato está ligado à última alteração verificada do dispositivo. Não atribui a redação a uma pessoa. Escolha um dispositivo para consultar as evidências.</p>`;
+    const selectedBlock = provenance ? `<section class="why-panel" tabindex="-1" aria-labelledby="why-panel-provision"><div class="evidence-badge ${esc(provenance.evidence?.level || "partial")}">${esc(provenance.evidence?.label || humanStatus(provenance.status))}</div><h2 id="why-panel-provision">${esc(provenance.node?.label || selected)}</h2><p class="why-current">${esc(displayLegalText(provenance.current_text || "O texto atual ainda não está materializado."))}</p><p class="why-note">${whyEvidenceNote}</p>${provenance.last_verified_change ? `<div class="why-change"><p><strong>Última comparação registrada</strong> · ${datePt(provenance.last_verified_change.changed_at)}</p><p>${esc(provenance.last_verified_change.source_law_label)}</p><a class="section-action" href="/diff/${encodeURIComponent(provenance.last_verified_change.id)}">Ver antes e depois →</a><p><a href="${safeHttpHref(provenance.last_verified_change.source_url)}" target="_blank" rel="noopener">${evidenceLinkLabel} ${externalIcon}</a></p></div>` : ""}${provenance.relations?.length ? `<div class="relation-note"><strong>Relações oficiais encontradas</strong>${provenance.relations.map(item => `<p>${esc(item.label)} · ${esc(item.notice)} <a href="${safeHttpHref(item.source_url)}" target="_blank" rel="noopener">Fonte ${externalIcon}</a></p>`).join("")}</div>` : ""}</section>` : `<p class="history-intro">Blame jurídico mostra qual ato está ligado à última alteração verificada do dispositivo. Não atribui a redação a uma pessoa. Escolha um dispositivo para consultar as evidências.</p>`;
     const rows = blame.items.map(item => `<a class="blame-row ${selected === item.node_id ? "selected" : ""}" href="${lawPath(law)}/blame?node=${encodeURIComponent(item.node_id)}"><span><strong>${esc(item.label)}</strong><small>${esc(item.node_id)}</small></span><span class="blame-origin">${item.responsible_act ? `<strong>${esc(item.responsible_act.label)}</strong><small>${datePt(item.responsible_act.changed_at)}</small>` : `<strong>Ainda não identificado</strong><small>Sem before/after verificado</small>`}</span><span class="evidence-badge ${item.evidence_level === "verified_primary" ? "verified_primary" : "partial"}">${item.responsible_act ? (item.evidence_level === "verified_primary" ? "Fonte confirmada" : "Evidência parcial") : "Não identificado"}</span></a>`).join("");
-    const pagination = blame.count > pageSize ? `<nav class="blame-pagination" aria-label="Páginas de dispositivos"><span>Dispositivos ${Number(blame.offset + 1).toLocaleString("pt-BR")}–${Number(blame.offset + blame.items.length).toLocaleString("pt-BR")} de ${Number(blame.count).toLocaleString("pt-BR")}</span><div>${offset > 0 ? `<a href="${lawPath(law)}/blame?offset=${Math.max(0, offset-pageSize)}">Anterior</a>` : ""}${blame.has_more ? `<a href="${lawPath(law)}/blame?offset=${offset+pageSize}">Próximos dispositivos →</a>` : ""}</div></nav>` : "";
+    // "Anterior" and "Próximos dispositivos" carry no position on their own,
+    // so each link states the range it leads to and the nav is described by
+    // the visible counter.
+    // The appended context starts with a separator so that the space the
+    // name computation inserts around the out-of-flow span collapses into
+    // it, instead of being spoken before a comma.
+    const ordinal = position => `${Number(position + 1).toLocaleString("pt-BR")}º`;
+    const pagination = blame.count > pageSize ? `<nav class="blame-pagination" aria-label="Páginas de dispositivos" aria-describedby="blame-range"><span id="blame-range">Dispositivos ${Number(blame.offset + 1).toLocaleString("pt-BR")}–${Number(blame.offset + blame.items.length).toLocaleString("pt-BR")} de ${Number(blame.count).toLocaleString("pt-BR")}</span><div>${offset > 0 ? `<a href="${lawPath(law)}/blame?offset=${Math.max(0, offset-pageSize)}">Anterior<span class="sr-only"> — dispositivos a partir do ${ordinal(Math.max(0, offset - pageSize))}</span></a>` : ""}${blame.has_more ? `<a href="${lawPath(law)}/blame?offset=${offset+pageSize}">Próximos dispositivos<span class="sr-only"> — a partir do ${ordinal(offset + pageSize)}</span> ${arrow}</a>` : ""}</div></nav>` : "";
     main.innerHTML = `<div class="content-shell">${lawHeader(law, "blame", trail)}<section class="history-layout"><div class="blame-heading"><div><h2>Quem responde pelo texto?</h2><p>O ato modificador é mostrado quando há comparação verificável. Origem de autoria permanece sem atribuição individual.</p></div><span>${Number(blame.count).toLocaleString("pt-BR")} dispositivos</span></div>${selectedBlock}${selected ? copyLinkControl("Copiar link desta evidência") : ""}<div class="blame-list">${rows || `<div class="empty-state">${blame.status === "not_materialized" ? "O texto desta norma ainda está sendo preparado." : "Nenhum dispositivo estruturado foi localizado."}</div>`}</div>${pagination}<p class="source-note">O LeiAberta só trata uma alteração como confirmada quando existe evidência oficial suficiente para sustentar a relação apresentada.</p></section></div>`;
     if (selected) bindPageLinkCopy();
+    // Arriving from "Por que este artigo está assim?" the evidence is the
+    // reason for the navigation, but focus would start at the top of the
+    // document and the panel would have to be hunted for.
+    if (selected) main.querySelector(".why-panel")?.focus();
   } catch (error) { renderNotFound(error.message); }
 }
 
@@ -548,8 +570,8 @@ async function renderDiff(changeId) {
     <section class="diff-layout"><div class="law-eyebrow"><span class="eyebrow-line"></span> Alteração documentada</div><div class="evidence-badge ${esc(evidence.level)}">${esc(evidence.label)}</div><h1 class="diff-title">${esc(change.summary)}</h1><p class="diff-subtitle">${esc(law.title)} · ${esc(nodeName)}</p>
     ${copyLinkControl("Copiar link desta alteração")}${articleNumber ? `<p class="diff-article-link"><a class="section-action" href="${lawPath(law)}/artigo/${encodeURIComponent(articleNumber)}">Ler o artigo atual →</a></p>` : ""}
     <div class="diff-meta"><span>Data registrada: ${datePt(change.changed_at)}</span><span>Origem: <a href="${esc(change.source_url)}" target="_blank" rel="noopener">${esc(change.source_law_label)} ${externalIcon}</a></span><span>Tipo: ${esc(change.change_type === "ADD" ? "Dispositivo incluído" : change.change_type === "UPDATE" ? "Redação alterada" : change.change_type)}</span></div>
-    <div class="diff-panes"><section class="diff-pane before"><div class="diff-pane-head"><span>Antes</span><span>Texto anterior</span></div><p class="diff-text ${change.before_text ? "" : "diff-empty"}">${esc(displayLegalText(before))}</p></section>
-      <section class="diff-pane after"><div class="diff-pane-head"><span>Depois</span><span>${esc(nodeName)}</span></div><p class="diff-text">${esc(displayLegalText(change.after_text))}</p></section></div>
+    <div class="diff-panes"><section class="diff-pane before" aria-labelledby="diff-before-side diff-before-note"><div class="diff-pane-head"><h2 id="diff-before-side">Antes</h2><span id="diff-before-note">Texto anterior</span></div><p class="diff-text ${change.before_text ? "" : "diff-empty"}">${esc(displayLegalText(before))}</p></section>
+      <section class="diff-pane after" aria-labelledby="diff-after-side diff-after-note"><div class="diff-pane-head"><h2 id="diff-after-side">Depois</h2><span id="diff-after-note">${esc(nodeName)}</span></div><p class="diff-text">${esc(displayLegalText(change.after_text))}</p></section></div>
     <div class="diff-source-note"><strong>Por que este trecho está assim?</strong> ${whyText} ${evidenceNote} <a class="source-link" href="${safeHttpHref(change.source_url)}" target="_blank" rel="noopener">${comparisonLinkLabel} ${externalIcon}</a> · <a class="source-link" href="${safeHttpHref(change.law_source_url)}" target="_blank" rel="noopener">Texto da norma consultada ${externalIcon}</a> · <a class="source-link" href="${lawPath(law)}/blame?node=${encodeURIComponent(change.node_id)}">Ver evidências deste dispositivo →</a></div>
     </section></div>`;
   bindPageLinkCopy();
@@ -583,7 +605,7 @@ function renderNotFound(message = "Página não encontrada.") {
   main.innerHTML = `<div class="content-shell"><div class="empty-state"><div class="eyebrow"><span class="eyebrow-line"></span> LeiAberta</div><h2>Não encontramos esta página.</h2><p>${esc(message)}</p><a class="section-action" href="/">Voltar ao acervo ${externalIcon}</a></div></div>`;
 }
 
-function route() {
+function dispatch() {
   const path = decodeURIComponent(location.pathname);
   const diff = path.match(/^\/diff\/([^/]+)/);
   if (diff) return renderDiff(diff[1]);
@@ -601,6 +623,14 @@ function route() {
   if (path === "/buscar") return renderSearchPage(new URLSearchParams(location.search).get("q") || "");
   if (path === "/" || path === "") return renderHome();
   renderNotFound();
+}
+
+// Every view is fetched and rendered on the client, so the main region holds
+// only a loading row for the first moments. aria-busy says the region is
+// still filling instead of letting it read as the finished page.
+function route() {
+  main.setAttribute("aria-busy", "true");
+  return Promise.resolve(dispatch()).finally(() => main.removeAttribute("aria-busy"));
 }
 
 route();
