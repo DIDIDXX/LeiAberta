@@ -249,7 +249,7 @@ def test_upload_failure_does_not_advance_checkpoint_or_claim_completion(
     assert result["failure"]["id"] == snapshot.id
     assert result["failure"]["attempts"] == 2
     assert snapshot.object_key is None
-    assert json.loads(checkpoint.read_text())["cursor"] == 0
+    assert json.loads(checkpoint.read_text(encoding="utf-8"))["cursor"] == 0
 
 
 def test_checksum_invalid_row_is_reported_and_migration_is_not_complete(db_session, add_law):

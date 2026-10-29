@@ -79,7 +79,7 @@ def test_parser_preserves_marked_repealed_text():
 
 def test_senate_official_fixture_has_auditable_relations():
     fixture = Path(__file__).parent / "fixtures/official/senado-lgpd-13709-2018.xml"
-    manifest = json.loads(fixture.with_suffix(".json").read_text())
+    manifest = json.loads(fixture.with_suffix(".json").read_text(encoding="utf-8"))
     body = fixture.read_bytes()
     assert hashlib.sha256(body).hexdigest() == manifest["sha256"]
     relations = parse_relation_xml(body, expected_number="13.709")
@@ -117,7 +117,7 @@ def test_senado_resolves_hyphenated_measure_by_official_remote_id(monkeypatch):
 
 def test_senado_validates_official_reissue_suffix():
     fixture = Path(__file__).parent / "fixtures/official/senado-mpv-2206-1-2001.xml"
-    manifest = json.loads(fixture.with_suffix(".json").read_text())
+    manifest = json.loads(fixture.with_suffix(".json").read_text(encoding="utf-8"))
     body = fixture.read_bytes()
     assert hashlib.sha256(body).hexdigest() == manifest["sha256"]
 
@@ -141,7 +141,7 @@ def test_senado_text_adapter_fetches_and_parses_official_normas_transcription(mo
     metadata_path = fixture_dir / "normas-mpv-2206-1-2001.json"
     metadata = metadata_path.read_bytes()
     body = (fixture_dir / "normas-mpv-2206-1-2001.html").read_bytes()
-    manifest = json.loads((fixture_dir / "normas-mpv-2206-1-2001-manifest.json").read_text())
+    manifest = json.loads((fixture_dir / "normas-mpv-2206-1-2001-manifest.json").read_text(encoding="utf-8"))
     assert hashlib.sha256(metadata).hexdigest() == manifest["metadata_sha256"]
     assert hashlib.sha256(body).hexdigest() == manifest["content_sha256"]
 
@@ -278,7 +278,7 @@ def test_senado_text_adapter_falls_back_to_exact_official_dou_publication(monkey
     from app.sources.normas import SourceDocumentUnavailable, fetch_senado_document
 
     fixture_dir = Path(__file__).parent / "fixtures/official"
-    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text())
+    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text(encoding="utf-8"))
     detail = (fixture_dir / "senado-rsf-31-2018.xml").read_bytes()
     reader = (fixture_dir / "dou-reader-2018-12-06-do1.html").read_bytes()
     article = (fixture_dir / "dou-rsf-31-2018.html").read_bytes()
@@ -373,7 +373,7 @@ def test_dou_fallback_fails_closed_when_exact_resolution_is_absent(monkeypatch):
     from app.sources.normas import SourceDocumentUnavailable, fetch_senado_document
 
     fixture_dir = Path(__file__).parent / "fixtures/official"
-    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text())
+    manifest = json.loads((fixture_dir / "dou-rsf-31-2018-manifest.json").read_text(encoding="utf-8"))
     detail = (fixture_dir / "senado-rsf-31-2018.xml").read_bytes()
     reader = (fixture_dir / "dou-reader-2018-12-06-do1.html").read_bytes().decode()
     script = re.search(r'(<script[^>]+id="params"[^>]*>)(.*?)(</script>)', reader, re.S)
@@ -433,7 +433,7 @@ def test_normas_history_extracts_exact_device_text_and_source_event():
     from app.sources.normas import parse_normas_text_changes
 
     fixture = Path(__file__).parent / "fixtures/official/normas-lgpd-history.json"
-    manifest = json.loads(fixture.with_name("normas-lgpd-history-manifest.json").read_text())
+    manifest = json.loads(fixture.with_name("normas-lgpd-history-manifest.json").read_text(encoding="utf-8"))
     body = fixture.read_bytes()
     assert hashlib.sha256(body).hexdigest() == manifest["sha256"]
     changes = parse_normas_text_changes(json.loads(body))

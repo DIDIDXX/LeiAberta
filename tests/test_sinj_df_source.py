@@ -15,7 +15,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "official"
 
 
 def test_sinj_df_fetches_identity_checked_full_text(monkeypatch):
-    manifest = json.loads((FIXTURES / "sinj-df-lei-6139-manifest.json").read_text())
+    manifest = json.loads((FIXTURES / "sinj-df-lei-6139-manifest.json").read_text(encoding="utf-8"))
     detail = (FIXTURES / "sinj-df-detail-lei-6139.html").read_bytes()
     body = (FIXTURES / "sinj-df-lei-6139.html").read_bytes()
     for filename, spec in manifest["files"].items():
@@ -74,7 +74,7 @@ def test_sinj_df_rejects_a_detail_record_with_different_identity(monkeypatch):
 
 
 def test_sinj_df_resolves_legacy_numeric_norma_ids_and_updated_text(monkeypatch):
-    manifest = json.loads((FIXTURES / "sinj-df-portaria-65-2015-manifest.json").read_text())
+    manifest = json.loads((FIXTURES / "sinj-df-portaria-65-2015-manifest.json").read_text(encoding="utf-8"))
     detail = (FIXTURES / "sinj-df-detail-portaria-65-2015.html").read_bytes()
     body = (FIXTURES / "sinj-df-portaria-65-2015.html").read_bytes()
     calls = []
@@ -108,7 +108,7 @@ def test_sinj_df_resolves_legacy_numeric_norma_ids_and_updated_text(monkeypatch)
 
 
 def test_sinj_df_history_reads_incoming_official_amendment_relations(monkeypatch):
-    manifest = json.loads((FIXTURES / "sinj-df-decreto-36222-history-manifest.json").read_text())
+    manifest = json.loads((FIXTURES / "sinj-df-decreto-36222-history-manifest.json").read_text(encoding="utf-8"))
     detail = (FIXTURES / "sinj-df-detail-decreto-36222-2014.html").read_bytes()
     spec = manifest["files"]["sinj-df-detail-decreto-36222-2014.html"]
     assert len(detail) == spec["bytes"]

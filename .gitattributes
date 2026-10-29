@@ -1,0 +1,13 @@
+# Source and docs keep LF in the working tree on every platform, so a
+# checkout with core.autocrlf=true does not rewrite them.
+* text=auto eol=lf
+
+# Archived official responses are byte-exact captures and their manifests
+# record size and SHA-256, so they must survive both checkout and commit
+# untouched. Some are published with CRLF or mixed endings, which "text"
+# normalization would strip. "-text" disables end-of-line conversion in
+# both directions; "diff" keeps them reviewable as text.
+tests/fixtures/** -text diff
+
+*.png binary
+*.webm binary

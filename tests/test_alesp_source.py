@@ -13,7 +13,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "official"
 
 
 def test_alesp_source_fetches_verified_official_html(monkeypatch):
-    manifest = json.loads((FIXTURES / "alesp-norma-213020-manifest.json").read_text())
+    manifest = json.loads((FIXTURES / "alesp-norma-213020-manifest.json").read_text(encoding="utf-8"))
     metadata = (FIXTURES / "alesp-norma-213020.json").read_bytes()
     body = (FIXTURES / "alesp-norma-213020.html").read_bytes()
     for name, spec in manifest["files"].items():
@@ -56,7 +56,7 @@ def test_alesp_source_fetches_verified_official_html(monkeypatch):
 
 
 def test_alesp_source_rejects_metadata_for_a_different_identity(monkeypatch):
-    metadata = json.loads((FIXTURES / "alesp-norma-213020.json").read_text())
+    metadata = json.loads((FIXTURES / "alesp-norma-213020.json").read_text(encoding="utf-8"))
     metadata["nuNorma"] = "70917"
     payload = json.dumps(metadata).encode()
 
@@ -73,7 +73,7 @@ def test_alesp_source_rejects_metadata_for_a_different_identity(monkeypatch):
 
 
 def test_alesp_history_reads_official_amendment_annotations(monkeypatch):
-    manifest = json.loads((FIXTURES / "alesp-norma-10261-1968-manifest.json").read_text())
+    manifest = json.loads((FIXTURES / "alesp-norma-10261-1968-manifest.json").read_text(encoding="utf-8"))
     metadata = (FIXTURES / "alesp-norma-10261-1968.json").read_bytes()
     spec = manifest["files"]["alesp-norma-10261-1968.json"]
     assert len(metadata) == spec["bytes"]
